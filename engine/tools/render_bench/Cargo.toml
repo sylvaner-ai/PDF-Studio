@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 pdf_core.workspace = true
 render.workspace = true
+mupdf.workspace = true
 # PDFium est chargé dynamiquement à l'exécution (option --pdfium) : il n'est
 # nécessaire que pour le banc d'essai, jamais pour l'application.
 pdfium-render = "0.9"

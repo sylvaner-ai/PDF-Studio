@@ -6,7 +6,10 @@
 //!
 //! Usage :
 //!   render_bench [--pdfium DOSSIER] [--dpi 150] [--max-pages 20]
-//!                [--out DOSSIER] [--anonymize] FICHIER_OU_DOSSIER...
+//!                [--out DOSSIER] [--anonymize] [--fonts] FICHIER_OU_DOSSIER...
+//!
+//! `--fonts` liste en plus, pour chaque document, les polices réellement
+//! utilisées par MuPDF (police intégrée, police système ou police de secours).
 //!
 //! `--anonymize` remplace les noms de fichiers par doc-01, doc-02… dans le
 //! rapport, pour pouvoir publier les mesures faites sur des documents privés.
@@ -22,6 +25,7 @@ struct Options {
     max_pages: usize,
     out: Option<PathBuf>,
     anonymize: bool,
+    fonts: bool,
     inputs: Vec<PathBuf>,
 }
 
@@ -139,6 +143,55 @@ fn main() {
             fmt_mean(&all_pdfium)
         );
     }
+
+    if opts.fonts {
+        println!("\nPolices utilisées par MuPDF (première page) :\n");
+        for (n, file) in files.iter().enumerate() {
+            let label = if opts.anonymize {
+                format!("doc-{:02}", n + 1)
+            } else {
+                file.file_name().unwrap().to_string_lossy().into_owned()
+            };
+            let fonts = fonts_used(file, password_for(file));
+            println!("- {label} : {}", fonts.join(", "));
+        }
+    }
+}
+
+/// Noms des polices chargées par MuPDF pour le texte de la première page.
+fn fonts_used(file: &Path, password: Option<&str>) -> Vec<String> {
+    let Ok(bytes) = std::fs::read(file) else {
+        return vec!["illisible".into()];
+    };
+    let Ok(mut doc) = mupdf::Document::from_bytes(&bytes, "application/pdf") else {
+        return vec!["non ouvert".into()];
+    };
+    if let Some(password) = password {
+        let _ = doc.authenticate(password);
+    }
+    let Ok(page) = doc.load_page(0) else {
+        return vec!["aucune page".into()];
+    };
+    let Ok(text) = page.to_text_page(mupdf::TextPageFlags::empty()) else {
+        return vec!["texte illisible".into()];
+    };
+    let mut names: Vec<String> = Vec::new();
+    for block in text.blocks() {
+        for line in block.lines() {
+            for ch in line.chars() {
+                if let Some(font) = ch.font() {
+                    let name = font.name().to_owned();
+                    if !names.contains(&name) {
+                        names.push(name);
+                    }
+                }
+            }
+        }
+    }
+    if names.is_empty() {
+        names.push("aucun texte".into());
+    }
+    names
 }
 
 fn run_mupdf(file: &Path, password: Option<&str>, opts: &Options) -> EngineRun {
@@ -365,6 +418,7 @@ fn parse_args() -> Result<Options, String> {
         max_pages: 20,
         out: None,
         anonymize: false,
+        fonts: false,
         inputs: Vec::new(),
     };
     let mut args = std::env::args().skip(1);
@@ -380,10 +434,11 @@ fn parse_args() -> Result<Options, String> {
             }
             "--out" => opts.out = Some(value("--out")?.into()),
             "--anonymize" => opts.anonymize = true,
+            "--fonts" => opts.fonts = true,
             "-h" | "--help" => {
                 return Err(
                     "render_bench [--pdfium DOSSIER] [--dpi 150] [--max-pages 20] \
-                            [--out DOSSIER] [--anonymize] FICHIER_OU_DOSSIER..."
+                            [--out DOSSIER] [--anonymize] [--fonts] FICHIER_OU_DOSSIER..."
                         .into(),
                 )
             }
