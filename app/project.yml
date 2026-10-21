@@ -76,10 +76,14 @@ targets:
         OTHER_LDFLAGS:
           - -lpdfstudio_ffi
           - -lc++
-          - -framework CoreText
-          - -framework CoreGraphics
-          - -framework CoreFoundation
-          - -framework Security
+          - -framework
+          - CoreText
+          - -framework
+          - CoreGraphics
+          - -framework
+          - CoreFoundation
+          - -framework
+          - Security
           - -liconv
       configs:
         # Le runtime renforcé empêche de charger le bundle de tests (signature
