@@ -5,10 +5,16 @@ use std::thread;
 
 use crate::document::Document;
 use crate::error::{PdfError, Result};
+use crate::outline::OutlineEntry;
 use crate::page::{PageContent, PageSize};
+use crate::text::{PageText, TextMatch};
 
 /// Nombre de pages dont le contenu préparé est gardé en mémoire.
 const CONTENT_CACHE_PAGES: usize = 48;
+
+/// Nombre de pages dont le texte est gardé en mémoire pour la recherche
+/// (quelques dizaines de kilo-octets par page).
+const TEXT_CACHE_PAGES: usize = 256;
 
 /// Origine des données d'un document.
 pub enum Source {
@@ -58,7 +64,8 @@ impl DocumentHandle {
 
                 let mut worker = Worker {
                     doc,
-                    cache: ContentCache::new(CONTENT_CACHE_PAGES),
+                    contents: Lru::new(CONTENT_CACHE_PAGES),
+                    texts: Lru::new(TEXT_CACHE_PAGES),
                 };
                 for job in job_rx {
                     job(&mut worker);
@@ -96,6 +103,20 @@ impl DocumentHandle {
         self.run(move |worker| worker.page_content(index))?
     }
 
+    /// Plan du document (signets), aplati en parcours en profondeur.
+    pub fn outline(&self) -> Result<Vec<OutlineEntry>> {
+        self.run(|worker| worker.doc.outline())
+    }
+
+    /// Cherche `query` dans une page, sans tenir compte de la casse ni des accents.
+    ///
+    /// La recherche se fait page par page pour que l'interface puisse afficher les
+    /// résultats au fil de l'eau et l'interrompre à tout moment.
+    pub fn search_page(&self, index: u32, query: &str) -> Result<Vec<TextMatch>> {
+        let query = query.to_owned();
+        self.run(move |worker| Ok(worker.page_text(index)?.search(&query)))?
+    }
+
     /// Exécute une requête sur le fil du document et attend sa réponse.
     fn run<R, F>(&self, job: F) -> Result<R>
     where
@@ -114,28 +135,38 @@ impl DocumentHandle {
 
 struct Worker {
     doc: Document,
-    cache: ContentCache,
+    contents: Lru<Arc<PageContent>>,
+    texts: Lru<Arc<PageText>>,
 }
 
 impl Worker {
     fn page_content(&mut self, index: u32) -> Result<Arc<PageContent>> {
-        if let Some(content) = self.cache.get(index) {
+        if let Some(content) = self.contents.get(index) {
             return Ok(content);
         }
         let content = Arc::new(self.doc.page_content(index)?);
-        self.cache.insert(index, Arc::clone(&content));
+        self.contents.insert(index, Arc::clone(&content));
         Ok(content)
+    }
+
+    fn page_text(&mut self, index: u32) -> Result<Arc<PageText>> {
+        if let Some(text) = self.texts.get(index) {
+            return Ok(text);
+        }
+        let text = Arc::new(self.doc.page_text(index)?);
+        self.texts.insert(index, Arc::clone(&text));
+        Ok(text)
     }
 }
 
-/// Cache LRU minimal des contenus de page.
-struct ContentCache {
+/// Cache LRU minimal, indexé par numéro de page.
+struct Lru<V> {
     capacity: usize,
-    entries: HashMap<u32, Arc<PageContent>>,
+    entries: HashMap<u32, V>,
     order: VecDeque<u32>,
 }
 
-impl ContentCache {
+impl<V: Clone> Lru<V> {
     fn new(capacity: usize) -> Self {
         Self {
             capacity,
@@ -144,14 +175,14 @@ impl ContentCache {
         }
     }
 
-    fn get(&mut self, index: u32) -> Option<Arc<PageContent>> {
-        let content = self.entries.get(&index).cloned()?;
+    fn get(&mut self, index: u32) -> Option<V> {
+        let value = self.entries.get(&index).cloned()?;
         self.touch(index);
-        Some(content)
+        Some(value)
     }
 
-    fn insert(&mut self, index: u32, content: Arc<PageContent>) {
-        if self.entries.insert(index, content).is_some() {
+    fn insert(&mut self, index: u32, value: V) {
+        if self.entries.insert(index, value).is_some() {
             self.touch(index);
             return;
         }

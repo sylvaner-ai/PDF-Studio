@@ -99,49 +99,49 @@ endobj
 14 0 obj
 <<
 /Count 2 /Dest [ 5 0 R /Fit ] /First 15 0 R /Last 16 0 R /Next 17 0 R /Parent 13 0 R 
-  /Title (1.1 Section 1)
+  /Title (1. Introduction)
 >>
 endobj
 15 0 obj
 <<
-/Dest [ 5 0 R /Fit ] /Next 16 0 R /Parent 14 0 R /Title (1.1 Section 1)
+/Dest [ 5 0 R /XYZ 0 728.5039 0 ] /Next 16 0 R /Parent 14 0 R /Title (1.1 Section 1)
 >>
 endobj
 16 0 obj
 <<
-/Dest [ 6 0 R /Fit ] /Parent 14 0 R /Prev 15 0 R /Title (1.2 Section 2)
+/Dest [ 6 0 R /XYZ 0 728.5039 0 ] /Parent 14 0 R /Prev 15 0 R /Title (1.2 Section 2)
 >>
 endobj
 17 0 obj
 <<
 /Count 2 /Dest [ 7 0 R /Fit ] /First 18 0 R /Last 19 0 R /Next 20 0 R /Parent 13 0 R 
-  /Prev 14 0 R /Title (2.1 Section 1)
+  /Prev 14 0 R /Title (2. M\351thode)
 >>
 endobj
 18 0 obj
 <<
-/Dest [ 7 0 R /Fit ] /Next 19 0 R /Parent 17 0 R /Title (2.1 Section 1)
+/Dest [ 7 0 R /XYZ 0 728.5039 0 ] /Next 19 0 R /Parent 17 0 R /Title (2.1 Section 1)
 >>
 endobj
 19 0 obj
 <<
-/Dest [ 8 0 R /Fit ] /Parent 17 0 R /Prev 18 0 R /Title (2.2 Section 2)
+/Dest [ 8 0 R /XYZ 0 728.5039 0 ] /Parent 17 0 R /Prev 18 0 R /Title (2.2 Section 2)
 >>
 endobj
 20 0 obj
 <<
 /Count 2 /Dest [ 9 0 R /Fit ] /First 21 0 R /Last 22 0 R /Parent 13 0 R /Prev 17 0 R 
-  /Title (3.1 Section 1)
+  /Title (3. R\351sultats)
 >>
 endobj
 21 0 obj
 <<
-/Dest [ 9 0 R /Fit ] /Next 22 0 R /Parent 20 0 R /Title (3.1 Section 1)
+/Dest [ 9 0 R /XYZ 0 728.5039 0 ] /Next 22 0 R /Parent 20 0 R /Title (3.1 Section 1)
 >>
 endobj
 22 0 obj
 <<
-/Dest [ 10 0 R /Fit ] /Parent 20 0 R /Prev 21 0 R /Title (3.2 Section 2)
+/Dest [ 10 0 R /XYZ 0 728.5039 0 ] /Parent 20 0 R /Prev 21 0 R /Title (3.2 Section 2)
 >>
 endobj
 23 0 obj
@@ -208,21 +208,21 @@ xref
 0000001762 00000 n 
 0000002055 00000 n 
 0000002130 00000 n 
-0000002263 00000 n 
-0000002357 00000 n 
-0000002451 00000 n 
-0000002597 00000 n 
-0000002691 00000 n 
-0000002785 00000 n 
-0000002918 00000 n 
-0000003012 00000 n 
-0000003107 00000 n 
-0000003198 00000 n 
-0000004039 00000 n 
-0000004881 00000 n 
-0000005722 00000 n 
-0000006564 00000 n 
-0000007406 00000 n 
+0000002265 00000 n 
+0000002372 00000 n 
+0000002479 00000 n 
+0000002625 00000 n 
+0000002732 00000 n 
+0000002839 00000 n 
+0000002974 00000 n 
+0000003081 00000 n 
+0000003189 00000 n 
+0000003280 00000 n 
+0000004121 00000 n 
+0000004963 00000 n 
+0000005804 00000 n 
+0000006646 00000 n 
+0000007488 00000 n 
 trailer
 <<
 /ID 
@@ -234,5 +234,5 @@ trailer
 /Size 30
 >>
 startxref
-8248
+8330
 %%EOF

@@ -94,14 +94,18 @@ def signets() -> None:
     c = new_canvas("signets.pdf", title="Document avec signets")
     chapters = ["Introduction", "Méthode", "Résultats"]
     page = 0
+    height = A4[1]
     for i, chapter in enumerate(chapters):
         for part in range(2):
             page += 1
-            key = f"p{page}"
-            c.bookmarkPage(key)
             if part == 0:
-                c.addOutlineEntry(f"{i + 1}. {chapter}", key, level=0)
-            c.addOutlineEntry(f"{i + 1}.{part + 1} Section {part + 1}", f"{key}", level=1)
+                # Destination /Fit : la page entière.
+                c.bookmarkPage(f"chapitre{i + 1}")
+                c.addOutlineEntry(f"{i + 1}. {chapter}", f"chapitre{i + 1}", level=0)
+            # Destination /XYZ : la première ligne du texte, à 4 cm du haut.
+            key = f"section{page}"
+            c.bookmarkHorizontalAbsolute(key, top=height - 4 * cm)
+            c.addOutlineEntry(f"{i + 1}.{part + 1} Section {part + 1}", key, level=1)
             text_page(c, page, 6)
             c.showPage()
     c.showOutline()

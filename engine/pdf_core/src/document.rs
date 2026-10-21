@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use crate::error::{PdfError, Result};
+use crate::outline::{self, OutlineEntry};
 use crate::page::{PageContent, PageSize};
+use crate::text::PageText;
 
 /// Un document PDF ouvert en mémoire.
 ///
@@ -80,6 +82,24 @@ impl Document {
         let page = self.inner.load_page(index as i32)?;
         let list = page.to_display_list(true)?;
         Ok(PageContent::new(list, size))
+    }
+
+    /// Plan du document (signets), aplati ; vide si le document n'en a pas.
+    ///
+    /// Un plan illisible est traité comme absent : il ne doit pas empêcher la lecture.
+    pub fn outline(&self) -> Vec<OutlineEntry> {
+        self.inner
+            .outlines()
+            .map(|tree| outline::flatten(&tree, self.page_count()))
+            .unwrap_or_default()
+    }
+
+    /// Texte d'une page, préparé pour la recherche.
+    pub fn page_text(&self, index: u32) -> Result<PageText> {
+        self.page_size(index)?;
+        let page = self.inner.load_page(index as i32)?;
+        let text = page.to_text_page(mupdf::TextPageFlags::empty())?;
+        Ok(PageText::from_text_page(&text))
     }
 
     fn page_size(&self, index: u32) -> Result<PageSize> {
