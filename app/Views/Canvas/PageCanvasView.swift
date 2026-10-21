@@ -74,8 +74,58 @@ final class PageCanvasView: NSScrollView {
         fatalError("init(coder:) n'est pas pris en charge")
     }
 
-    // MARK: - Commandes
+    // MARK: - Événements AppKit
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard let direction = Zoom.direction(for: event) else {
+            return super.performKeyEquivalent(with: event)
+        }
+        zoom(by: direction)
+        return true
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        navigationTarget = nil
+        super.scrollWheel(with: event)
+    }
+
+    override func tile() {
+        super.tile()
+        refit(force: false)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else { return }
+        refit(force: false)
+        updateVisiblePages()
+        let pagesView = self.pagesView
+        Task { @MainActor in window.makeFirstResponder(pagesView) }
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        refreshPages()
+    }
+
+    @objc private func clipBoundsDidChange(_ notification: Notification) {
+        updateVisiblePages()
+    }
+
+    @objc private func liveMagnifyWillStart(_ notification: Notification) {
+        isLiveMagnifying = true
+        fitMode = nil
+    }
+
+    @objc private func liveMagnifyDidEnd(_ notification: Notification) {
+        isLiveMagnifying = false
+        refreshPages()
+    }
+}
+
+// MARK: - Commandes
+
+extension PageCanvasView {
     func zoom(by direction: Int) {
         fitMode = nil
         setMagnification(Zoom.step(from: magnification, direction: direction), centeredAt: visibleCenter)
@@ -160,16 +210,6 @@ final class PageCanvasView: NSScrollView {
         updateCurrentPage()
     }
 
-    // MARK: - Clavier
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard let direction = Zoom.direction(for: event) else {
-            return super.performKeyEquivalent(with: event)
-        }
-        zoom(by: direction)
-        return true
-    }
-
     /// Touches de lecture, reçues de la vue des pages.
     func handleKey(_ event: NSEvent) -> Bool {
         guard let key = ReadingKey(event) else { return false }
@@ -193,47 +233,11 @@ final class PageCanvasView: NSScrollView {
         }
         return true
     }
+}
 
-    override func scrollWheel(with event: NSEvent) {
-        navigationTarget = nil
-        super.scrollWheel(with: event)
-    }
+// MARK: - Disposition et rendu
 
-    // MARK: - Disposition et rendu
-
-    override func tile() {
-        super.tile()
-        refit(force: false)
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        guard let window else { return }
-        refit(force: false)
-        updateVisiblePages()
-        let pagesView = self.pagesView
-        Task { @MainActor in window.makeFirstResponder(pagesView) }
-    }
-
-    override func viewDidChangeBackingProperties() {
-        super.viewDidChangeBackingProperties()
-        refreshPages()
-    }
-
-    @objc private func clipBoundsDidChange(_ notification: Notification) {
-        updateVisiblePages()
-    }
-
-    @objc private func liveMagnifyWillStart(_ notification: Notification) {
-        isLiveMagnifying = true
-        fitMode = nil
-    }
-
-    @objc private func liveMagnifyDidEnd(_ notification: Notification) {
-        isLiveMagnifying = false
-        refreshPages()
-    }
-
+extension PageCanvasView {
     private var visibleCenter: CGPoint {
         let visible = pagesView.visibleRect
         return CGPoint(x: visible.midX, y: visible.midY)

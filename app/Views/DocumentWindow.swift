@@ -5,6 +5,7 @@ import SwiftUI
 struct DocumentWindow: View {
     @Binding var reference: DocumentReference?
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
     @State private var windowID = UUID()
 
     var body: some View {
@@ -24,24 +25,24 @@ struct DocumentWindow: View {
             return !pdfs.isEmpty
         }
         .onAppear {
-            DocumentOpener.shared.register(openWindow: openWindow)
             updateRegistration()
+            DocumentOpener.shared.register(openWindow: openWindow)
         }
         .onChange(of: reference) { updateRegistration() }
         .onDisappear {
-            DocumentOpener.shared.unregisterEmptyWindow(id: windowID)
+            DocumentOpener.shared.unregisterWindow(id: windowID)
         }
     }
 
-    /// Une fenêtre vide se propose pour accueillir le prochain document ouvert.
+    /// Déclare la fenêtre et son document ; vide, elle se propose pour accueillir
+    /// le prochain document ouvert.
     private func updateRegistration() {
-        if reference == nil {
-            DocumentOpener.shared.registerEmptyWindow(id: windowID) { newReference in
-                reference = newReference
-            }
-        } else {
-            DocumentOpener.shared.unregisterEmptyWindow(id: windowID)
-        }
+        DocumentOpener.shared.registerWindow(
+            id: windowID,
+            reference: reference,
+            adopt: { reference = $0 },
+            close: { dismissWindow() }
+        )
     }
 }
 
