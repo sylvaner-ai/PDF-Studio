@@ -1,15 +1,18 @@
 //! Interface entre le moteur Rust et l'application SwiftUI, générée par UniFFI.
 //!
-//! C'est la seule couche du moteur où du code `unsafe` existe : il est entièrement
-//! produit par les macros UniFFI (`setup_scaffolding!`, `#[uniffi::export]`), qui
-//! convertissent les types et gèrent la mémoire de part et d'autre de la frontière
-//! C. Le code écrit à la main ici n'en contient pas.
+//! C'est la seule couche du moteur où du code `unsafe` existe. Il est presque
+//! entièrement produit par les macros UniFFI (`setup_scaffolding!`,
+//! `#[uniffi::export]`), qui convertissent les types et gèrent la mémoire de part
+//! et d'autre de la frontière C. Le seul code `unsafe` écrit à la main est celui
+//! du module `qos` : deux appels système de macOS, documentés.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use pdf_core::{DocumentHandle, PdfError, Source};
 use render::{Region, Rotation};
+
+mod qos;
 
 uniffi::setup_scaffolding!();
 
@@ -133,6 +136,7 @@ impl PdfDocument {
     /// n'est jamais modifié.
     #[uniffi::constructor]
     pub fn open(path: String, password: Option<String>) -> Result<Arc<Self>, EngineError> {
+        qos::install();
         let handle = DocumentHandle::open(Source::File(PathBuf::from(path)), password)?;
         Ok(Arc::new(Self { handle }))
     }

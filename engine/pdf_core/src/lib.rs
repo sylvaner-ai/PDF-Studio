@@ -10,6 +10,7 @@ mod error;
 mod fonts;
 mod outline;
 mod page;
+mod qos;
 mod service;
 mod text;
 
@@ -17,5 +18,6 @@ pub use document::Document;
 pub use error::{PdfError, Result};
 pub use outline::OutlineEntry;
 pub use page::{PageContent, PageSize};
+pub use qos::{install_qos_hooks, QosHooks};
 pub use service::{DocumentHandle, Source};
 pub use text::{PageRect, PageText, TextMatch};

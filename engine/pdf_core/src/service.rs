@@ -7,6 +7,7 @@ use crate::document::Document;
 use crate::error::{PdfError, Result};
 use crate::outline::OutlineEntry;
 use crate::page::{PageContent, PageSize};
+use crate::qos::Qos;
 use crate::text::{PageText, TextMatch};
 
 /// Nombre de pages dont le contenu préparé est gardé en mémoire.
@@ -26,15 +27,18 @@ pub enum Source {
 
 type Job = Box<dyn FnOnce(&mut Worker) + Send>;
 
+/// Requête et qualité de service du fil qui en attend la réponse.
+type Request = (Qos, Job);
+
 /// Accès multi-fil à un document.
 ///
 /// MuPDF impose qu'un document ne soit manipulé que depuis un seul fil. Ce type
 /// lance un fil dédié qui possède le [`Document`] et exécute les requêtes une à
-/// une. Les contenus de page renvoyés ([`PageContent`]) peuvent ensuite être
-/// rastérisés en parallèle par l'appelant. Le fil s'arrête quand la poignée est
-/// libérée.
+/// une, à la qualité de service du fil demandeur. Les contenus de page renvoyés
+/// ([`PageContent`]) peuvent ensuite être rastérisés en parallèle par l'appelant.
+/// Le fil s'arrête quand la poignée est libérée.
 pub struct DocumentHandle {
-    jobs: mpsc::Sender<Job>,
+    jobs: mpsc::Sender<Request>,
     page_sizes: Vec<PageSize>,
     title: Option<String>,
 }
@@ -42,12 +46,18 @@ pub struct DocumentHandle {
 impl DocumentHandle {
     /// Ouvre un document et attend que ses pages soient mesurées.
     pub fn open(source: Source, password: Option<String>) -> Result<Self> {
-        let (jobs, job_rx) = mpsc::channel::<Job>();
+        let (jobs, job_rx) = mpsc::channel::<Request>();
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        let opener_qos = Qos::current();
 
         thread::Builder::new()
             .name("pdf-document".into())
             .spawn(move || {
+                let mut qos = if opener_qos.apply() {
+                    opener_qos
+                } else {
+                    Qos::current()
+                };
                 let opened = match source {
                     Source::File(path) => Document::open_file(&path, password.as_deref()),
                     Source::Bytes(bytes) => Document::from_bytes(&bytes, password.as_deref()),
@@ -67,7 +77,10 @@ impl DocumentHandle {
                     contents: Lru::new(CONTENT_CACHE_PAGES),
                     texts: Lru::new(TEXT_CACHE_PAGES),
                 };
-                for job in job_rx {
+                for (wanted, job) in job_rx {
+                    if wanted != qos && wanted.apply() {
+                        qos = wanted;
+                    }
                     job(&mut worker);
                 }
             })
@@ -124,10 +137,11 @@ impl DocumentHandle {
         F: FnOnce(&mut Worker) -> R + Send + 'static,
     {
         let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+        let job: Job = Box::new(move |worker| {
+            let _ = reply_tx.send(job(worker));
+        });
         self.jobs
-            .send(Box::new(move |worker| {
-                let _ = reply_tx.send(job(worker));
-            }))
+            .send((Qos::current(), job))
             .map_err(|_| PdfError::Closed)?;
         reply_rx.recv().map_err(|_| PdfError::Closed)
     }
@@ -199,5 +213,47 @@ impl<V: Clone> Lru<V> {
             self.order.remove(pos);
         }
         self.order.push_back(index);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+    use std::path::Path;
+
+    use super::*;
+    use crate::qos::{install_qos_hooks, QosHooks};
+
+    thread_local! {
+        /// Qualité de service simulée, propre à chaque fil.
+        static FAKE_QOS: Cell<u32> = const { Cell::new(0) };
+    }
+
+    fn worker_qos(handle: &DocumentHandle) -> u32 {
+        handle.run(|_| FAKE_QOS.with(Cell::get)).unwrap()
+    }
+
+    #[test]
+    fn le_fil_du_document_adopte_la_priorite_du_demandeur() {
+        install_qos_hooks(QosHooks {
+            current: || FAKE_QOS.with(Cell::get),
+            apply: |class| {
+                FAKE_QOS.with(|qos| qos.set(class));
+                true
+            },
+        });
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/texte_simple.pdf");
+
+        FAKE_QOS.with(|qos| qos.set(0x19));
+        let handle = DocumentHandle::open(Source::File(path), None).unwrap();
+        assert_eq!(worker_qos(&handle), 0x19);
+
+        FAKE_QOS.with(|qos| qos.set(0x21));
+        assert_eq!(worker_qos(&handle), 0x21);
+
+        // Priorité non précisée : le fil garde la précédente.
+        FAKE_QOS.with(|qos| qos.set(0));
+        assert_eq!(worker_qos(&handle), 0x21);
     }
 }
