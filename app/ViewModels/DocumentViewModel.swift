@@ -24,7 +24,8 @@ final class DocumentViewModel {
 
     /// Fichier du document ; il change après « Enregistrer sous ».
     private(set) var reference: DocumentReference
-    private(set) var phase: Phase = .opening
+    /// Modifiée par l'ouverture et par la restauration (cf. `DocumentViewModel+Recovery.swift`).
+    var phase: Phase = .opening
     private(set) var title: String
     /// Pages du document, dans l'ordre.
     private(set) var pages: [DisplayPage] = []
