@@ -4,9 +4,12 @@ import SwiftUI
 struct DocumentView: View {
     @State private var model: DocumentViewModel
     @Environment(\.undoManager) private var undoManager
+    /// Le document a changé de fichier (« Enregistrer sous »).
+    private let onRelocate: (DocumentReference) -> Void
 
-    init(reference: DocumentReference) {
+    init(reference: DocumentReference, onRelocate: @escaping (DocumentReference) -> Void = { _ in }) {
         _model = State(initialValue: DocumentViewModel(reference: reference))
+        self.onRelocate = onRelocate
     }
 
     var body: some View {
@@ -16,6 +19,22 @@ struct DocumentView: View {
             .navigationTitle(model.title)
             .navigationSubtitle(subtitle)
             .focusedSceneValue(\.documentModel, model)
+            .background(DocumentWindowBridge(model: model, isModified: model.isModified))
+            .alert(
+                replaceTitle,
+                isPresented: Binding(
+                    get: { model.saving.prompt != nil },
+                    // Les boutons disent quoi faire ; ce retour ne fait que refermer l'alerte.
+                    set: { if !$0 { model.saving.prompt = nil } }
+                ),
+                presenting: model.saving.prompt,
+                actions: { _ in
+                    Button("Remplacer") { model.replaceOriginal() }
+                    Button("Enregistrer sous…") { model.saveAs() }
+                    Button("Annuler", role: .cancel) { model.cancelSave() }
+                },
+                message: { prompt in Text(replaceMessage(prompt)) }
+            )
             .alert(
                 "L'opération n'a pas abouti.",
                 isPresented: Binding(
@@ -25,7 +44,10 @@ struct DocumentView: View {
                 actions: {},
                 message: { Text(model.failureMessage ?? "") }
             )
-            .onAppear { model.undoManager = undoManager }
+            .onAppear {
+                model.undoManager = undoManager
+                model.onRelocate = onRelocate
+            }
             .onChange(of: undoManager) { _, manager in model.undoManager = manager }
             .onDisappear { model.close() }
             .task { await model.open() }
@@ -52,6 +74,17 @@ struct DocumentView: View {
                 ReaderView(model: model, renderer: renderer)
             }
         }
+    }
+
+    private var replaceTitle: String {
+        String(localized: "Remplacer « \(model.reference.displayName) » par la version modifiée ?")
+    }
+
+    private func replaceMessage(_ prompt: SavingState.Prompt) -> String {
+        let backup = String(localized: "Une copie de l'original est conservée dans les sauvegardes de PDF Studio.")
+        guard case .replace(signed: true) = prompt else { return backup }
+        let signature = String(localized: "Ce document porte une signature numérique : elle ne sera plus valide.")
+        return signature + "\n\n" + backup
     }
 
     private var subtitle: String {

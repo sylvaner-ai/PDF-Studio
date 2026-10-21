@@ -174,6 +174,52 @@ final class EngineBridgeTests: XCTestCase {
     }
 }
 
+/// Écriture des fichiers enregistrés.
+final class FileSaverTests: XCTestCase {
+    private var directory: URL!
+
+    override func setUpWithError() throws {
+        directory = FileManager.default.temporaryDirectory.appendingPathComponent("enregistrement-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try FileManager.default.removeItem(at: directory)
+    }
+
+    func testRemplaceUnFichierEnGardantUneCopie() throws {
+        let backups = directory.appendingPathComponent("sauvegardes")
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("document.pdf")
+        try Data("ancien".utf8).write(to: url)
+
+        try FileSaver.replace(url, with: Data("nouveau".utf8), backups: backups)
+        XCTAssertEqual(try Data(contentsOf: url), Data("nouveau".utf8))
+        let copies = try FileManager.default.contentsOfDirectory(at: backups, includingPropertiesForKeys: nil)
+        XCTAssertEqual(copies.count, 1)
+        XCTAssertTrue(copies[0].lastPathComponent.hasSuffix(" document.pdf"))
+        XCTAssertEqual(try Data(contentsOf: copies[0]), Data("ancien".utf8))
+
+        // Un nouveau fichier n'a rien à sauvegarder ; un fichier remplacé, si.
+        let other = directory.appendingPathComponent("copie.pdf")
+        try FileSaver.write(Data("copie".utf8), to: other, backups: backups)
+        try FileSaver.write(Data("copie 2".utf8), to: other, backups: backups)
+        XCTAssertEqual(try Data(contentsOf: other), Data("copie 2".utf8))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: backups.path).count, 2)
+    }
+
+    func testNeGardeQueLesSauvegardesRecentes() throws {
+        let backups = directory.appendingPathComponent("sauvegardes")
+        try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("document.pdf")
+        try Data("0".utf8).write(to: url)
+        for version in 1...(FileSaver.maxBackups + 3) {
+            try FileSaver.replace(url, with: Data("\(version)".utf8), backups: backups)
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: backups.path).count, FileSaver.maxBackups)
+    }
+}
+
 /// Géométrie de l'affichage : disposition des pages et rotation.
 final class PageLayoutTests: XCTestCase {
     private let portrait = CGSize(width: 600, height: 800)

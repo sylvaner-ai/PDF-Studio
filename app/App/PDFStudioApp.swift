@@ -15,6 +15,7 @@ struct PDFStudioApp: App {
         .defaultSize(width: 1080, height: 1040)
         .commands {
             FileCommands()
+            SaveCommands()
             SidebarCommands()
             ViewerCommands()
             PageCommands()
@@ -30,6 +31,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    /// Prévient avant de quitter si des modifications ne sont pas enregistrées.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard DocumentOpener.shared.hasUnsavedChanges else { return .terminateNow }
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Des documents ont des modifications non enregistrées.")
+        alert.informativeText = String(localized: "Si vous quittez maintenant, ces modifications seront perdues.")
+        alert.addButton(withTitle: String(localized: "Annuler"))
+        alert.addButton(withTitle: String(localized: "Quitter sans enregistrer"))
+        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
     }
 }
 

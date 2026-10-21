@@ -33,3 +33,19 @@ struct PageCommands: Commands {
         action(model, model.targetPositions)
     }
 }
+
+/// Menu Fichier : Enregistrer et Enregistrer sous, après « Fermer ».
+struct SaveCommands: Commands {
+    @FocusedValue(\.documentModel) private var model
+
+    var body: some Commands {
+        CommandGroup(after: .saveItem) {
+            Button("Enregistrer") { model?.save() }
+                .keyboardShortcut("s")
+                .disabled(model?.canSave != true)
+            Button("Enregistrer sous…") { model?.saveAs() }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(model?.canSaveAs != true)
+        }
+    }
+}

@@ -7,12 +7,15 @@ struct DocumentWindow: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
     @State private var windowID = UUID()
+    /// Change quand la fenêtre accueille un autre document, et pas quand son
+    /// document change seulement de fichier (« Enregistrer sous »).
+    @State private var documentID = UUID()
 
     var body: some View {
         Group {
             if let reference {
-                DocumentView(reference: reference)
-                    .id(reference)
+                DocumentView(reference: reference, onRelocate: { self.reference = $0 })
+                    .id(documentID)
             } else {
                 WelcomeView()
                     .navigationTitle("PDF Studio")
@@ -40,7 +43,10 @@ struct DocumentWindow: View {
         DocumentOpener.shared.registerWindow(
             id: windowID,
             reference: reference,
-            adopt: { reference = $0 },
+            adopt: {
+                documentID = UUID()
+                reference = $0
+            },
             close: { dismissWindow() }
         )
     }

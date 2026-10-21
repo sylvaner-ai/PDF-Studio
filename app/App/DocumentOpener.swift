@@ -21,6 +21,8 @@ final class DocumentOpener {
     private var pending: [URL] = []
     /// Vrai pendant `flush()`, qui peut être rappelée par la fenêtre qu'elle ouvre.
     private var isFlushing = false
+    /// Documents dont des modifications ne sont pas enregistrées.
+    private var unsaved: Set<ObjectIdentifier> = []
 
     /// Fenêtre connue : son document (`nil` pour l'écran d'accueil), et de quoi
     /// lui en confier un ou la fermer.
@@ -60,6 +62,22 @@ final class DocumentOpener {
     func unregisterWindow(id: UUID) {
         windows[id] = nil
     }
+
+    /// Vrai si une fenêtre affiche ce fichier.
+    func isShown(path: String) -> Bool {
+        windows.values.contains { $0.reference?.path == path }
+    }
+
+    /// Retient qu'un document a, ou n'a plus, des modifications non enregistrées.
+    func setUnsaved(_ isUnsaved: Bool, for document: AnyObject) {
+        if isUnsaved {
+            unsaved.insert(ObjectIdentifier(document))
+        } else {
+            unsaved.remove(ObjectIdentifier(document))
+        }
+    }
+
+    var hasUnsavedChanges: Bool { !unsaved.isEmpty }
 
     /// Ouvre les PDF parmi les fichiers donnés ; les autres sont ignorés.
     func open(_ urls: [URL]) {

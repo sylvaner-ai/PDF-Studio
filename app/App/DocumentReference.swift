@@ -4,7 +4,8 @@ import Foundation
 ///
 /// L'application est isolée par le bac à sable de macOS : l'accès à un fichier
 /// choisi par l'utilisateur est conservé sous forme de signet de sécurité, en
-/// lecture seule. La référence peut ainsi être restaurée au relancement.
+/// lecture et en écriture (pour « Enregistrer »). La référence peut ainsi être
+/// restaurée au relancement.
 /// Deux références désignant le même chemin sont égales.
 struct DocumentReference: Codable, Hashable, Sendable {
     let path: String
@@ -13,7 +14,7 @@ struct DocumentReference: Codable, Hashable, Sendable {
     init(url: URL) throws {
         path = url.standardizedFileURL.path
         bookmark = try url.bookmarkData(
-            options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
+            options: [.withSecurityScope],
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         )

@@ -8,7 +8,8 @@ import os
 /// Les pages sont réorganisées dans une session du moteur (``EditSession``) ; le
 /// fichier n'est jamais modifié tant que l'utilisateur n'enregistre pas. Chaque
 /// modification s'inscrit dans le gestionnaire d'annulation de la fenêtre, qui
-/// commande l'historique du moteur (menus Annuler et Rétablir).
+/// commande l'historique du moteur (menus Annuler et Rétablir). L'enregistrement
+/// demande toujours confirmation avant de remplacer un fichier (cf. ``FileSaver``).
 @MainActor
 @Observable
 final class DocumentViewModel {
@@ -19,7 +20,8 @@ final class DocumentViewModel {
         case failed(message: String)
     }
 
-    let reference: DocumentReference
+    /// Fichier du document ; il change après « Enregistrer sous ».
+    private(set) var reference: DocumentReference
     private(set) var phase: Phase = .opening
     private(set) var title: String
     /// Pages du document, dans l'ordre.
@@ -32,16 +34,23 @@ final class DocumentViewModel {
     private(set) var outline = OutlineTree.empty
     /// Vrai si les pages ont changé depuis l'ouverture ou le dernier enregistrement.
     private(set) var isModified = false
+    /// Vrai si le document porte une signature numérique, qu'un enregistrement invaliderait.
+    private(set) var isSigned = false
+    /// Confirmation et progression de l'enregistrement (cf. `DocumentViewModel+Saving.swift`).
+    var saving = SavingState()
     /// Message d'une opération qui a échoué, à montrer à l'utilisateur.
     var failureMessage: String?
 
     /// Gestionnaire d'annulation de la fenêtre.
     @ObservationIgnored weak var undoManager: UndoManager?
-    @ObservationIgnored private var session: EditSession?
+    /// Appelé quand le document change de fichier (« Enregistrer sous »).
+    @ObservationIgnored var onRelocate: ((DocumentReference) -> Void)?
+    @ObservationIgnored private(set) var session: EditSession?
+    @ObservationIgnored private var declaredTitle: String?
     /// Format des pages de chaque document source, en points.
     @ObservationIgnored private var sourceSizes: [[CGSize]] = []
 
-    private let logger = Logger(subsystem: "fr.sylvainrobert.pdfstudio", category: "document")
+    let logger = Logger(subsystem: "fr.sylvainrobert.pdfstudio", category: "document")
 
     init(reference: DocumentReference) {
         self.reference = reference
@@ -66,6 +75,7 @@ final class DocumentViewModel {
         case let .success(document):
             show(document)
             await loadOutline(document)
+            await checkSignature()
         case let .failure(error as EngineError):
             switch error {
             case .PasswordRequired:
@@ -85,6 +95,7 @@ final class DocumentViewModel {
     /// La fenêtre se ferme : ses actions d'annulation n'ont plus d'objet.
     func close() {
         undoManager?.removeAllActions(withTarget: self)
+        DocumentOpener.shared.setUnsaved(false, for: self)
     }
 
     private func show(_ document: PdfDocument) {
@@ -93,8 +104,9 @@ final class DocumentViewModel {
         self.session = session
         sourceSizes = [document.pageSizes().map(\.cgSize)]
         pages = session.pages().map { DisplayPage($0, sizes: sourceSizes) }
-        if let declared = document.title() {
-            title = declared
+        declaredTitle = document.title()
+        if let declaredTitle {
+            title = declaredTitle
         }
         renderer = PageRenderer(sources: sources)
         canvas = CanvasController(pages: pages)
@@ -113,6 +125,20 @@ final class DocumentViewModel {
             return
         }
         outline = OutlineTree(items: items)
+    }
+
+    /// Le document est désormais enregistré dans un autre fichier.
+    func relocate(to reference: DocumentReference) {
+        self.reference = reference
+        title = declaredTitle ?? reference.displayName
+        onRelocate?(reference)
+    }
+
+    private func checkSignature() async {
+        guard let session else { return }
+        isSigned = await Task.detached(priority: .utility) {
+            (try? session.hasSignature()) ?? false
+        }.value
     }
 }
 
@@ -219,13 +245,18 @@ extension DocumentViewModel {
     private func reloadPages() {
         guard let session else { return }
         pages = session.pages().map { DisplayPage($0, sizes: sourceSizes) }
-        isModified = session.isModified()
+        setModified(session.isModified())
         selection.formIntersection(pages.map(\.id))
         canvas.setPages(pages)
         search?.setPages(pages)
     }
 
-    private func report(_ error: Error) {
+    func setModified(_ modified: Bool) {
+        isModified = modified
+        DocumentOpener.shared.setUnsaved(modified, for: self)
+    }
+
+    func report(_ error: Error) {
         let engine = error as? EngineError
         logger.error("Opération impossible : \(engine?.technicalDetail ?? "\(error)", privacy: .public)")
         failureMessage = engine?.userMessage ?? String(localized: "L'opération n'a pas pu être effectuée.")
