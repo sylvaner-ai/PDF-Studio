@@ -1,0 +1,125 @@
+# Projet Xcode de PDF Studio, généré par XcodeGen (`make project`).
+# Le fichier PDFStudio.xcodeproj n'est pas versionné : ce fichier fait foi.
+name: PDFStudio
+options:
+  bundleIdPrefix: fr.sylvainrobert
+  developmentLanguage: fr
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ARCHS: arm64
+    SWIFT_VERSION: "5.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    # Signature locale (usage personnel, aucune distribution).
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+    SWIFT_EMIT_LOC_STRINGS: YES
+    # Module C des liaisons UniFFI : nécessaire à l'application et aux tests.
+    SWIFT_INCLUDE_PATHS: '"$(SRCROOT)/Bridge/Generated"'
+
+targets:
+  PDFStudio:
+    type: application
+    platform: macOS
+    sources:
+      - App
+      - Views
+      - ViewModels
+      - Bridge/EngineBridge.swift
+      # Liaisons générées par `make bindings` à partir du moteur Rust.
+      - path: Bridge/Generated/pdfstudio_ffi.swift
+        optional: true
+      - Resources
+    preBuildScripts:
+      - name: Moteur Rust et liaisons UniFFI
+        basedOnDependencyAnalysis: false
+        script: |
+          export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
+          cd "$SRCROOT/.." && make engine bindings
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: PDF Studio
+        CFBundleName: PDF Studio
+        CFBundleDevelopmentRegion: fr
+        LSApplicationCategoryType: public.app-category.productivity
+        LSMinimumSystemVersion: "14.0"
+        NSHumanReadableCopyright: Usage personnel.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Document PDF
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - com.adobe.pdf
+    entitlements:
+      path: App/PDFStudio.entitlements
+      properties:
+        # Bac à sable sans aucune autorisation réseau : l'application ne peut
+        # émettre aucune connexion (cahier des charges, §6).
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-only: true
+        com.apple.security.files.bookmarks.app-scope: true
+    settings:
+      base:
+        PRODUCT_NAME: PDF Studio
+        PRODUCT_MODULE_NAME: PDFStudio
+        PRODUCT_BUNDLE_IDENTIFIER: fr.sylvainrobert.pdfstudio
+        LIBRARY_SEARCH_PATHS: '"$(SRCROOT)/Bridge/Generated"'
+        OTHER_LDFLAGS:
+          - -lpdfstudio_ffi
+          - -lc++
+          - -framework
+          - CoreText
+          - -framework
+          - CoreGraphics
+          - -framework
+          - CoreFoundation
+          - -framework
+          - Security
+          - -liconv
+      configs:
+        # Le runtime renforcé empêche de charger le bundle de tests (signature
+        # locale sans équipe) : il n'est activé que pour la version Release.
+        Release:
+          ENABLE_HARDENED_RUNTIME: YES
+
+  PDFStudioTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests
+      - path: ../tests/fixtures
+        includes:
+          - "*.pdf"
+        buildPhase: resources
+        group: Fixtures
+    dependencies:
+      - target: PDFStudio
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: fr.sylvainrobert.pdfstudio.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/PDF Studio.app/Contents/MacOS/PDF Studio"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+schemes:
+  PDFStudio:
+    build:
+      targets:
+        PDFStudio: all
+        PDFStudioTests: [test]
+    test:
+      targets:
+        - PDFStudioTests
+      gatherCoverageData: false
+    run:
+      config: Debug

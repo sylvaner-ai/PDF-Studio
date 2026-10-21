@@ -1,0 +1,19 @@
+[package]
+name = "render_bench"
+description = "Banc d'essai comparant les moteurs de rendu MuPDF et PDFium."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+pdf_core.workspace = true
+render.workspace = true
+mupdf.workspace = true
+# PDFium est chargé dynamiquement à l'exécution (option --pdfium) : il n'est
+# nécessaire que pour le banc d'essai, jamais pour l'application.
+pdfium-render = "0.9"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[lints]
+workspace = true

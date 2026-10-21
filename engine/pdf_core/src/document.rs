@@ -1,0 +1,106 @@
+use std::path::Path;
+
+use crate::error::{PdfError, Result};
+use crate::page::{PageContent, PageSize};
+
+/// Un document PDF ouvert en mémoire.
+///
+/// Le fichier source est lu une seule fois puis n'est plus jamais touché : toute
+/// la suite travaille sur la copie en mémoire. Ce type n'est pas `Send` (contrainte
+/// de MuPDF) ; pour un usage multi-fil, passer par [`crate::DocumentHandle`].
+pub struct Document {
+    inner: mupdf::Document,
+    page_sizes: Vec<PageSize>,
+    title: Option<String>,
+}
+
+impl Document {
+    /// Ouvre un fichier PDF en lecture seule.
+    pub fn open_file(path: &Path, password: Option<&str>) -> Result<Self> {
+        let bytes = std::fs::read(path).map_err(|source| PdfError::Unreadable {
+            path: path.to_owned(),
+            source,
+        })?;
+        Self::from_bytes(&bytes, password)
+    }
+
+    /// Ouvre un PDF à partir de son contenu binaire.
+    pub fn from_bytes(bytes: &[u8], password: Option<&str>) -> Result<Self> {
+        let invalid = |err: mupdf::Error| PdfError::InvalidDocument {
+            detail: err.to_string(),
+        };
+        let mut inner = mupdf::Document::from_bytes(bytes, "application/pdf").map_err(invalid)?;
+        if !inner.is_pdf() {
+            return Err(PdfError::InvalidDocument {
+                detail: "le contenu n'a pas été reconnu comme PDF".into(),
+            });
+        }
+        if inner.needs_password()? {
+            let password = password.ok_or(PdfError::PasswordRequired)?;
+            if !inner.authenticate(password)? {
+                return Err(PdfError::WrongPassword);
+            }
+        }
+
+        let count = inner.page_count().map_err(invalid)?;
+        let page_sizes = (0..count)
+            .map(|index| measure_page(&inner, index))
+            .collect();
+        let title = inner
+            .metadata(mupdf::MetadataName::Title)
+            .ok()
+            .map(|t| t.trim().to_owned())
+            .filter(|t| !t.is_empty());
+
+        Ok(Self {
+            inner,
+            page_sizes,
+            title,
+        })
+    }
+
+    /// Nombre de pages.
+    pub fn page_count(&self) -> u32 {
+        self.page_sizes.len() as u32
+    }
+
+    /// Dimensions de toutes les pages, dans l'ordre.
+    pub fn page_sizes(&self) -> &[PageSize] {
+        &self.page_sizes
+    }
+
+    /// Titre déclaré dans les métadonnées, s'il existe.
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref()
+    }
+
+    /// Construit le contenu affichable d'une page (annotations comprises).
+    pub fn page_content(&self, index: u32) -> Result<PageContent> {
+        let size = self.page_size(index)?;
+        let page = self.inner.load_page(index as i32)?;
+        let list = page.to_display_list(true)?;
+        Ok(PageContent::new(list, size))
+    }
+
+    fn page_size(&self, index: u32) -> Result<PageSize> {
+        self.page_sizes
+            .get(index as usize)
+            .copied()
+            .ok_or(PdfError::PageOutOfRange {
+                index,
+                count: self.page_count(),
+            })
+    }
+}
+
+/// Mesure une page ; une page illisible reçoit le format A4 pour ne pas bloquer
+/// l'ouverture du reste du document.
+fn measure_page(doc: &mupdf::Document, index: i32) -> PageSize {
+    doc.load_page(index)
+        .and_then(|page| page.bounds())
+        .map(|b| PageSize {
+            width: b.x1 - b.x0,
+            height: b.y1 - b.y0,
+        })
+        .unwrap_or(PageSize::A4)
+}

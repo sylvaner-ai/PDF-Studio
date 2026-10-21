@@ -1,0 +1,13 @@
+included:
+  - App
+  - Views
+  - ViewModels
+  - Bridge
+  - Tests
+excluded:
+  - Bridge/Generated
+line_length:
+  warning: 120
+  error: 160
+identifier_name:
+  excluded: [id, x, y]
