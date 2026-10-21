@@ -33,38 +33,38 @@ struct SidebarView: View {
     }
 }
 
-/// Vignettes de toutes les pages ; la page lue est entourée de la couleur d'accent.
+/// Vignettes de toutes les pages ; la page lue est sélectionnée.
+///
+/// Un clic sur une vignette, puis les flèches haut et bas, passent d'une page à
+/// l'autre ; en retour, la sélection suit la page lue dans le canevas.
 struct ThumbnailList: View {
     let pageSizes: [CGSize]
     let renderer: PageRenderer
     let controller: CanvasController
 
+    @State private var selection: Int?
+
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView(.vertical) {
-                LazyVStack(spacing: 12) {
-                    ForEach(pageSizes.indices, id: \.self) { index in
-                        Button {
-                            controller.go(to: index)
-                        } label: {
-                            ThumbnailCell(
-                                index: index,
-                                pageSize: controller.rotation.apply(to: pageSizes[index]),
-                                rotation: controller.rotation,
-                                isCurrent: index == controller.currentPage,
-                                renderer: renderer
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .id(index)
-                    }
-                }
-                .padding(12)
+            List(pageSizes.indices, id: \.self, selection: $selection) { index in
+                ThumbnailCell(
+                    index: index,
+                    pageSize: controller.rotation.apply(to: pageSizes[index]),
+                    rotation: controller.rotation,
+                    renderer: renderer
+                )
+            }
+            .listStyle(.sidebar)
+            .onChange(of: selection) { _, page in
+                guard let page, page != controller.currentPage else { return }
+                controller.go(to: page)
             }
             .onChange(of: controller.currentPage) { _, page in
+                selection = page
                 proxy.scrollTo(page)
             }
             .onAppear {
+                selection = controller.currentPage
                 proxy.scrollTo(controller.currentPage)
             }
         }
@@ -77,7 +77,6 @@ struct ThumbnailCell: View {
     /// Taille de la page tournée, en points.
     let pageSize: CGSize
     let rotation: DisplayRotation
-    let isCurrent: Bool
     let renderer: PageRenderer
 
     @Environment(\.displayScale) private var displayScale
@@ -98,21 +97,14 @@ struct ThumbnailCell: View {
             }
             .frame(width: Self.width, height: height)
             .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
-            .overlay {
-                Rectangle()
-                    .strokeBorder(Color.accentColor, lineWidth: isCurrent ? 3 : 0)
-                    .padding(-4)
-            }
             Text("\(index + 1)")
                 .font(.caption)
-                .foregroundStyle(isCurrent ? .primary : .secondary)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 4)
-        .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Page \(index + 1)"))
-        .accessibilityAddTraits(isCurrent ? .isSelected : [])
         .task(id: "\(rotation.degrees)-\(pixelWidth)") {
             if let rendered = try? await renderer.image(
                 page: index, pixelWidth: pixelWidth, pageWidth: pageSize.width, rotation: rotation
