@@ -101,7 +101,6 @@ targets:
         includes:
           - "*.pdf"
         buildPhase: resources
-        group: Fixtures
     dependencies:
       - target: PDFStudio
     settings:

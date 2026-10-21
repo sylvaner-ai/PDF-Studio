@@ -18,6 +18,8 @@ final class DocumentOpener {
     private var openWindow: OpenWindowAction?
     private var emptyWindows: [(id: UUID, adopt: (DocumentReference) -> Void)] = []
     private var pending: [URL] = []
+    /// Vrai pendant `flush()`, qui peut être rappelée par la fenêtre qu'elle ouvre.
+    private var isFlushing = false
 
     private init() {}
 
@@ -61,13 +63,26 @@ final class DocumentOpener {
         UTType(filenameExtension: url.pathExtension)?.conforms(to: .pdf) ?? false
     }
 
+    /// Confie les fichiers en attente aux fenêtres disponibles.
+    ///
+    /// Ouvrir ou remplir une fenêtre peut rappeler aussitôt `register` ou
+    /// `registerEmptyWindow`, donc cette méthode : l'appel imbriqué ne fait rien,
+    /// et la boucle en cours tient compte de la nouvelle fenêtre. Chaque fichier est
+    /// retiré de la file avant d'être confié.
     private func flush() {
+        guard !isFlushing else { return }
+        isFlushing = true
+        defer { isFlushing = false }
+
         while let url = pending.first {
+            guard !emptyWindows.isEmpty || openWindow != nil else {
+                return // Aucune fenêtre encore prête : on réessaiera à la prochaine.
+            }
+            pending.removeFirst()
             let reference: DocumentReference
             do {
                 reference = try DocumentReference(url: url)
             } catch {
-                pending.removeFirst()
                 let reason = error.localizedDescription
                 logger.error("Signet impossible pour \(url.path, privacy: .private) : \(reason, privacy: .public)")
                 presentAccessError(for: url)
@@ -77,10 +92,7 @@ final class DocumentOpener {
                 emptyWindows.removeFirst().adopt(reference)
             } else if let openWindow {
                 openWindow(id: Self.windowID, value: reference)
-            } else {
-                return // Aucune fenêtre encore prête : on réessaiera à la prochaine.
             }
-            pending.removeFirst()
         }
     }
 

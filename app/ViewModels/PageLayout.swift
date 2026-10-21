@@ -116,3 +116,53 @@ struct PageLayout: Equatable, Sendable {
         return best?.page
     }
 }
+
+/// Ajustement automatique du zoom, réappliqué quand la fenêtre change de taille.
+enum FitMode: Sendable {
+    /// Largeur de la fenêtre, sans dépasser une largeur de lecture confortable.
+    case automatic
+    /// Largeur de la fenêtre.
+    case width
+    /// Page entière visible.
+    case page
+}
+
+/// Grossissements du canevas ; 1 correspond à la taille réelle.
+enum Zoom {
+    /// Paliers de ⌘+ et ⌘−.
+    static let levels: [CGFloat] = [
+        0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5, 6, 8, 12, 16
+    ]
+    /// Largeur de page au-delà de laquelle l'ajustement automatique s'arrête.
+    static let comfortablePageWidth: CGFloat = 1_100
+
+    /// Palier suivant (`direction` positive) ou précédent ; les extrêmes sont conservés.
+    static func step(from current: CGFloat, direction: Int) -> CGFloat {
+        if direction > 0 {
+            return levels.first(where: { $0 > current * 1.01 }) ?? levels.last ?? current
+        }
+        return levels.last(where: { $0 < current * 0.99 }) ?? levels.first ?? current
+    }
+}
+
+extension PageLayout {
+    /// Grossissement qui ajuste le document, ou la page `page`, à `viewport`.
+    ///
+    /// Le résultat est arrondi par défaut au millième, ce qui évite une barre de
+    /// défilement horizontale superflue.
+    func fitMagnification(_ mode: FitMode, viewport: CGSize, page: Int) -> CGFloat {
+        let margin = Self.margin
+        let target: CGFloat
+        switch mode {
+        case .automatic:
+            let widest = documentSize.width - 2 * margin
+            target = min(viewport.width / documentSize.width, Zoom.comfortablePageWidth / max(widest, 1))
+        case .width:
+            target = viewport.width / documentSize.width
+        case .page:
+            let frame = frames.indices.contains(page) ? frames[page] : .zero
+            target = min(viewport.width / (frame.width + 2 * margin), viewport.height / (frame.height + 2 * margin))
+        }
+        return (target * 1_000).rounded(.down) / 1_000
+    }
+}

@@ -1,15 +1,5 @@
 import AppKit
 
-/// Ajustement automatique du zoom, réappliqué quand la fenêtre change de taille.
-enum FitMode: Sendable {
-    /// Largeur de la fenêtre, sans dépasser une largeur de lecture confortable.
-    case automatic
-    /// Largeur de la fenêtre.
-    case width
-    /// Page entière visible.
-    case page
-}
-
 /// Canevas des pages : défilement, zoom au pincement et barres de défilement
 /// natifs de macOS (`NSScrollView`), avec un grossissement de 1 pour la taille
 /// réelle (1 point PDF = 1 point à l'écran).
@@ -18,12 +8,8 @@ enum FitMode: Sendable {
 /// défilement : un document de plusieurs centaines de pages reste léger.
 @MainActor
 final class PageCanvasView: NSScrollView {
-    /// Paliers de zoom de ⌘+ et ⌘−.
-    private static let zoomLevels: [CGFloat] = [
-        0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5, 6, 8, 12, 16,
-    ]
-    /// Largeur de page au-delà de laquelle l'ajustement automatique s'arrête.
-    private static let comfortablePageWidth: CGFloat = 1_100
+    /// Pas de défilement des flèches, en points.
+    private static let lineStep: CGFloat = 48
 
     var onCurrentPageChange: (@MainActor (Int) -> Void)?
     private(set) var currentPage = 0
@@ -61,8 +47,8 @@ final class PageCanvasView: NSScrollView {
         hasHorizontalScroller = true
         autohidesScrollers = true
         allowsMagnification = true
-        minMagnification = Self.zoomLevels.first ?? 0.1
-        maxMagnification = Self.zoomLevels.last ?? 16
+        minMagnification = Zoom.levels.first ?? 0.1
+        maxMagnification = Zoom.levels.last ?? 16
         documentView = pagesView
         pagesView.canvas = self
         pagesView.frame = CGRect(origin: .zero, size: layout.documentSize)
@@ -92,11 +78,7 @@ final class PageCanvasView: NSScrollView {
 
     func zoom(by direction: Int) {
         fitMode = nil
-        let current = magnification
-        let target = direction > 0
-            ? Self.zoomLevels.first(where: { $0 > current * 1.01 }) ?? maxMagnification
-            : Self.zoomLevels.last(where: { $0 < current * 0.99 }) ?? minMagnification
-        setMagnification(target, centeredAt: visibleCenter)
+        setMagnification(Zoom.step(from: magnification, direction: direction), centeredAt: visibleCenter)
     }
 
     func actualSize() {
@@ -144,7 +126,7 @@ final class PageCanvasView: NSScrollView {
             y = frame.minY + rotatedTop - PageLayout.spacing
         }
         navigationTarget = page
-        scroll(to: CGPoint(x: pagesView.visibleRect.minX, y: y), animated: animated)
+        scrollContent(to: CGPoint(x: pagesView.visibleRect.minX, y: y), animated: animated)
         updateCurrentPage()
     }
 
@@ -174,66 +156,40 @@ final class PageCanvasView: NSScrollView {
             return
         }
         let x = visible.width < pagesView.bounds.width ? target.midX - visible.width / 2 : visible.minX
-        scroll(to: CGPoint(x: x, y: target.midY - visible.height / 3), animated: true)
+        scrollContent(to: CGPoint(x: x, y: target.midY - visible.height / 3), animated: true)
         updateCurrentPage()
     }
 
     // MARK: - Clavier
 
-    /// ⌘= et ⌘+ agrandissent (le « + » demande Majuscule sur un clavier AZERTY), ⌘− réduit.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags.subtracting(.shift) == .command, let key = event.charactersIgnoringModifiers {
-            switch key {
-            case "=", "+":
-                zoom(by: 1)
-                return true
-            case "-":
-                zoom(by: -1)
-                return true
-            default:
-                break
-            }
+        guard let direction = Zoom.direction(for: event) else {
+            return super.performKeyEquivalent(with: event)
         }
-        return super.performKeyEquivalent(with: event)
+        zoom(by: direction)
+        return true
     }
 
     /// Touches de lecture, reçues de la vue des pages.
     func handleKey(_ event: NSEvent) -> Bool {
+        guard let key = ReadingKey(event) else { return false }
         let visible = pagesView.visibleRect
-        let pageStep = visible.height - 4 * PageLayout.spacing
-        let shift = event.modifierFlags.contains(.shift)
-        let command = event.modifierFlags.contains(.command)
-        switch Int(event.keyCode) {
-        case 125 where command: // ⌘↓ : fin du document
-            go(to: pageSizes.count - 1)
-        case 126 where command: // ⌘↑ : début du document
-            go(to: 0)
-        case 49: // espace
-            scrollOrTurn(by: shift ? -pageStep : pageStep)
-        case 121: // page suivante
-            scrollOrTurn(by: pageStep)
-        case 116: // page précédente
-            scrollOrTurn(by: -pageStep)
-        case 125: // flèche bas
-            scrollBy(dx: 0, dy: 48)
-        case 126: // flèche haut
-            scrollBy(dx: 0, dy: -48)
-        case 123, 124: // flèches gauche et droite
-            let forward = event.keyCode == 124
-            if visible.width < pagesView.bounds.width - 1 {
-                scrollBy(dx: forward ? 48 : -48, dy: 0)
-            } else if forward {
+        let screen = visible.height - 4 * PageLayout.spacing
+        switch key {
+        case let .documentEdge(end):
+            go(to: end ? pageSizes.count - 1 : 0)
+        case let .screen(down):
+            scrollOrTurn(by: down ? screen : -screen)
+        case let .line(down):
+            scrollContent(by: CGVector(dx: 0, dy: down ? Self.lineStep : -Self.lineStep))
+        case let .side(right) where visible.width < pagesView.bounds.width - 1:
+            scrollContent(by: CGVector(dx: right ? Self.lineStep : -Self.lineStep, dy: 0))
+        case let .side(right):
+            if right {
                 goToNextPage()
             } else {
                 goToPreviousPage()
             }
-        case 115: // début
-            go(to: 0)
-        case 119: // fin
-            go(to: pageSizes.count - 1)
-        default:
-            return false
         }
         return true
     }
@@ -303,23 +259,9 @@ final class PageCanvasView: NSScrollView {
         defer { isFitting = false }
         lastFitSize = contentSize
         let anchor = currentAnchor()
-        let margin = PageLayout.margin
-        let page = layout.frames[mode == .singlePage ? singlePage : currentPage]
-        let target: CGFloat
-        switch fitMode {
-        case .automatic:
-            let widest = layout.documentSize.width - 2 * margin
-            target = min(contentSize.width / layout.documentSize.width, Self.comfortablePageWidth / max(widest, 1))
-        case .width:
-            target = contentSize.width / layout.documentSize.width
-        case .page:
-            target = min(
-                contentSize.width / (page.width + 2 * margin),
-                contentSize.height / (page.height + 2 * margin)
-            )
-        }
-        // Un léger arrondi par défaut évite une barre de défilement horizontale superflue.
-        magnification = max(minMagnification, min(maxMagnification, (target * 1_000).rounded(.down) / 1_000))
+        let page = mode == .singlePage ? singlePage : currentPage
+        let target = layout.fitMagnification(fitMode, viewport: contentSize, page: page)
+        magnification = max(minMagnification, min(maxMagnification, target))
         if fitMode == .page {
             go(to: anchor.page)
         } else {
@@ -339,7 +281,7 @@ final class PageCanvasView: NSScrollView {
         guard layout.frames.indices.contains(anchor.page) else { return }
         let frame = layout.frames[anchor.page]
         let y = frame.minY + anchor.offset * frame.height
-        scroll(to: CGPoint(x: pagesView.visibleRect.minX, y: y), animated: false)
+        scrollContent(to: CGPoint(x: pagesView.visibleRect.minX, y: y), animated: false)
         updateVisiblePages()
     }
 
@@ -355,47 +297,26 @@ final class PageCanvasView: NSScrollView {
         updateVisiblePages()
     }
 
-    private func scroll(to point: CGPoint, animated: Bool) {
-        let clip = contentView
-        let proposed = CGRect(origin: point, size: clip.bounds.size)
-        let origin = clip.constrainBoundsRect(proposed).origin
-        guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            clip.scroll(to: origin)
-            reflectScrolledClipView(clip)
-            return
-        }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
-            context.allowsImplicitAnimation = true
-            clip.animator().setBoundsOrigin(origin)
-        } completionHandler: { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.reflectScrolledClipView(self.contentView)
-            }
-        }
-    }
-
-    private func scrollBy(dx: CGFloat, dy: CGFloat) {
+    private func scrollContent(by offset: CGVector) {
         navigationTarget = nil
         let visible = pagesView.visibleRect
-        scroll(to: CGPoint(x: visible.minX + dx, y: visible.minY + dy), animated: false)
+        scrollContent(to: CGPoint(x: visible.minX + offset.dx, y: visible.minY + offset.dy), animated: false)
     }
 
     /// Défile d'un écran ; en mode page par page, passe à la page voisine au bord.
-    private func scrollOrTurn(by dy: CGFloat) {
+    private func scrollOrTurn(by distance: CGFloat) {
         let visible = pagesView.visibleRect
         if mode == .singlePage {
-            if dy > 0, visible.maxY >= pagesView.bounds.maxY - 1, singlePage + 1 < pageSizes.count {
+            if distance > 0, visible.maxY >= pagesView.bounds.maxY - 1, singlePage + 1 < pageSizes.count {
                 return go(to: singlePage + 1)
             }
-            if dy < 0, visible.minY <= pagesView.bounds.minY + 1, singlePage > 0 {
+            if distance < 0, visible.minY <= pagesView.bounds.minY + 1, singlePage > 0 {
                 go(to: singlePage - 1)
                 let bottom = pagesView.bounds.maxY - pagesView.visibleRect.height
-                return scroll(to: CGPoint(x: visible.minX, y: bottom), animated: false)
+                return scrollContent(to: CGPoint(x: visible.minX, y: bottom), animated: false)
             }
         }
-        scrollBy(dx: 0, dy: dy)
+        scrollContent(by: CGVector(dx: 0, dy: distance))
     }
 
     /// Crée les vues des pages proches de la zone visible et libère les autres.
@@ -464,47 +385,5 @@ final class PageCanvasView: NSScrollView {
         let page = view.pageIndex
         let current = currentMatch?.page == page ? currentMatch?.index : nil
         view.showMatches(matches[page] ?? [], current: current, unrotatedSize: pageSizes[page])
-    }
-}
-
-/// Vue qui porte les pages ; elle reçoit le clavier pour la lecture.
-@MainActor
-final class PagesDocumentView: NSView {
-    weak var canvas: PageCanvasView?
-
-    override var isFlipped: Bool { true }
-    override var acceptsFirstResponder: Bool { true }
-
-    override func keyDown(with event: NSEvent) {
-        if canvas?.handleKey(event) != true {
-            super.keyDown(with: event)
-        }
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
-        super.mouseDown(with: event)
-    }
-}
-
-/// Garde le document centré quand il est plus petit que la fenêtre.
-final class CenteringClipView: NSClipView {
-    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
-        var rect = super.constrainBoundsRect(proposedBounds)
-        guard let documentView else { return rect }
-        let document = documentView.frame
-        if rect.width > document.width {
-            rect.origin.x = document.minX - (rect.width - document.width) / 2
-        }
-        if rect.height > document.height {
-            rect.origin.y = document.minY - (rect.height - document.height) / 2
-        }
-        return rect
-    }
-}
-
-extension Array {
-    subscript(safe index: Int) -> Element? {
-        indices.contains(index) ? self[index] : nil
     }
 }
