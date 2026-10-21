@@ -5,7 +5,7 @@ logique PDF, et d'une **application SwiftUI**, qui affiche et pilote le moteur p
 des appels typés. Aucune logique PDF n'est écrite en Swift.
 
 ```
-┌──────────────────────── Application SwiftUI (app/) ─────────────────────────┐
+┌──────────────────────── Application SwiftUI (app/) ──────────────────────────┐
 │ Views/        DocumentWindow, DocumentView (lecteur), SidebarView,           │
 │               SearchField ; Canvas/ : PageCanvasView (AppKit), PageTileView  │
 │ ViewModels/   DocumentViewModel, CanvasController, SearchModel, OutlineTree, │
@@ -17,12 +17,12 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
                                 │ UniFFI : PdfDocument, RenderedPage, OutlineItem,
                                 │          SearchMatch, PageRect, EngineError
 ┌───────────────────────────────▼──────────── Moteur Rust (engine/) ───────────┐
-│ ffi/        interface exposée à Swift (seule couche contenant du code unsafe, │
-│             entièrement généré par les macros UniFFI)                         │
-│ render/     rastérisation en RGBA : page entière ou zone, rotation d'affichage│
-│ pdf_core/   ouverture, pages, métadonnées, plan, texte et recherche ;         │
-│             fil dédié par document ; choix des polices standard               │
-│ (MuPDF)     analyse, rendu, extraction du texte et, plus tard, écriture       │
+│ ffi/        interface pour Swift (seule couche contenant du code unsafe :    │
+│             macros UniFFI et deux appels système de qualité de service)      │
+│ render/     rastérisation RGBA : page entière ou zone, rotation d'affichage  │
+│ pdf_core/   ouverture, pages, métadonnées, plan, texte et recherche ;        │
+│             fil dédié par document ; choix des polices standard              │
+│ (MuPDF)     analyse, rendu, extraction du texte et, plus tard, écriture      │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -33,7 +33,10 @@ seront créés aux jalons qui les utilisent (3 à 7).
 
 - **Un fil par document.** MuPDF interdit de manipuler un document depuis plusieurs
   fils. `pdf_core::DocumentHandle` lance donc un fil dédié qui possède le
-  `Document` et exécute les requêtes une à une, transmises par canal.
+  `Document` et exécute les requêtes une à une, transmises par canal. Pour chaque
+  requête, ce fil adopte la qualité de service (QoS) du fil qui attend la
+  réponse, ce qui évite les inversions de priorité signalées par macOS ; les
+  appels système correspondants sont fournis par le crate `ffi`.
 - **Rendu parallèle.** Pour chaque page, ce fil construit une *liste d'affichage*
   MuPDF (`PageContent`, mise en cache pour 48 pages). Cette liste est `Send + Sync` :
   sa rastérisation (la partie coûteuse) s'exécute sur le fil de l'appelant, donc en
@@ -100,7 +103,9 @@ Retenu de préférence à une FFI C écrite via `cbindgen` (cf. `DECISIONS.md`, 
   références) sont générés des deux côtés, sans pointeur manipulé à la main ;
 - les erreurs Rust deviennent des `Error` Swift, les objets Rust des classes Swift
   libérées automatiquement ;
-- le code `unsafe` reste confiné aux macros UniFFI du crate `ffi`.
+- le code `unsafe` reste confiné au crate `ffi` : les macros UniFFI et le module
+  `qos`, deux appels système documentés (`qos_class_self`,
+  `pthread_set_qos_class_self_np`).
 
 La génération se fait par `make bindings` : `uniffi-bindgen-swift` lit la
 bibliothèque compilée et produit `app/Bridge/Generated/` (source Swift, en-tête C,
