@@ -80,3 +80,47 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   fichier tronqué, faux PDF. Les documents personnels restent dans
   `tests/fixtures/private/`, exclu du dépôt.
 - **Raisons :** reproductible, sans contenu personnel dans un dépôt public.
+
+## D8 — Polices standard non intégrées : clones URW de MuPDF (jalon 2)
+
+- **Retenu :** les 14 polices standard du PDF (Helvetica, Times, Courier et leurs
+  variantes, Symbol, ZapfDingbats), quand le fichier ne les contient pas, sont
+  toujours dessinées avec les clones URW intégrés à MuPDF (Nimbus Sans, Nimbus
+  Roman, Nimbus Mono, etc.). Les autres polices non intégrées restent cherchées
+  parmi les polices de macOS.
+- **Alternative :** les polices de macOS du même nom, comme Aperçu et PDFium.
+- **Raisons :** la recherche par nom de MuPDF n'aboutissait sur macOS que pour
+  certaines variantes : une même page mélangeait polices système et clones, et le
+  tiret cadratin « — » était dessiné en demi-cadratin avec les polices système.
+  Les clones URW ont les mêmes chasses que les originaux, donnent un rendu
+  identique d'une machine et d'une version de macOS à l'autre, et peuvent être
+  intégrés librement dans un PDF, ce dont l'édition de texte (jalon 4) aura besoin.
+  Seul écart visible avec Aperçu : Nimbus Mono est un peu plus gras que le Courier
+  de macOS. Un test vérifie que le tiret cadratin occupe toute sa chasse.
+
+## D9 — Canevas des pages en AppKit (jalon 2)
+
+- **Retenu :** une `NSScrollView` (pincement, inertie, grossissement natifs),
+  intégrée à SwiftUI par `NSViewRepresentable` ; par page, une image entière à la
+  résolution de l'écran (4 096 pixels au plus) et, au-delà, des tuiles de la seule
+  zone visible.
+- **Alternatives :** `ScrollView` SwiftUI (pincement à réimplémenter, sans ancrage
+  sous le curseur ni comportement natif) ; `PDFView` de PDFKit (lié au moteur
+  d'Apple, incompatible avec MuPDF) ; `CATiledLayer` pour toutes les pages.
+- **Raisons :** comportement identique aux applications de macOS. Pour les scans,
+  le rendu par tuiles décode l'image de la page tuile par tuile (mesuré par
+  `render_bench --profile`) : une image unique tant qu'elle suffit évite ce surcoût
+  dans les cas courants, et les tuiles ne servent qu'aux forts grossissements.
+
+## D10 — Recherche repliée dans le moteur, page par page (jalon 2)
+
+- **Retenu :** extraction du texte par MuPDF, repli Unicode (minuscules,
+  décomposition NFD sans diacritiques, ligatures, signes typographiques) et
+  recherche de sous-chaîne dans le moteur ; l'application parcourt les pages une à
+  une.
+- **Alternative :** la recherche intégrée de MuPDF (`fz_search_stext_page`),
+  insensible à la casse mais pas aux accents.
+- **Raisons :** « efficacite » doit trouver « efficacité » et « oeuvre » trouver
+  « œuvre » ; la correspondance octet par octet avec les glyphes donne des
+  rectangles exacts. La recherche page par page permet d'afficher les premiers
+  résultats tout de suite et de l'interrompre à la frappe suivante.

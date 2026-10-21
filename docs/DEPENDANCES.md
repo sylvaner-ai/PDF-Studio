@@ -19,6 +19,7 @@ préférées à qualité équivalente.
 | `font-kit` | accès aux polices système de macOS | MIT ou Apache-2.0 |
 | `uniffi` | pont Swift ↔ Rust | MPL-2.0 |
 | `thiserror` | erreurs Rust | MIT ou Apache-2.0 |
+| `unicode-normalization` | repli des accents pour la recherche | MIT ou Apache-2.0 |
 
 **AGPL-3.0 (MuPDF, jbig2dec) :** cette licence oblige à fournir le code source à
 quiconque reçoit le logiciel ou l'utilise à travers un réseau. Pour un usage
