@@ -188,6 +188,20 @@ impl Organizer {
         Ok((at..at + origins.len()).collect())
     }
 
+    /// Remplace toutes les pages, par exemple pour retrouver des modifications
+    /// non enregistrées ; l'opération s'annule comme les autres.
+    pub fn restore(&mut self, pages: &[(PageOrigin, u8)]) -> Result<()> {
+        if pages.is_empty() {
+            return Err(EditError::WouldRemoveAllPages);
+        }
+        let entries = pages
+            .iter()
+            .map(|&(origin, quarter_turns)| self.new_entry(origin, quarter_turns % 4))
+            .collect();
+        self.commit("la restauration", entries);
+        Ok(())
+    }
+
     /// Défait la dernière modification ; renvoie `false` s'il n'y en a pas.
     pub fn undo(&mut self) -> bool {
         self.history.undo(&mut self.pages)
@@ -379,5 +393,32 @@ mod tests {
         assert_eq!(organizer.redo_name(), Some("l'insertion"));
         organizer.redo();
         assert_eq!(organizer.pages().len(), 4);
+    }
+
+    #[test]
+    fn restaure_une_organisation() {
+        let mut organizer = Organizer::new(3);
+        let blank = PageOrigin::Blank {
+            width: 100.0,
+            height: 200.0,
+        };
+        let pages = [
+            (
+                PageOrigin::Source {
+                    source: 0,
+                    index: 2,
+                },
+                5,
+            ),
+            (blank, 0),
+        ];
+        organizer.restore(&pages).unwrap();
+        assert_eq!(order(&organizer), [2, u32::MAX]);
+        assert_eq!(organizer.pages()[0].quarter_turns, 1);
+        assert_eq!(organizer.undo_name(), Some("la restauration"));
+        assert!(organizer.is_modified());
+        assert!(organizer.undo());
+        assert_eq!(order(&organizer), [0, 1, 2]);
+        assert_eq!(organizer.restore(&[]), Err(EditError::WouldRemoveAllPages));
     }
 }

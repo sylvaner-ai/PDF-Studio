@@ -36,6 +36,17 @@ struct DocumentView: View {
                 message: { prompt in Text(replaceMessage(prompt)) }
             )
             .alert(
+                recoveryTitle,
+                // Les boutons répondent ; l'alerte ne se referme pas autrement.
+                isPresented: Binding(get: { model.recoveryOffer != nil }, set: { _ in }),
+                presenting: model.recoveryOffer,
+                actions: { _ in
+                    Button("Restaurer") { model.restoreRecovery() }
+                    Button("Ignorer") { model.declineRecovery() }
+                },
+                message: { record in Text(recoveryMessage(record)) }
+            )
+            .alert(
                 "L'opération n'a pas abouti.",
                 isPresented: Binding(
                     get: { model.failureMessage != nil },
@@ -85,6 +96,17 @@ struct DocumentView: View {
         guard case .replace(signed: true) = prompt else { return backup }
         let signature = String(localized: "Ce document porte une signature numérique : elle ne sera plus valide.")
         return signature + "\n\n" + backup
+    }
+
+    private var recoveryTitle: String {
+        String(localized: "Restaurer les modifications non enregistrées de « \(model.reference.displayName) » ?")
+    }
+
+    private func recoveryMessage(_ record: RecoveryRecord) -> String {
+        let date = record.date.formatted(date: .long, time: .shortened)
+        let message = String(localized: "Elles datent du \(date). Si vous les ignorez, elles seront supprimées.")
+        guard model.recoveredFileChanged else { return message }
+        return message + "\n\n" + String(localized: "Le fichier a été modifié depuis par une autre application.")
     }
 
     private var subtitle: String {

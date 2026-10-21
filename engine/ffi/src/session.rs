@@ -192,6 +192,34 @@ impl EditSession {
         Ok(positions[0] as u32)
     }
 
+    /// Remplace toutes les pages (modifications non enregistrées retrouvées) ;
+    /// les identifiants donnés sont ignorés. Les documents sources doivent avoir
+    /// été ajoutés au préalable, dans le même ordre.
+    pub fn restore(&self, pages: Vec<PageItem>) -> Result<(), EngineError> {
+        let mut state = self.lock();
+        let mut entries = Vec::with_capacity(pages.len());
+        for page in &pages {
+            let origin = match page.kind {
+                PageKind::Source { source, index } => {
+                    let known = state.sources.get(source as usize);
+                    if known.is_none_or(|known| index >= known.page_count) {
+                        return Err(invalid("page source inexistante"));
+                    }
+                    PageOrigin::Source { source, index }
+                }
+                PageKind::Blank { size } if size.width > 0.0 && size.height > 0.0 => {
+                    PageOrigin::Blank {
+                        width: size.width,
+                        height: size.height,
+                    }
+                }
+                PageKind::Blank { .. } => return Err(invalid("format de page vierge invalide")),
+            };
+            entries.push((origin, page.quarter_turns));
+        }
+        Ok(state.organizer.restore(&entries)?)
+    }
+
     /// Défait la dernière modification ; `false` s'il n'y en a pas.
     pub fn undo(&self) -> bool {
         self.lock().organizer.undo()
@@ -233,6 +261,12 @@ impl EditSession {
     pub fn export_pages(&self, positions: Vec<u32>) -> Result<Vec<u8>, EngineError> {
         let (sources, pages) = self.snapshot(Some(&positions))?;
         Ok(pdf_core::write_pdf(&sources, &pages)?)
+    }
+
+    /// Octets du fichier du document tel qu'il a été ouvert, avant tout
+    /// enregistrement (copie conservée pour la récupération).
+    pub fn opening_bytes(&self) -> Vec<u8> {
+        self.lock().sources[0].data.bytes().to_vec()
     }
 
     /// Vrai si le document ouvert porte une signature numérique, qu'un
@@ -359,6 +393,11 @@ mod tests {
             2
         );
 
+        // Les octets d'ouverture restent ceux du fichier, quelles que soient les modifications.
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/organisation.pdf");
+        assert_eq!(session.opening_bytes(), std::fs::read(path).unwrap());
+
         session.mark_saved();
         assert!(!session.is_modified());
         assert!(session.undo());
@@ -388,6 +427,41 @@ mod tests {
         let bytes = session.export_pdf().unwrap();
         let doc = pdf_core::Document::from_bytes(&bytes, None).unwrap();
         assert_eq!(doc.page_count(), 8);
+    }
+
+    #[test]
+    fn restaure_des_pages() {
+        let session = EditSession::new(open("organisation.pdf"));
+        session.add_source(open("texte_simple.pdf"));
+        let mut pages = session.pages();
+        pages.reverse();
+        pages[0].quarter_turns = 2;
+        pages.push(PageItem {
+            id: 0,
+            kind: PageKind::Source {
+                source: 1,
+                index: 0,
+            },
+            quarter_turns: 0,
+        });
+        session.restore(pages).unwrap();
+        assert_eq!(
+            sources(&session),
+            [(0, 4), (0, 3), (0, 2), (0, 1), (0, 0), (1, 0)]
+        );
+        assert_eq!(session.pages()[0].quarter_turns, 2);
+        assert_eq!(session.undo_name().as_deref(), Some("la restauration"));
+
+        let missing = PageItem {
+            id: 0,
+            kind: PageKind::Source {
+                source: 1,
+                index: 1,
+            },
+            quarter_turns: 0,
+        };
+        assert!(session.restore(vec![missing]).is_err());
+        assert_eq!(session.pages().len(), 6);
     }
 
     #[test]

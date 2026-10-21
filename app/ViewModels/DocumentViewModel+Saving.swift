@@ -20,7 +20,8 @@ struct SavingState {
 /// Enregistrer (⌘S) remplace le fichier d'origine après confirmation et copie de
 /// sauvegarde ; Enregistrer sous (⇧⌘S) écrit à l'emplacement choisi, qui devient
 /// celui de la fenêtre. Le PDF est produit hors du fil principal et relu par le
-/// moteur avant d'être écrit (cf. ``FileSaver``).
+/// moteur avant d'être écrit (cf. ``FileSaver``). Au premier enregistrement, la
+/// version d'ouverture est conservée pour la récupération.
 extension DocumentViewModel {
     var canSave: Bool { canEdit && isModified && !saving.inProgress }
     var canSaveAs: Bool { canEdit && !saving.inProgress }
@@ -101,18 +102,25 @@ extension DocumentViewModel {
     private func write(_ store: @escaping @Sendable (Data) throws -> DocumentReference?) {
         guard let session else { return }
         saving.inProgress = true
+        let original = reference
         Task {
+            await prepareRecoveryBase()
             let result = await Task.detached(priority: .userInitiated) {
-                Result { try store(try session.exportPdf()) }
+                Result { () -> (DocumentReference?, FileStamp?) in
+                    let relocated = try store(try session.exportPdf())
+                    let stamp = try? (relocated ?? original).withAccess { try FileStamp(of: $0) }
+                    return (relocated, stamp)
+                }
             }.value
             saving.inProgress = false
             switch result {
-            case let .success(relocated):
+            case let .success((relocated, stamp)):
                 if let relocated {
                     relocate(to: relocated)
                 }
                 session.markSaved()
                 setModified(false)
+                didSave(stamp: stamp, previousPath: original.path)
                 let completion = saving.completion
                 saving.completion = nil
                 completion?()

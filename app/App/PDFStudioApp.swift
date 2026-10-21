@@ -25,6 +25,13 @@ struct PDFStudioApp: App {
 
 /// Reçoit les fichiers ouverts depuis le Finder ou déposés sur l'icône du Dock.
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Copies d'ouverture laissées par un arrêt imprévu.
+        if let store = try? RecoveryStore.standard() {
+            store.removeUnusedBases()
+        }
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
         DocumentOpener.shared.open(urls)
     }
@@ -33,14 +40,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    /// Prévient avant de quitter si des modifications ne sont pas enregistrées.
+    /// Prévient avant de quitter si des modifications ne sont pas enregistrées :
+    /// elles sont retenues et seront proposées à la prochaine ouverture.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard DocumentOpener.shared.hasUnsavedChanges else { return .terminateNow }
         let alert = NSAlert()
         alert.messageText = String(localized: "Des documents ont des modifications non enregistrées.")
-        alert.informativeText = String(localized: "Si vous quittez maintenant, ces modifications seront perdues.")
+        alert.informativeText = String(
+            localized: "Elles vous seront proposées à la prochaine ouverture de ces documents."
+        )
         alert.addButton(withTitle: String(localized: "Annuler"))
-        alert.addButton(withTitle: String(localized: "Quitter sans enregistrer"))
+        alert.addButton(withTitle: String(localized: "Quitter"))
         return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
     }
 }

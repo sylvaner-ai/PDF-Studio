@@ -9,7 +9,9 @@ import os
 /// fichier n'est jamais modifié tant que l'utilisateur n'enregistre pas. Chaque
 /// modification s'inscrit dans le gestionnaire d'annulation de la fenêtre, qui
 /// commande l'historique du moteur (menus Annuler et Rétablir). L'enregistrement
-/// demande toujours confirmation avant de remplacer un fichier (cf. ``FileSaver``).
+/// demande toujours confirmation avant de remplacer un fichier (cf. ``FileSaver``),
+/// et les modifications non enregistrées sont retenues pour être proposées à la
+/// prochaine ouverture (cf. `DocumentViewModel+Recovery.swift`).
 @MainActor
 @Observable
 final class DocumentViewModel {
@@ -40,17 +42,23 @@ final class DocumentViewModel {
     var saving = SavingState()
     /// Message d'une opération qui a échoué, à montrer à l'utilisateur.
     var failureMessage: String?
+    /// Modifications non enregistrées retrouvées à l'ouverture, en attente d'une réponse.
+    var recoveryOffer: RecoveryRecord?
 
     /// Gestionnaire d'annulation de la fenêtre.
     @ObservationIgnored weak var undoManager: UndoManager?
     /// Appelé quand le document change de fichier (« Enregistrer sous »).
     @ObservationIgnored var onRelocate: ((DocumentReference) -> Void)?
     @ObservationIgnored private(set) var session: EditSession?
+    @ObservationIgnored private(set) var sources: PageSources?
+    @ObservationIgnored var recovery = RecoveryContext()
     @ObservationIgnored private var declaredTitle: String?
     /// Format des pages de chaque document source, en points.
     @ObservationIgnored private var sourceSizes: [[CGSize]] = []
 
     let logger = Logger(subsystem: "fr.sylvainrobert.pdfstudio", category: "document")
+    /// Rangement des modifications non enregistrées ; `nil` s'il n'a pas pu être créé.
+    let recoveryStore = try? RecoveryStore.standard()
 
     init(reference: DocumentReference) {
         self.reference = reference
@@ -65,15 +73,20 @@ final class DocumentViewModel {
         let reference = reference
         let result = await Task.detached(priority: .userInitiated) {
             Result {
-                try reference.withAccess { url in
-                    try PdfDocument.open(path: url.path, password: password)
+                try reference.withAccess { url -> (PdfDocument, FileStamp?) in
+                    // L'empreinte précède la lecture : un fichier modifié entre-temps ne
+                    // pourra pas passer pour la version ouverte.
+                    let stamp = try? FileStamp(of: url)
+                    return (try PdfDocument.open(path: url.path, password: password), stamp)
                 }
             }
         }.value
 
         switch result {
-        case let .success(document):
+        case let .success((document, stamp)):
+            recovery = RecoveryContext(password: password, stamp: stamp)
             show(document)
+            offerRecovery()
             await loadOutline(document)
             await checkSignature()
         case let .failure(error as EngineError):
@@ -96,12 +109,14 @@ final class DocumentViewModel {
     func close() {
         undoManager?.removeAllActions(withTarget: self)
         DocumentOpener.shared.setUnsaved(false, for: self)
+        endRecovery()
     }
 
-    private func show(_ document: PdfDocument) {
+    func show(_ document: PdfDocument) {
         let session = EditSession(document: document)
         let sources = PageSources(document)
         self.session = session
+        self.sources = sources
         sourceSizes = [document.pageSizes().map(\.cgSize)]
         pages = session.pages().map { DisplayPage($0, sizes: sourceSizes) }
         declaredTitle = document.title()
@@ -116,7 +131,7 @@ final class DocumentViewModel {
     }
 
     /// Charge le plan après l'affichage des pages : un plan illisible n'empêche pas la lecture.
-    private func loadOutline(_ document: PdfDocument) async {
+    func loadOutline(_ document: PdfDocument) async {
         let items = await Task.detached(priority: .utility) { () -> [OutlineItem]? in
             try? document.outline()
         }.value
@@ -134,11 +149,19 @@ final class DocumentViewModel {
         onRelocate?(reference)
     }
 
-    private func checkSignature() async {
+    func checkSignature() async {
         guard let session else { return }
         isSigned = await Task.detached(priority: .utility) {
             (try? session.hasSignature()) ?? false
         }.value
+    }
+
+    /// Ajoute un document dont des pages pourront être insérées ; renvoie son numéro.
+    func addSource(_ document: PdfDocument) -> UInt32? {
+        guard let session, let sources else { return nil }
+        sources.append(document)
+        sourceSizes.append(document.pageSizes().map(\.cgSize))
+        return session.addSource(document: document)
     }
 }
 
@@ -175,7 +198,8 @@ extension DocumentViewModel {
         pages.indices.filter { ids.contains(pages[$0].id) }
     }
 
-    var canEdit: Bool { phase == .ready && session != nil }
+    /// Les pages restent figées tant que des modifications retrouvées attendent une réponse.
+    var canEdit: Bool { phase == .ready && session != nil && recoveryOffer == nil }
 
     /// Un document garde au moins une page.
     func canDelete(_ positions: [Int]) -> Bool {
@@ -206,17 +230,20 @@ extension DocumentViewModel {
         perform { _ = try $0.movePages(positions: Array(positions).engine, before: UInt32(before)) }
     }
 
-    /// Applique une modification et l'inscrit dans l'historique de la fenêtre.
-    private func perform(_ edit: (EditSession) throws -> Void) {
-        guard let session else { return }
+    /// Applique une modification et l'inscrit dans l'historique de la fenêtre ;
+    /// renvoie `false` si elle a échoué.
+    @discardableResult
+    func perform(_ edit: (EditSession) throws -> Void) -> Bool {
+        guard let session else { return false }
         do {
             try edit(session)
         } catch {
             report(error)
-            return
+            return false
         }
         registerUndo()
         reloadPages()
+        return true
     }
 
     private func registerUndo() {
@@ -249,6 +276,7 @@ extension DocumentViewModel {
         selection.formIntersection(pages.map(\.id))
         canvas.setPages(pages)
         search?.setPages(pages)
+        updateRecovery()
     }
 
     func setModified(_ modified: Bool) {
