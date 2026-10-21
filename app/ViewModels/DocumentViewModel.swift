@@ -19,6 +19,9 @@ final class DocumentViewModel {
     private(set) var title: String
     private(set) var pageSizes: [CGSize] = []
     private(set) var renderer: PageRenderer?
+    private(set) var canvas = CanvasController(pageCount: 0)
+    private(set) var search: SearchModel?
+    private(set) var outline = OutlineTree.empty
 
     private let logger = Logger(subsystem: "fr.sylvainrobert.pdfstudio", category: "document")
 
@@ -48,7 +51,10 @@ final class DocumentViewModel {
                 title = declared
             }
             renderer = PageRenderer(document: document)
+            canvas = CanvasController(pageCount: pageSizes.count)
+            search = SearchModel(document: document, canvas: canvas)
             phase = .ready
+            await loadOutline(document)
         case let .failure(error as EngineError):
             switch error {
             case .PasswordRequired:
@@ -63,5 +69,17 @@ final class DocumentViewModel {
             logger.error("Accès au fichier refusé : \(error.localizedDescription, privacy: .public)")
             phase = .failed(message: String(localized: "PDF Studio n'a pas pu accéder à ce fichier."))
         }
+    }
+
+    /// Charge le plan après l'affichage des pages : un plan illisible n'empêche pas la lecture.
+    private func loadOutline(_ document: PdfDocument) async {
+        let items = await Task.detached(priority: .utility) { () -> [OutlineItem]? in
+            try? document.outline()
+        }.value
+        guard let items else {
+            logger.error("Plan du document illisible")
+            return
+        }
+        outline = OutlineTree(items: items)
     }
 }

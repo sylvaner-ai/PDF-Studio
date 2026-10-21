@@ -5,6 +5,8 @@
 
 # Projet Xcode généré par XcodeGen (app/project.yml fait foi)
 /app/PDFStudio.xcodeproj/
+/app/App/Info.plist
+/app/App/PDFStudio.entitlements
 /app/Bridge/Generated/
 xcuserdata/
 *.xcuserstate

@@ -8,7 +8,8 @@ import os
 ///
 /// Une fenêtre d'accueil encore vide accueille le premier document ouvert ; les
 /// suivants ouvrent une nouvelle fenêtre. Un même fichier n'est jamais ouvert
-/// deux fois : SwiftUI ramène sa fenêtre au premier plan.
+/// deux fois : sa fenêtre est ramenée au premier plan. Une fenêtre d'accueil ne
+/// reste ouverte que si aucun document n'est affiché.
 @MainActor
 final class DocumentOpener {
     static let shared = DocumentOpener()
@@ -16,8 +17,18 @@ final class DocumentOpener {
 
     private let logger = Logger(subsystem: "fr.sylvainrobert.pdfstudio", category: "ouverture")
     private var openWindow: OpenWindowAction?
-    private var emptyWindows: [(id: UUID, adopt: (DocumentReference) -> Void)] = []
+    private var windows: [UUID: WindowEntry] = [:]
     private var pending: [URL] = []
+    /// Vrai pendant `flush()`, qui peut être rappelée par la fenêtre qu'elle ouvre.
+    private var isFlushing = false
+
+    /// Fenêtre connue : son document (`nil` pour l'écran d'accueil), et de quoi
+    /// lui en confier un ou la fermer.
+    private struct WindowEntry {
+        var reference: DocumentReference?
+        let adopt: (DocumentReference) -> Void
+        let close: () -> Void
+    }
 
     private init() {}
 
@@ -27,15 +38,27 @@ final class DocumentOpener {
         flush()
     }
 
-    /// Déclare une fenêtre d'accueil capable d'afficher le prochain document.
-    func registerEmptyWindow(id: UUID, adopt: @escaping (DocumentReference) -> Void) {
-        emptyWindows.removeAll { $0.id == id }
-        emptyWindows.append((id, adopt))
+    /// Déclare une fenêtre et le document qu'elle affiche ; sans document, elle
+    /// accueillera le prochain ouvert.
+    func registerWindow(
+        id: UUID,
+        reference: DocumentReference?,
+        adopt: @escaping (DocumentReference) -> Void,
+        close: @escaping () -> Void
+    ) {
+        if let reference, windows.contains(where: { $0.key != id && $0.value.reference == reference }) {
+            // Document déjà affiché dans une autre fenêtre (restauration au lancement).
+            windows[id] = nil
+            close()
+            return
+        }
+        windows[id] = WindowEntry(reference: reference, adopt: adopt, close: close)
         flush()
+        closeSurplusWelcomeWindows()
     }
 
-    func unregisterEmptyWindow(id: UUID) {
-        emptyWindows.removeAll { $0.id == id }
+    func unregisterWindow(id: UUID) {
+        windows[id] = nil
     }
 
     /// Ouvre les PDF parmi les fichiers donnés ; les autres sont ignorés.
@@ -61,26 +84,51 @@ final class DocumentOpener {
         UTType(filenameExtension: url.pathExtension)?.conforms(to: .pdf) ?? false
     }
 
+    /// Confie les fichiers en attente aux fenêtres disponibles.
+    ///
+    /// Ouvrir ou remplir une fenêtre peut rappeler aussitôt `register` ou
+    /// `registerWindow`, donc cette méthode : l'appel imbriqué ne fait rien,
+    /// et la boucle en cours tient compte de la nouvelle fenêtre. Chaque fichier est
+    /// retiré de la file avant d'être confié.
     private func flush() {
+        guard !isFlushing else { return }
+        isFlushing = true
+        defer { isFlushing = false }
+
         while let url = pending.first {
+            let hasWelcome = windows.values.contains { $0.reference == nil }
+            guard hasWelcome || openWindow != nil else {
+                return // Aucune fenêtre encore prête : on réessaiera à la prochaine.
+            }
+            pending.removeFirst()
             let reference: DocumentReference
             do {
                 reference = try DocumentReference(url: url)
             } catch {
-                pending.removeFirst()
                 let reason = error.localizedDescription
                 logger.error("Signet impossible pour \(url.path, privacy: .private) : \(reason, privacy: .public)")
                 presentAccessError(for: url)
                 continue
             }
-            if !emptyWindows.isEmpty {
-                emptyWindows.removeFirst().adopt(reference)
+            let isShown = windows.values.contains { $0.reference == reference }
+            if !isShown, let welcome = windows.first(where: { $0.value.reference == nil }) {
+                windows[welcome.key]?.reference = reference
+                welcome.value.adopt(reference)
             } else if let openWindow {
+                // Nouvelle fenêtre, ou celle qui affiche déjà le document, ramenée devant.
                 openWindow(id: Self.windowID, value: reference)
-            } else {
-                return // Aucune fenêtre encore prête : on réessaiera à la prochaine.
             }
-            pending.removeFirst()
+        }
+    }
+
+    /// Ferme les écrans d'accueil restés vides alors qu'un document est affiché,
+    /// comme la fenêtre que SwiftUI crée au lancement en plus des fenêtres restaurées.
+    private func closeSurplusWelcomeWindows() {
+        guard windows.values.contains(where: { $0.reference != nil }) else { return }
+        let surplus = windows.filter { $0.value.reference == nil }
+        for (id, window) in surplus {
+            windows[id] = nil
+            window.close()
         }
     }
 

@@ -5,10 +5,17 @@ use std::thread;
 
 use crate::document::Document;
 use crate::error::{PdfError, Result};
+use crate::outline::OutlineEntry;
 use crate::page::{PageContent, PageSize};
+use crate::qos::Qos;
+use crate::text::{PageText, TextMatch};
 
 /// Nombre de pages dont le contenu préparé est gardé en mémoire.
 const CONTENT_CACHE_PAGES: usize = 48;
+
+/// Nombre de pages dont le texte est gardé en mémoire pour la recherche
+/// (quelques dizaines de kilo-octets par page).
+const TEXT_CACHE_PAGES: usize = 256;
 
 /// Origine des données d'un document.
 pub enum Source {
@@ -20,15 +27,18 @@ pub enum Source {
 
 type Job = Box<dyn FnOnce(&mut Worker) + Send>;
 
+/// Requête et qualité de service du fil qui en attend la réponse.
+type Request = (Qos, Job);
+
 /// Accès multi-fil à un document.
 ///
 /// MuPDF impose qu'un document ne soit manipulé que depuis un seul fil. Ce type
 /// lance un fil dédié qui possède le [`Document`] et exécute les requêtes une à
-/// une. Les contenus de page renvoyés ([`PageContent`]) peuvent ensuite être
-/// rastérisés en parallèle par l'appelant. Le fil s'arrête quand la poignée est
-/// libérée.
+/// une, à la qualité de service du fil demandeur. Les contenus de page renvoyés
+/// ([`PageContent`]) peuvent ensuite être rastérisés en parallèle par l'appelant.
+/// Le fil s'arrête quand la poignée est libérée.
 pub struct DocumentHandle {
-    jobs: mpsc::Sender<Job>,
+    jobs: mpsc::Sender<Request>,
     page_sizes: Vec<PageSize>,
     title: Option<String>,
 }
@@ -36,12 +46,18 @@ pub struct DocumentHandle {
 impl DocumentHandle {
     /// Ouvre un document et attend que ses pages soient mesurées.
     pub fn open(source: Source, password: Option<String>) -> Result<Self> {
-        let (jobs, job_rx) = mpsc::channel::<Job>();
+        let (jobs, job_rx) = mpsc::channel::<Request>();
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        let opener_qos = Qos::current();
 
         thread::Builder::new()
             .name("pdf-document".into())
             .spawn(move || {
+                let mut qos = if opener_qos.apply() {
+                    opener_qos
+                } else {
+                    Qos::current()
+                };
                 let opened = match source {
                     Source::File(path) => Document::open_file(&path, password.as_deref()),
                     Source::Bytes(bytes) => Document::from_bytes(&bytes, password.as_deref()),
@@ -58,9 +74,13 @@ impl DocumentHandle {
 
                 let mut worker = Worker {
                     doc,
-                    cache: ContentCache::new(CONTENT_CACHE_PAGES),
+                    contents: Lru::new(CONTENT_CACHE_PAGES),
+                    texts: Lru::new(TEXT_CACHE_PAGES),
                 };
-                for job in job_rx {
+                for (wanted, job) in job_rx {
+                    if wanted != qos && wanted.apply() {
+                        qos = wanted;
+                    }
                     job(&mut worker);
                 }
             })
@@ -96,6 +116,20 @@ impl DocumentHandle {
         self.run(move |worker| worker.page_content(index))?
     }
 
+    /// Plan du document (signets), aplati en parcours en profondeur.
+    pub fn outline(&self) -> Result<Vec<OutlineEntry>> {
+        self.run(|worker| worker.doc.outline())
+    }
+
+    /// Cherche `query` dans une page, sans tenir compte de la casse ni des accents.
+    ///
+    /// La recherche se fait page par page pour que l'interface puisse afficher les
+    /// résultats au fil de l'eau et l'interrompre à tout moment.
+    pub fn search_page(&self, index: u32, query: &str) -> Result<Vec<TextMatch>> {
+        let query = query.to_owned();
+        self.run(move |worker| Ok(worker.page_text(index)?.search(&query)))?
+    }
+
     /// Exécute une requête sur le fil du document et attend sa réponse.
     fn run<R, F>(&self, job: F) -> Result<R>
     where
@@ -103,10 +137,11 @@ impl DocumentHandle {
         F: FnOnce(&mut Worker) -> R + Send + 'static,
     {
         let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+        let job: Job = Box::new(move |worker| {
+            let _ = reply_tx.send(job(worker));
+        });
         self.jobs
-            .send(Box::new(move |worker| {
-                let _ = reply_tx.send(job(worker));
-            }))
+            .send((Qos::current(), job))
             .map_err(|_| PdfError::Closed)?;
         reply_rx.recv().map_err(|_| PdfError::Closed)
     }
@@ -114,28 +149,38 @@ impl DocumentHandle {
 
 struct Worker {
     doc: Document,
-    cache: ContentCache,
+    contents: Lru<Arc<PageContent>>,
+    texts: Lru<Arc<PageText>>,
 }
 
 impl Worker {
     fn page_content(&mut self, index: u32) -> Result<Arc<PageContent>> {
-        if let Some(content) = self.cache.get(index) {
+        if let Some(content) = self.contents.get(index) {
             return Ok(content);
         }
         let content = Arc::new(self.doc.page_content(index)?);
-        self.cache.insert(index, Arc::clone(&content));
+        self.contents.insert(index, Arc::clone(&content));
         Ok(content)
+    }
+
+    fn page_text(&mut self, index: u32) -> Result<Arc<PageText>> {
+        if let Some(text) = self.texts.get(index) {
+            return Ok(text);
+        }
+        let text = Arc::new(self.doc.page_text(index)?);
+        self.texts.insert(index, Arc::clone(&text));
+        Ok(text)
     }
 }
 
-/// Cache LRU minimal des contenus de page.
-struct ContentCache {
+/// Cache LRU minimal, indexé par numéro de page.
+struct Lru<V> {
     capacity: usize,
-    entries: HashMap<u32, Arc<PageContent>>,
+    entries: HashMap<u32, V>,
     order: VecDeque<u32>,
 }
 
-impl ContentCache {
+impl<V: Clone> Lru<V> {
     fn new(capacity: usize) -> Self {
         Self {
             capacity,
@@ -144,14 +189,14 @@ impl ContentCache {
         }
     }
 
-    fn get(&mut self, index: u32) -> Option<Arc<PageContent>> {
-        let content = self.entries.get(&index).cloned()?;
+    fn get(&mut self, index: u32) -> Option<V> {
+        let value = self.entries.get(&index).cloned()?;
         self.touch(index);
-        Some(content)
+        Some(value)
     }
 
-    fn insert(&mut self, index: u32, content: Arc<PageContent>) {
-        if self.entries.insert(index, content).is_some() {
+    fn insert(&mut self, index: u32, value: V) {
+        if self.entries.insert(index, value).is_some() {
             self.touch(index);
             return;
         }
@@ -168,5 +213,47 @@ impl ContentCache {
             self.order.remove(pos);
         }
         self.order.push_back(index);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+    use std::path::Path;
+
+    use super::*;
+    use crate::qos::{install_qos_hooks, QosHooks};
+
+    thread_local! {
+        /// Qualité de service simulée, propre à chaque fil.
+        static FAKE_QOS: Cell<u32> = const { Cell::new(0) };
+    }
+
+    fn worker_qos(handle: &DocumentHandle) -> u32 {
+        handle.run(|_| FAKE_QOS.with(Cell::get)).unwrap()
+    }
+
+    #[test]
+    fn le_fil_du_document_adopte_la_priorite_du_demandeur() {
+        install_qos_hooks(QosHooks {
+            current: || FAKE_QOS.with(Cell::get),
+            apply: |class| {
+                FAKE_QOS.with(|qos| qos.set(class));
+                true
+            },
+        });
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/texte_simple.pdf");
+
+        FAKE_QOS.with(|qos| qos.set(0x19));
+        let handle = DocumentHandle::open(Source::File(path), None).unwrap();
+        assert_eq!(worker_qos(&handle), 0x19);
+
+        FAKE_QOS.with(|qos| qos.set(0x21));
+        assert_eq!(worker_qos(&handle), 0x21);
+
+        // Priorité non précisée : le fil garde la précédente.
+        FAKE_QOS.with(|qos| qos.set(0));
+        assert_eq!(worker_qos(&handle), 0x21);
     }
 }

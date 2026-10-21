@@ -5,19 +5,24 @@ logique PDF, et d'une **application SwiftUI**, qui affiche et pilote le moteur p
 des appels typés. Aucune logique PDF n'est écrite en Swift.
 
 ```
-┌──────────────────────── Application SwiftUI (app/) ─────────────────────────┐
-│ Views/        DocumentWindow, WelcomeView, DocumentView, PageScrollView      │
-│ ViewModels/   DocumentViewModel (état d'une fenêtre), PageRenderer (cache)   │
-│ App/          PDFStudioApp, DocumentOpener, DocumentReference (signets)      │
+┌──────────────────────── Application SwiftUI (app/) ──────────────────────────┐
+│ Views/        DocumentWindow, DocumentView (lecteur), SidebarView,           │
+│               SearchField ; Canvas/ : PageCanvasView (AppKit), PageTileView  │
+│ ViewModels/   DocumentViewModel, CanvasController, SearchModel, OutlineTree, │
+│               PageLayout (géométrie), PageRenderer (rendu et cache)          │
+│ App/          PDFStudioApp, ViewerCommands (menus), DocumentOpener,          │
+│               DocumentReference (signets de sécurité)                        │
 │ Bridge/       EngineBridge.swift + Generated/ (liaisons UniFFI générées)     │
 └───────────────────────────────┬──────────────────────────────────────────────┘
-                                │ UniFFI : PdfDocument, RenderedPage, EngineError
+                                │ UniFFI : PdfDocument, RenderedPage, OutlineItem,
+                                │          SearchMatch, PageRect, EngineError
 ┌───────────────────────────────▼──────────── Moteur Rust (engine/) ───────────┐
-│ ffi/        interface exposée à Swift (seule couche contenant du code unsafe, │
-│             entièrement généré par les macros UniFFI)                         │
-│ render/     rastérisation d'une page en image RGBA                            │
-│ pdf_core/   ouverture, pages, métadonnées ; fil dédié par document            │
-│ (MuPDF)     analyse, rendu et, aux jalons suivants, extraction et écriture    │
+│ ffi/        interface pour Swift (seule couche contenant du code unsafe :    │
+│             macros UniFFI et deux appels système de qualité de service)      │
+│ render/     rastérisation RGBA : page entière ou zone, rotation d'affichage  │
+│ pdf_core/   ouverture, pages, métadonnées, plan, texte et recherche ;        │
+│             fil dédié par document ; choix des polices standard              │
+│ (MuPDF)     analyse, rendu, extraction du texte et, plus tard, écriture      │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -28,7 +33,10 @@ seront créés aux jalons qui les utilisent (3 à 7).
 
 - **Un fil par document.** MuPDF interdit de manipuler un document depuis plusieurs
   fils. `pdf_core::DocumentHandle` lance donc un fil dédié qui possède le
-  `Document` et exécute les requêtes une à une, transmises par canal.
+  `Document` et exécute les requêtes une à une, transmises par canal. Pour chaque
+  requête, ce fil adopte la qualité de service (QoS) du fil qui attend la
+  réponse, ce qui évite les inversions de priorité signalées par macOS ; les
+  appels système correspondants sont fournis par le crate `ffi`.
 - **Rendu parallèle.** Pour chaque page, ce fil construit une *liste d'affichage*
   MuPDF (`PageContent`, mise en cache pour 48 pages). Cette liste est `Send + Sync` :
   sa rastérisation (la partie coûteuse) s'exécute sur le fil de l'appelant, donc en
@@ -36,7 +44,8 @@ seront créés aux jalons qui les utilisent (3 à 7).
 - **Côté Swift**, tout appel au moteur se fait hors du fil principal
   (`Task.detached`). `PageRenderer` limite à 3 les rendus simultanés, sert les
   demandes les plus récentes en premier et abandonne celles des pages sorties de
-  l'écran. Les images rendues sont gardées dans un `NSCache` (512 Mio au plus).
+  l'écran. Les images de pages entières sont gardées dans un `NSCache` (512 Mio au
+  plus) ; les tuiles de détail appartiennent à la vue de leur page.
 
 ## Flux d'ouverture d'un document
 
@@ -53,6 +62,39 @@ seront créés aux jalons qui les utilisent (3 à 7).
    600 pages), ce qui permet d'afficher immédiatement la mise en page complète ;
    les pages ne sont rendues qu'à leur apparition à l'écran.
 
+## Affichage des pages
+
+- **Canevas AppKit.** `PageCanvasView` est une `NSScrollView` : défilement inertiel,
+  pincement, barres de défilement et accessibilité sont ceux du système. Le
+  grossissement vaut 1 en taille réelle (1 point PDF = 1 point à l'écran) ; la
+  disposition (`PageLayout`) est calculée une fois en points, puis mise à l'échelle
+  par la vue de défilement. Seules les pages proches de la zone visible ont une vue,
+  recyclée au fil du défilement.
+- **Deux niveaux de rendu par page.** Une image de la page entière, rendue à la
+  résolution de l'écran et plafonnée à 4 096 pixels de côté, suffit jusqu'à environ
+  240 % sur un écran Retina. Au-delà, des tuiles de 1 024 pixels de la seule zone
+  visible (`render_region`) se posent par-dessus. Pendant un pincement, l'image
+  existante est simplement agrandie ; le rendu net suit la fin du geste. Une image
+  déjà en cache à une autre résolution sert de remplaçant immédiat.
+- **Rotation d'affichage.** Elle est appliquée par le moteur au rendu (quart de tour
+  dans la matrice de MuPDF) ; le fichier n'est pas modifié. Les rectangles de la
+  recherche, exprimés sur la page droite, sont tournés côté Swift
+  (`DisplayRotation`).
+
+## Recherche et plan
+
+- **Recherche.** Le moteur extrait le texte d'une page (avec la position de chaque
+  glyphe) et le « replie » : minuscules, accents retirés, ligatures développées,
+  guillemets, apostrophes et tirets unifiés, espaces fusionnées, mots coupés en fin
+  de ligne recollés. La requête est repliée de la même façon. Chaque caractère
+  replié garde la trace de son glyphe d'origine, d'où les rectangles à surligner,
+  un par ligne. L'application interroge les pages une à une (`search_page`) :
+  les résultats s'affichent au fil de l'eau et une nouvelle saisie interrompt la
+  recherche en cours. Le texte de 256 pages reste en cache dans le moteur.
+- **Plan.** Le plan MuPDF est aplati en parcours en profondeur (titre, niveau, page,
+  position verticale), forme simple à faire traverser le pont ; l'application
+  reconstruit l'arbre (`OutlineTree`).
+
 ## Pont Swift ↔ Rust : UniFFI
 
 Retenu de préférence à une FFI C écrite via `cbindgen` (cf. `DECISIONS.md`, D1) :
@@ -61,7 +103,9 @@ Retenu de préférence à une FFI C écrite via `cbindgen` (cf. `DECISIONS.md`, 
   références) sont générés des deux côtés, sans pointeur manipulé à la main ;
 - les erreurs Rust deviennent des `Error` Swift, les objets Rust des classes Swift
   libérées automatiquement ;
-- le code `unsafe` reste confiné aux macros UniFFI du crate `ffi`.
+- le code `unsafe` reste confiné au crate `ffi` : les macros UniFFI et le module
+  `qos`, deux appels système documentés (`qos_class_self`,
+  `pthread_set_qos_class_self_np`).
 
 La génération se fait par `make bindings` : `uniffi-bindgen-swift` lit la
 bibliothèque compilée et produit `app/Bridge/Generated/` (source Swift, en-tête C,
@@ -90,6 +134,7 @@ lancé depuis Xcode reste donc à jour.
 ## Tests
 
 - `make test-engine` : tests Rust (`cargo test`) sur `tests/fixtures/`.
-- `make test-app` : tests XCTest du pont et du rendu, hébergés dans l'application.
+- `make test-app` : tests XCTest du pont, du rendu, de la recherche et de la
+  géométrie d'affichage, hébergés dans l'application.
 - `tests/fixtures/generate.py` régénère le jeu de PDF publics ;
   `tests/fixtures/private/` reçoit les documents personnels, jamais versionnés.

@@ -96,3 +96,60 @@ Les deux points faibles de MuPDF sont traités au jalon 2 : choix explicite des
 polices macOS pour les 14 polices standard, et analyse de la lenteur sur les scans
 lourds (doc-10 : 32 ms par page à 150 ppp, soit environ 140 ms en plein écran
 Retina, ce qui reste sous le seuil gênant puisque le rendu est asynchrone).
+
+## Jalon 2 : polices standard et décomposition du rendu
+
+Nouvelle mesure du 21 octobre 2026, même Mac, avec
+`make bench BENCH_FLAGS="--profile --fonts"`, après le passage aux clones URW
+pour les 14 polices standard (décision D8).
+
+**Polices standard.** L'écart avec PDFium baisse de 0,79 à 0,66 sur
+`texte_simple.pdf` et de 4,24 à 2,83 sur `multipage_100.pdf`. L'écart restant
+vient du dessin des polices : PDFium utilise celles de macOS, MuPDF désormais les
+clones URW pour toutes les graisses, avec les mêmes chasses. Le rendu moyen du jeu
+public passe de 3,1 à 1,5 ms par page (PDFium : 2,2 ms), car les polices URW
+intégrées au moteur se chargent plus vite que celles du système. Les documents
+personnels, à polices intégrées, ne sont pas concernés : leurs écarts sont
+inchangés.
+
+| Document | Rendu MuPDF moy./max (ms) | Rendu PDFium moy./max (ms) | Écart moyen (/255) |
+|---|---:|---:|---:|
+| chiffre.pdf | 8,8 / 8,8 | 3,4 / 3,4 | 0,66 |
+| multipage_100.pdf | 1,0 / 2,3 | 2,4 / 2,5 | 2,83 |
+| pdf20.pdf | 3,3 / 3,3 | 2,1 / 2,1 | 0,66 |
+| signets.pdf | 1,2 / 2,4 | 2,1 / 2,5 | 2,81 |
+| texte_simple.pdf | 3,2 / 3,2 | 2,0 / 2,0 | 0,66 |
+| volumineux_600.pdf | 1,0 / 2,4 | 2,0 / 2,5 | 2,83 |
+
+**Décomposition du rendu MuPDF** (option `--profile`, document rouvert à chaque
+mesure). *Préparation* : construction de la liste d'affichage ; *1er rendu* et
+*2e rendu* : rastérisation de la page entière à 150 ppp, la seconde profitant des
+images déjà décodées ; *tuiles* : la page à l'échelle 2 en tuiles de 512 pixels.
+
+| Document | Images | Préparation (ms) | 1er rendu (ms) | 2e rendu (ms) | Tuiles (ms, nombre) |
+|---|---|---:|---:|---:|---:|
+| scan_simule.pdf | JPEG × 1 | 0,7 | 7,8 | 4,6 | 42,1 (12) |
+| vectoriel.pdf | aucune | 0,3 | 9,7 | 9,6 | 9,0 (12) |
+| texte_simple.pdf | aucune | 1,7 | 1,4 | 0,5 | 1,3 (12) |
+| doc-01 | JPEG × 6 | 2,9 | 5,8 | 2,2 | 7,9 (12) |
+| doc-02 | JPEG × 6 | 6,3 | 13,1 | 5,8 | 39,9 (12) |
+| doc-03 | JPEG × 1 | 0,2 | 4,3 | 3,2 | 14,1 (15) |
+| doc-04 | JPEG × 1 | 0,2 | 4,1 | 3,1 | 14,0 (15) |
+| doc-05 | JPEG × 1 | 0,0 | 12,4 | 8,0 | 59,8 (18) |
+| doc-06 | JPEG × 1 | 0,2 | 3,9 | 2,9 | 13,7 (15) |
+| doc-07 | aucune | 2,1 | 3,2 | 2,1 | 3,2 (12) |
+| doc-08 | JPEG × 4 | 0,6 | 3,5 | 2,1 | 3,6 (12) |
+| doc-09 | aucune | 1,5 | 2,5 | 1,1 | 2,3 (12) |
+| doc-10 | JPEG × 3 | 0,0 | 30,4 | 15,3 | 146,3 (12) |
+
+Rendu moyen des documents personnels : MuPDF 13,0 ms par page, PDFium 5,7 ms.
+
+**Lecture.** Sur les scans, le décodage JPEG pèse près de la moitié du premier
+rendu ; MuPDF garde ensuite l'image décodée, ce qui divise par deux le rendu
+suivant. Le rendu en tuiles est en revanche coûteux (146 ms pour doc-10) : chaque
+tuile ne couvre qu'une partie de l'image, et MuPDF la décode à nouveau pour cette
+partie. L'application en tient compte : elle affiche une image de la page entière,
+mise en cache, et ne recourt aux tuiles qu'au-delà de 4 096 pixels, soit un zoom
+d'environ 240 % pour une page A4 sur un écran Retina. Un décodeur JPEG plus rapide
+(libjpeg-turbo) n'est donc pas retenu pour l'instant ; il reste possible si le
+zoom fort sur les scans se révèle gênant à l'usage (cf. `LIMITES.md`).

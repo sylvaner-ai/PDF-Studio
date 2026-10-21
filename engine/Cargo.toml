@@ -21,6 +21,7 @@ render = { path = "render" }
 # Les formats non PDF (EPUB, XPS, HTML…) et le moteur JavaScript sont désactivés.
 mupdf = { version = "0.8", default-features = false, features = ["base14-fonts", "system-fonts"] }
 thiserror = "2"
+unicode-normalization = "0.1"
 uniffi = "0.32"
 
 [workspace.lints.rust]
