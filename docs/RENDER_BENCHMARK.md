@@ -39,30 +39,35 @@ l'initialisation du moteur et le chargement des polices.
 
 ## Documents personnels (`tests/fixtures/private`, anonymisés)
 
-Cinq fichiers, huit documents traités : cinq scans d'une page (reçus), trois PDF
-natifs aux polices intégrées (Open Sans, Calibri, polices d'entreprise).
+Dix documents (5 premières pages au plus) : sept scans, dont deux portant une
+couche de texte OCR invisible, et trois PDF natifs aux polices intégrées (Open
+Sans, Calibri, polices d'entreprise).
 
 | Document | Pages | Ouverture MuPDF (ms) | Ouverture PDFium (ms) | Rendu MuPDF moy./max (ms) | Rendu PDFium moy./max (ms) | Écart moyen (/255) | Pixels divergents | Échecs MuPDF / PDFium |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| doc-01 (scan) | 1 | 1,0 | 0,1 | 7,1 / 7,1 | 5,6 / 5,6 | 4,77 | 3,95 % | 0 / 0 |
-| doc-02 (scan) | 1 | 0,3 | 0,1 | 5,7 / 5,7 | 4,6 / 4,6 | 3,33 | 2,46 % | 0 / 0 |
-| doc-03 (scan) | 1 | 0,4 | 0,1 | 14,4 / 14,4 | 8,9 / 8,9 | 1,47 | 1,03 % | 0 / 0 |
-| doc-04 (scan) | 1 | 0,3 | 0,1 | 5,6 / 5,6 | 4,4 / 4,4 | 4,16 | 3,30 % | 0 / 0 |
-| doc-05 (natif) | 1 | 0,1 | 0,9 | 8,9 / 8,9 | 7,0 / 7,0 | 2,00 | 1,90 % | 0 / 0 |
-| doc-06 (natif) | 3 | 0,3 | 14,4 | 5,8 / 8,8 | 2,8 / 4,2 | 0,83 | 0,76 % | 0 / 0 |
-| doc-07 (natif) | 1 | 0,2 | 1,7 | 5,3 / 5,3 | 4,2 / 4,2 | 1,84 | 1,42 % | 0 / 0 |
-| doc-08 (scan) | 3 | 0,5 | 0,1 | 33,9 / 35,0 | 6,0 / 6,1 | 1,82 | 1,15 % | 0 / 0 |
+| doc-01 (scan + OCR) | 3 | 1,1 | 5,9 | 13,6 / 21,2 | 6,8 / 10,3 | 2,38 | 1,87 % | 0 / 0 |
+| doc-02 (scan + OCR) | 2 | 0,4 | 4,9 | 20,9 / 21,5 | 12,1 / 12,5 | 3,31 | 2,47 % | 0 / 0 |
+| doc-03 (scan) | 1 | 0,3 | 0,1 | 6,6 / 6,6 | 5,0 / 5,0 | 4,77 | 3,95 % | 0 / 0 |
+| doc-04 (scan) | 1 | 0,3 | 0,1 | 5,6 / 5,6 | 4,2 / 4,2 | 3,33 | 2,46 % | 0 / 0 |
+| doc-05 (scan) | 1 | 0,5 | 0,1 | 14,1 / 14,1 | 8,5 / 8,5 | 1,47 | 1,03 % | 0 / 0 |
+| doc-06 (scan) | 1 | 0,4 | 0,1 | 5,8 / 5,8 | 4,1 / 4,1 | 4,16 | 3,30 % | 0 / 0 |
+| doc-07 (natif) | 1 | 0,3 | 0,8 | 6,4 / 6,4 | 4,0 / 4,0 | 2,00 | 1,90 % | 0 / 0 |
+| doc-08 (natif) | 3 | 0,5 | 16,7 | 6,0 / 9,0 | 3,0 / 4,4 | 0,83 | 0,76 % | 0 / 0 |
+| doc-09 (natif) | 1 | 0,4 | 1,2 | 5,1 / 5,1 | 4,0 / 4,0 | 1,84 | 1,42 % | 0 / 0 |
+| doc-10 (scan) | 3 | 0,5 | 0,1 | 32,1 / 32,2 | 5,8 / 5,9 | 1,82 | 1,15 % | 0 / 0 |
 
-Rendu moyen : MuPDF 13,8 ms par page, PDFium 5,1 ms.
+Rendu moyen : MuPDF 14,1 ms par page, PDFium 5,9 ms (17 pages).
 
 ## Comparaison visuelle
 
-Examen des images côte à côte produites dans `build/bench*` :
+Examen des images côte à côte produites par `make bench` (dans
+`~/Library/Caches/PDFStudio/bench`, hors du dépôt) :
 
 - **PDF natifs à polices intégrées :** géométrie, chasse et coupures identiques au
   pixel près ; MuPDF anticrénèle un peu plus doucement, PDFium donne des fûts
   légèrement plus foncés. Écart de 0,8 à 2,0 sur 255 : indiscernable à 100 %.
-- **Scans :** même cadrage et même contenu. MuPDF garde des bords plus nets et le
+- **Scans :** même cadrage et même contenu ; tampons, signatures manuscrites et
+  filets identiques, couche de texte OCR invisible avec les deux moteurs. MuPDF garde des bords plus nets et le
   grain du scan (plus proche des pixels d'origine) ; PDFium lisse davantage (plus
   doux, un peu flou). Le comportement de MuPDF est préférable pour l'OCR et pour la
   retouche des scans, qui doit reproduire flou et grain (§4.3 b).
@@ -79,7 +84,7 @@ Examen des images côte à côte produites dans `build/bench*` :
 | Critère | MuPDF | PDFium |
 |---|---|---|
 | Ouverture de 100 / 600 pages | 0,5 / 2,2 ms | 7,5 / 39,6 ms |
-| Rendu moyen, documents personnels | 13,8 ms | 5,1 ms |
+| Rendu moyen, documents personnels | 14,1 ms | 5,9 ms |
 | Fichier tronqué | réparé, 100 pages | refusé |
 | Fidélité, polices intégrées | identique | identique |
 | Fidélité, polices standard non intégrées | substituts mélangés | polices macOS |
@@ -89,5 +94,5 @@ Examen des images côte à côte produites dans `build/bench*` :
 
 Les deux points faibles de MuPDF sont traités au jalon 2 : choix explicite des
 polices macOS pour les 14 polices standard, et analyse de la lenteur sur les scans
-lourds (doc-08 : 34 ms par page à 150 ppp, soit environ 140 ms en plein écran
+lourds (doc-10 : 32 ms par page à 150 ppp, soit environ 140 ms en plein écran
 Retina, ce qui reste sous le seuil gênant puisque le rendu est asynchrone).

@@ -19,8 +19,8 @@ l'*inpainting* des scans (jalon 7).
   l'italique, et le tiret cadratin « — » est dessiné trop court. Correction prévue
   au jalon 2. Les PDF à polices intégrées, de loin les plus courants, ne sont pas
   concernés.
-- **Scans lourds :** le rendu d'un scan riche en image peut prendre 35 ms à
-  150 ppp (environ 140 ms en plein écran Retina), contre 6 ms avec PDFium. La page
+- **Scans lourds :** le rendu d'un scan riche en image peut prendre 32 ms à
+  150 ppp (environ 130 ms en plein écran Retina), contre 6 ms avec PDFium. La page
   apparaît alors avec un court délai ; analyse prévue au jalon 2.
 - **Fichiers endommagés :** MuPDF répare ce qu'il peut ; un fichier tronqué peut
   s'ouvrir avec des pages incomplètes plutôt que d'être refusé.

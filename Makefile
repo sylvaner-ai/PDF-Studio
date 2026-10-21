@@ -76,15 +76,20 @@ lint:
 	else echo "SwiftLint absent : brew install swiftlint"; fi
 
 # Banc d'essai MuPDF / PDFium. PDFium n'est téléchargé que pour cette mesure ;
-# l'application ne l'utilise pas. Les documents privés sont anonymisés.
+# l'application ne l'utilise pas. Les documents privés sont anonymisés dans le
+# rapport ; les images de comparaison, qui montrent leur contenu, sont écrites
+# hors du dépôt et hors d'iCloud, dans BENCH_OUT, vidé à chaque exécution.
+BENCH_OUT := $(PDFSTUDIO_BUILD_ROOT)/bench
+
 bench:
 	@if [ ! -f "$(PDFIUM_DIR)/lib/libpdfium.dylib" ]; then \
 		mkdir -p "$(PDFIUM_DIR)" && curl -sSfL "$(PDFIUM_URL)" | tar -xz -C "$(PDFIUM_DIR)"; fi
 	$(CARGO) build $(CARGO_FLAGS) --release -p render_bench
-	"$(CARGO_TARGET_DIR)/release/render_bench" --pdfium "$(PDFIUM_DIR)/lib" --out build/bench \
+	rm -rf "$(BENCH_OUT)"
+	"$(CARGO_TARGET_DIR)/release/render_bench" --pdfium "$(PDFIUM_DIR)/lib" --out "$(BENCH_OUT)/public" \
 		$(BENCH_FLAGS) tests/fixtures
 	@if ls tests/fixtures/private/*.pdf >/dev/null 2>&1; then \
-		"$(CARGO_TARGET_DIR)/release/render_bench" --pdfium "$(PDFIUM_DIR)/lib" --out build/bench-private \
+		"$(CARGO_TARGET_DIR)/release/render_bench" --pdfium "$(PDFIUM_DIR)/lib" --out "$(BENCH_OUT)/private" \
 			--anonymize $(BENCH_FLAGS) tests/fixtures/private; fi
 
 fixtures:
