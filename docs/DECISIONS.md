@@ -14,7 +14,7 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   ce que le cahier des charges veut limiter. Le coût est une copie des pixels à la
   frontière (~18 Mo par page plein écran Retina, quelques millisecondes), acceptable.
 
-## D2 — Bibliothèque PDF et rendu : MuPDF (jalon 1, provisoire)
+## D2 — Bibliothèque PDF et rendu : MuPDF (jalon 1, confirmée par mesure)
 
 - **Retenu :** MuPDF via le crate `mupdf` 0.8 (liaison sûre, MuPDF compilé et lié
   statiquement). Formats non PDF et JavaScript désactivés.
@@ -30,9 +30,13 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   objets, écriture, annotations, OCR Tesseract intégré) ; il se lie statiquement,
   sans bibliothèque à embarquer. Sa licence AGPL n'impose aucune obligation pour un
   usage strictement personnel, sans distribution ni service en réseau.
-- **Mesure :** banc d'essai MuPDF / PDFium (vitesse, échecs, écart visuel), cf.
-  `RENDER_BENCHMARK.md`. La décision sera révisée si PDFium s'avère nettement
-  supérieur en qualité ou en vitesse sur vos documents.
+- **Mesure :** banc d'essai sur 12 fichiers publics et 8 documents personnels, cf.
+  `RENDER_BENCHMARK.md`. Fidélité identique sur les polices intégrées ; PDFium
+  rend plus vite les scans lourds (5 ms contre 14 ms en moyenne, très en deçà des
+  besoins) et gère mieux les polices standard non intégrées ; MuPDF répare les
+  fichiers endommagés, conserve le détail des scans et offre les fonctions des
+  jalons suivants. MuPDF est conservé ; ses deux faiblesses sont traitées au
+  jalon 2.
 
 ## D3 — Un fil dédié par document (jalon 1)
 

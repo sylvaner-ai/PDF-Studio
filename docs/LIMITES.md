@@ -13,7 +13,14 @@ l'*inpainting* des scans (jalon 7).
   visible à 150–300 ppp (10 à 50 ms par page) ; à revoir pour les zooms extrêmes.
 - **Zoom extrême :** une page n'est pas rendue au-delà de 16 384 pixels de côté ; un
   rendu par tuiles sera nécessaire pour les très forts grossissements (jalon 2).
-- **Polices non intégrées :** une police absente du PDF et du Mac est remplacée par
-  une police de base de MuPDF ; l'aspect peut différer de l'original.
+- **Polices standard non intégrées** (Helvetica, Times, Courier et leurs variantes,
+  quand le PDF ne contient pas le fichier de police) : MuPDF prend la police de
+  macOS pour les graisses normales mais ses substituts URW pour le gras et
+  l'italique, et le tiret cadratin « — » est dessiné trop court. Correction prévue
+  au jalon 2. Les PDF à polices intégrées, de loin les plus courants, ne sont pas
+  concernés.
+- **Scans lourds :** le rendu d'un scan riche en image peut prendre 35 ms à
+  150 ppp (environ 140 ms en plein écran Retina), contre 6 ms avec PDFium. La page
+  apparaît alors avec un court délai ; analyse prévue au jalon 2.
 - **Fichiers endommagés :** MuPDF répare ce qu'il peut ; un fichier tronqué peut
   s'ouvrir avec des pages incomplètes plutôt que d'être refusé.

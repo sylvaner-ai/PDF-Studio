@@ -11,7 +11,7 @@ locale, hors ligne, sans compte ni télémétrie.
 
 | Jalon | Contenu | État |
 |---|---|---|
-| 1. Socle | moteur Rust, pont UniFFI, ouverture et affichage d'un PDF | en cours |
+| 1. Socle | moteur Rust, pont UniFFI, ouverture et affichage d'un PDF | terminé (à valider) |
 | 2. Lecture complète | zoom, vignettes, recherche, signets, PDF chiffrés | à faire |
 | 3. Organisation des pages | §4.5 et enregistrement sécurisé | à faire |
 | 4 à 9 | édition, OCR, structure, scans, design, durcissement | à faire |
