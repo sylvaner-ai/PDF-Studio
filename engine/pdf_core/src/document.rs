@@ -99,6 +99,15 @@ impl Document {
         Ok(PageText::from_text_page(&text))
     }
 
+    /// Texte brut d'une page, dans l'ordre de lecture établi par MuPDF ; les mots
+    /// coupés en fin de ligne sont recollés.
+    pub fn plain_text(&self, index: u32) -> Result<String> {
+        self.page_size(index)?;
+        let page = self.inner.load_page(index as i32)?;
+        let text = page.to_text_page(mupdf::TextPageFlags::DEHYPHENATE)?;
+        Ok(text.to_text()?)
+    }
+
     fn page_size(&self, index: u32) -> Result<PageSize> {
         self.page_sizes
             .get(index as usize)

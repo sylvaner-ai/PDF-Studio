@@ -154,6 +154,11 @@ impl DocumentHandle {
         self.run(move |worker| Ok(worker.page_text(index)?.search(&query)))?
     }
 
+    /// Texte brut d'une page, pour l'export en texte.
+    pub fn plain_text(&self, index: u32) -> Result<String> {
+        self.run(move |worker| worker.doc.plain_text(index))?
+    }
+
     /// Exécute une requête sur le fil du document et attend sa réponse.
     fn run<R, F>(&self, job: F) -> Result<R>
     where
