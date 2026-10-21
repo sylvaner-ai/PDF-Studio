@@ -111,15 +111,18 @@ struct DocumentView: View {
 
     private var subtitle: String {
         guard model.phase == .ready else { return "" }
+        if model.workspace == .organizing, model.selection.count > 1 {
+            return String(localized: "\(model.selection.count) pages sélectionnées sur \(model.pageCount)")
+        }
         return model.pageCount == 1
             ? String(localized: "1 page")
             : String(localized: "Page \(model.canvas.currentPage + 1) sur \(model.pageCount)")
     }
 }
 
-/// Lecture d'un document : barre latérale, pages et recherche.
+/// Lecture d'un document : barre latérale, pages (ou grille d'organisation) et recherche.
 struct ReaderView: View {
-    let model: DocumentViewModel
+    @Bindable var model: DocumentViewModel
     let renderer: PageRenderer
 
     @State private var columnVisibility: NavigationSplitViewVisibility
@@ -136,12 +139,33 @@ struct ReaderView: View {
             SidebarView(model: model, renderer: renderer)
                 .navigationSplitViewColumnWidth(min: 140, ideal: 168, max: 260)
         } detail: {
-            PageCanvas(renderer: renderer, controller: model.canvas)
-                .accessibilityLabel(Text("Pages du document"))
+            switch model.workspace {
+            case .reading:
+                PageCanvas(renderer: renderer, controller: model.canvas)
+                    .accessibilityLabel(Text("Pages du document"))
+            case .organizing:
+                PageGrid(
+                    model: model,
+                    renderer: renderer,
+                    pages: model.pages,
+                    selection: model.selection,
+                    display: model.canvas.rotation,
+                    thumbnailWidth: model.gridThumbnailWidth
+                )
+            }
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                if let search = model.search {
+                Picker("Présentation", selection: $model.workspace) {
+                    Label("Lecture", systemImage: "doc.text").tag(Workspace.reading)
+                    Label("Organisation des pages", systemImage: "square.grid.2x2").tag(Workspace.organizing)
+                }
+                .pickerStyle(.segmented)
+                .labelStyle(.iconOnly)
+                .help(Text("Lecture (⌘1) ou organisation des pages (⌘2)"))
+            }
+            ToolbarItem(placement: .primaryAction) {
+                if model.workspace == .reading, let search = model.search {
                     SearchToolbarItem(search: search)
                 }
             }

@@ -26,6 +26,7 @@ final class CanvasController {
         canvas.setPages(pages)
         canvas.setRotation(rotation)
         canvas.setDisplayMode(displayMode)
+        canvas.start(at: currentPage)
         canvas.showMatches(matches, current: currentMatch)
         canvas.onCurrentPageChange = { [weak self] page in
             self?.currentPage = page
@@ -69,7 +70,14 @@ final class CanvasController {
     }
 
     func go(to page: Int, top: CGFloat? = nil) {
-        canvas?.go(to: page, top: top, animated: false)
+        guard let canvas else {
+            // Canevas masqué (grille d'organisation) : il s'ouvrira sur cette page.
+            if pages.indices.contains(page) {
+                currentPage = page
+            }
+            return
+        }
+        canvas.go(to: page, top: top, animated: false)
     }
 
     func goToNextPage() { canvas?.goToNextPage() }

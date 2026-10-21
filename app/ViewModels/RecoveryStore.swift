@@ -7,11 +7,12 @@ struct FileStamp: Codable, Equatable, Sendable {
     let size: Int64
     let modified: Date
 
-    /// Lit l'empreinte d'un fichier accessible.
+    /// Lit l'empreinte d'un fichier accessible, sur le disque (les valeurs que
+    /// `URL` garde en cache pourraient ne pas voir une modification).
     init(of url: URL) throws {
-        let values = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-        size = Int64(values.fileSize ?? 0)
-        modified = values.contentModificationDate ?? .distantPast
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+        modified = attributes[.modificationDate] as? Date ?? .distantPast
     }
 }
 

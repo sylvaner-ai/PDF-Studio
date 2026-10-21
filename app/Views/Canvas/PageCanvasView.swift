@@ -25,6 +25,8 @@ final class PageCanvasView: NSScrollView {
     /// Page demandée explicitement (signet, vignette) : elle reste la page
     /// courante tant qu'elle est visible et que l'utilisateur n'a pas défilé.
     var navigationTarget: Int?
+    /// Page à montrer dès que le canevas aura sa taille.
+    private var initialPage: Int?
 
     private var pageViews: [Int: PageTileView] = [:]
     private var reusableViews: [PageTileView] = []
@@ -169,6 +171,17 @@ extension PageCanvasView {
         }
     }
 
+    /// Page à montrer à l'ouverture du canevas (retour de la grille d'organisation).
+    func start(at page: Int) {
+        guard page > 0, pages.indices.contains(page) else { return }
+        currentPage = page
+        singlePage = page
+        initialPage = page
+        if mode == .singlePage {
+            rebuildLayout()
+        }
+    }
+
     func setDisplayMode(_ mode: DisplayMode) {
         guard mode != self.mode else { return }
         let page = currentPage
@@ -261,7 +274,10 @@ extension PageCanvasView {
         let page = mode == .singlePage ? singlePage : currentPage
         let target = layout.fitMagnification(fitMode, viewport: contentSize, page: page)
         magnification = max(minMagnification, min(maxMagnification, target))
-        if fitMode == .page {
+        if let page = initialPage {
+            initialPage = nil
+            go(to: page)
+        } else if fitMode == .page {
             go(to: anchor.page)
         } else {
             restore(anchor)

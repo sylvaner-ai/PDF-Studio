@@ -31,6 +31,10 @@ final class DocumentViewModel {
     private(set) var pages: [DisplayPage] = []
     /// Pages sélectionnées dans les vignettes, par identifiant.
     var selection: Set<UInt64> = []
+    /// Lecture des pages, ou grille pour les organiser.
+    var workspace = Workspace.reading
+    /// Largeur des vignettes de la grille, en points (⌘+ et ⌘- dans la grille).
+    var gridThumbnailWidth: CGFloat = 150
     private(set) var renderer: PageRenderer?
     private(set) var canvas = CanvasController(pages: [])
     private(set) var search: SearchModel?

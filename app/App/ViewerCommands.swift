@@ -31,21 +31,29 @@ struct ViewerCommands: Commands {
         }
 
         CommandGroup(before: .sidebar) {
-            Button("Taille réelle") { canvas?.actualSize() }
-                .keyboardShortcut("0")
+            Toggle("Lecture", isOn: workspace(.reading))
+                .keyboardShortcut("1")
                 .disabled(canvas == nil)
-            Button("Agrandir") { canvas?.zoomIn() }
+            Toggle("Organisation des pages", isOn: workspace(.organizing))
+                .keyboardShortcut("2")
+                .disabled(canvas == nil)
+            Divider()
+            Button("Taille réelle") { reading?.actualSize() }
+                .keyboardShortcut("0")
+                .disabled(reading == nil)
+            // Dans la grille d'organisation, ⌘+ et ⌘- changent la taille des vignettes.
+            Button("Agrandir") { zoom(larger: true) }
                 .keyboardShortcut("+")
                 .disabled(canvas == nil)
-            Button("Réduire") { canvas?.zoomOut() }
+            Button("Réduire") { zoom(larger: false) }
                 .keyboardShortcut("-")
                 .disabled(canvas == nil)
-            Button("Ajuster à la page") { canvas?.fit(.page) }
+            Button("Ajuster à la page") { reading?.fit(.page) }
                 .keyboardShortcut("9")
-                .disabled(canvas == nil)
-            Button("Ajuster à la largeur") { canvas?.fit(.width) }
+                .disabled(reading == nil)
+            Button("Ajuster à la largeur") { reading?.fit(.width) }
                 .keyboardShortcut("9", modifiers: [.command, .option])
-                .disabled(canvas == nil)
+                .disabled(reading == nil)
             Divider()
             // Rotation de l'affichage seul ; ⌘L et ⌘R font pivoter les pages (menu Pages).
             Button("Faire pivoter l'affichage à gauche") { canvas?.rotateDisplay(clockwise: false) }
@@ -60,22 +68,22 @@ struct ViewerCommands: Commands {
                 Text("Page par page").tag(DisplayMode.singlePage)
             }
             .pickerStyle(.inline)
-            .disabled(canvas == nil)
+            .disabled(reading == nil)
             Divider()
         }
 
         CommandMenu("Aller") {
-            Button("Page précédente") { canvas?.goToPreviousPage() }
+            Button("Page précédente") { reading?.goToPreviousPage() }
                 .keyboardShortcut(.upArrow, modifiers: [.command, .option])
-                .disabled(canvas?.canGoBack != true)
-            Button("Page suivante") { canvas?.goToNextPage() }
+                .disabled(reading?.canGoBack != true)
+            Button("Page suivante") { reading?.goToNextPage() }
                 .keyboardShortcut(.downArrow, modifiers: [.command, .option])
-                .disabled(canvas?.canGoForward != true)
+                .disabled(reading?.canGoForward != true)
             Divider()
-            Button("Première page") { canvas?.goToFirstPage() }
-                .disabled(canvas?.canGoBack != true)
-            Button("Dernière page") { canvas?.goToLastPage() }
-                .disabled(canvas?.canGoForward != true)
+            Button("Première page") { reading?.goToFirstPage() }
+                .disabled(reading?.canGoBack != true)
+            Button("Dernière page") { reading?.goToLastPage() }
+                .disabled(reading?.canGoForward != true)
         }
     }
 
@@ -83,6 +91,29 @@ struct ViewerCommands: Commands {
     private var canvas: CanvasController? {
         guard let model, model.phase == .ready else { return nil }
         return model.canvas
+    }
+
+    /// Canevas du document actif s'il est affiché (et non la grille d'organisation).
+    private var reading: CanvasController? {
+        model?.workspace == .reading ? canvas : nil
+    }
+
+    private func workspace(_ workspace: Workspace) -> Binding<Bool> {
+        let model = self.model
+        return Binding(
+            get: { model?.workspace == workspace },
+            set: { if $0 { model?.workspace = workspace } }
+        )
+    }
+
+    private func zoom(larger: Bool) {
+        if let model, model.workspace == .organizing {
+            model.zoomGrid(in: larger)
+        } else if larger {
+            canvas?.zoomIn()
+        } else {
+            canvas?.zoomOut()
+        }
     }
 
     private var displayMode: Binding<DisplayMode> {
