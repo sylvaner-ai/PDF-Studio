@@ -3,12 +3,13 @@ use std::path::PathBuf;
 use std::sync::{mpsc, Arc};
 use std::thread;
 
-use crate::document::Document;
+use crate::document::{self, Document};
 use crate::error::{PdfError, Result};
 use crate::outline::OutlineEntry;
 use crate::page::{PageContent, PageSize};
 use crate::qos::Qos;
 use crate::text::{PageText, TextMatch};
+use crate::writer::SourceData;
 
 /// Nombre de pages dont le contenu préparé est gardé en mémoire.
 const CONTENT_CACHE_PAGES: usize = 48;
@@ -41,6 +42,14 @@ pub struct DocumentHandle {
     jobs: mpsc::Sender<Request>,
     page_sizes: Vec<PageSize>,
     title: Option<String>,
+    data: SourceData,
+}
+
+/// Ce que le fil du document renvoie une fois le document ouvert.
+struct Summary {
+    page_sizes: Vec<PageSize>,
+    title: Option<String>,
+    data: SourceData,
 }
 
 impl DocumentHandle {
@@ -59,17 +68,25 @@ impl DocumentHandle {
                     Qos::current()
                 };
                 let opened = match source {
-                    Source::File(path) => Document::open_file(&path, password.as_deref()),
-                    Source::Bytes(bytes) => Document::from_bytes(&bytes, password.as_deref()),
-                };
-                let doc = match opened {
-                    Ok(doc) => doc,
+                    Source::File(path) => document::read_file(&path),
+                    Source::Bytes(bytes) => Ok(bytes),
+                }
+                .and_then(|bytes| {
+                    let doc = Document::from_bytes(&bytes, password.as_deref())?;
+                    Ok((doc, SourceData::new(bytes, password)))
+                });
+                let (doc, data) = match opened {
+                    Ok(opened) => opened,
                     Err(err) => {
                         let _ = ready_tx.send(Err(err));
                         return;
                     }
                 };
-                let summary = (doc.page_sizes().to_vec(), doc.title().map(str::to_owned));
+                let summary = Summary {
+                    page_sizes: doc.page_sizes().to_vec(),
+                    title: doc.title().map(str::to_owned),
+                    data,
+                };
                 let _ = ready_tx.send(Ok(summary));
 
                 let mut worker = Worker {
@@ -88,11 +105,12 @@ impl DocumentHandle {
                 detail: format!("création du fil du document : {err}"),
             })?;
 
-        let (page_sizes, title) = ready_rx.recv().map_err(|_| PdfError::Closed)??;
+        let summary = ready_rx.recv().map_err(|_| PdfError::Closed)??;
         Ok(Self {
             jobs,
-            page_sizes,
-            title,
+            page_sizes: summary.page_sizes,
+            title: summary.title,
+            data: summary.data,
         })
     }
 
@@ -109,6 +127,12 @@ impl DocumentHandle {
     /// Titre déclaré dans les métadonnées.
     pub fn title(&self) -> Option<&str> {
         self.title.as_deref()
+    }
+
+    /// Contenu du document tel que lu à l'ouverture, et son mot de passe, à partir
+    /// desquels s'écrit une version modifiée.
+    pub fn source_data(&self) -> &SourceData {
+        &self.data
     }
 
     /// Contenu préparé d'une page, mis en cache.

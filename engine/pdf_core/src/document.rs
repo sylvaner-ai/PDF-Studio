@@ -19,11 +19,7 @@ pub struct Document {
 impl Document {
     /// Ouvre un fichier PDF en lecture seule.
     pub fn open_file(path: &Path, password: Option<&str>) -> Result<Self> {
-        let bytes = std::fs::read(path).map_err(|source| PdfError::Unreadable {
-            path: path.to_owned(),
-            source,
-        })?;
-        Self::from_bytes(&bytes, password)
+        Self::from_bytes(&read_file(path)?, password)
     }
 
     /// Ouvre un PDF à partir de son contenu binaire.
@@ -112,6 +108,14 @@ impl Document {
                 count: self.page_count(),
             })
     }
+}
+
+/// Lit le contenu d'un fichier.
+pub(crate) fn read_file(path: &Path) -> Result<Vec<u8>> {
+    std::fs::read(path).map_err(|source| PdfError::Unreadable {
+        path: path.to_owned(),
+        source,
+    })
 }
 
 /// Mesure une page ; une page illisible reçoit le format A4 pour ne pas bloquer
