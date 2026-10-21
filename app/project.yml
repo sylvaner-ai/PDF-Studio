@@ -23,6 +23,8 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: NO
     LOCALIZATION_PREFERS_STRING_CATALOGS: YES
     SWIFT_EMIT_LOC_STRINGS: YES
+    # Module C des liaisons UniFFI : nécessaire à l'application et aux tests.
+    SWIFT_INCLUDE_PATHS: '"$(SRCROOT)/Bridge/Generated"'
 
 targets:
   PDFStudio:
@@ -71,7 +73,6 @@ targets:
         PRODUCT_NAME: PDF Studio
         PRODUCT_MODULE_NAME: PDFStudio
         PRODUCT_BUNDLE_IDENTIFIER: fr.sylvainrobert.pdfstudio
-        SWIFT_INCLUDE_PATHS: '"$(SRCROOT)/Bridge/Generated"'
         LIBRARY_SEARCH_PATHS: '"$(SRCROOT)/Bridge/Generated"'
         OTHER_LDFLAGS:
           - -lpdfstudio_ffi

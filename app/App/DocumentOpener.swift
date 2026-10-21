@@ -68,7 +68,8 @@ final class DocumentOpener {
                 reference = try DocumentReference(url: url)
             } catch {
                 pending.removeFirst()
-                logger.error("Signet impossible pour \(url.path, privacy: .private) : \(error.localizedDescription, privacy: .public)")
+                let reason = error.localizedDescription
+                logger.error("Signet impossible pour \(url.path, privacy: .private) : \(reason, privacy: .public)")
                 presentAccessError(for: url)
                 continue
             }

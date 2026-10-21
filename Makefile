@@ -6,19 +6,27 @@
 #   make bench     banc d'essai des moteurs de rendu (cf. docs/RENDER_BENCHMARK.md)
 #   make fixtures  régénère le jeu de PDF de test
 #
-# Le chemin du dépôt peut contenir des espaces : toutes les recettes utilisent des
-# chemins relatifs et des guillemets.
+# Le chemin du dépôt peut contenir des espaces et se trouver dans un dossier
+# synchronisé par iCloud Drive. Deux conséquences :
+# - la compilation de MuPDF échoue si son dossier de sortie contient un espace ;
+# - iCloud ajoute aux fichiers des attributs étendus que la signature refuse.
+# Les produits intermédiaires (cible Cargo, DerivedData) sont donc placés dans
+# PDFSTUDIO_BUILD_ROOT, hors du dépôt et sans espace ; seule l'application
+# finale est copiée dans build/.
 
 SHELL := /bin/bash
 export PATH := $(HOME)/.cargo/bin:/opt/homebrew/bin:$(PATH)
 
+PDFSTUDIO_BUILD_ROOT ?= $(HOME)/Library/Caches/PDFStudio
+export CARGO_TARGET_DIR := $(PDFSTUDIO_BUILD_ROOT)/target
+
 RUST_TARGET   := aarch64-apple-darwin
 CARGO         := cargo
 CARGO_FLAGS   := --manifest-path engine/Cargo.toml
-ENGINE_DIR    := engine/target/$(RUST_TARGET)/release
+ENGINE_DIR    := $(CARGO_TARGET_DIR)/$(RUST_TARGET)/release
 GENERATED     := app/Bridge/Generated
 XCODE_PROJECT := app/PDFStudio.xcodeproj
-DERIVED_DATA  := build/DerivedData
+DERIVED_DATA  := $(PDFSTUDIO_BUILD_ROOT)/DerivedData
 APP_NAME      := PDF Studio.app
 PDFIUM_URL    := https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz
 PDFIUM_DIR    := .tools/pdfium
@@ -28,8 +36,9 @@ PDFIUM_DIR    := .tools/pdfium
 build: project
 	xcodebuild -project "$(XCODE_PROJECT)" -scheme PDFStudio -configuration Release \
 		-derivedDataPath "$(DERIVED_DATA)" -destination 'platform=macOS,arch=arm64' build
+	mkdir -p build
 	rm -rf "build/$(APP_NAME)"
-	cp -R "$(DERIVED_DATA)/Build/Products/Release/$(APP_NAME)" "build/$(APP_NAME)"
+	ditto "$(DERIVED_DATA)/Build/Products/Release/$(APP_NAME)" "build/$(APP_NAME)"
 	@echo "Application prête : build/$(APP_NAME)"
 
 # Bibliothèque statique du moteur (MuPDF compris), pour Apple Silicon.
@@ -42,7 +51,7 @@ engine:
 bindings: engine
 	mkdir -p "$(GENERATED)"
 	cd engine && $(CARGO) run --release -q -p uniffi-bindgen --bin uniffi-bindgen-swift -- \
-		"target/$(RUST_TARGET)/release/libpdfstudio_ffi.dylib" "../$(GENERATED)" \
+		"$(ENGINE_DIR)/libpdfstudio_ffi.dylib" "../$(GENERATED)" \
 		--swift-sources --headers --modulemap \
 		--module-name pdfstudio_ffiFFI --modulemap-filename module.modulemap
 	cp "$(ENGINE_DIR)/libpdfstudio_ffi.a" "$(GENERATED)/libpdfstudio_ffi.a"
@@ -72,10 +81,10 @@ bench:
 	@if [ ! -f "$(PDFIUM_DIR)/lib/libpdfium.dylib" ]; then \
 		mkdir -p "$(PDFIUM_DIR)" && curl -sSfL "$(PDFIUM_URL)" | tar -xz -C "$(PDFIUM_DIR)"; fi
 	$(CARGO) build $(CARGO_FLAGS) --release -p render_bench
-	engine/target/release/render_bench --pdfium "$(PDFIUM_DIR)/lib" --out build/bench \
+	"$(CARGO_TARGET_DIR)/release/render_bench" --pdfium "$(PDFIUM_DIR)/lib" --out build/bench \
 		$(BENCH_FLAGS) tests/fixtures
 	@if ls tests/fixtures/private/*.pdf >/dev/null 2>&1; then \
-		engine/target/release/render_bench --pdfium "$(PDFIUM_DIR)/lib" --out build/bench-private \
+		"$(CARGO_TARGET_DIR)/release/render_bench" --pdfium "$(PDFIUM_DIR)/lib" --out build/bench-private \
 			--anonymize $(BENCH_FLAGS) tests/fixtures/private; fi
 
 fixtures:
@@ -83,4 +92,4 @@ fixtures:
 
 clean:
 	$(CARGO) clean $(CARGO_FLAGS)
-	rm -rf build "$(GENERATED)" "$(XCODE_PROJECT)"
+	rm -rf build "$(GENERATED)" "$(XCODE_PROJECT)" "$(DERIVED_DATA)"

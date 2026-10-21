@@ -69,6 +69,12 @@ modulemap), non versionné.
 
 ## Build
 
+Les produits intermédiaires (cible Cargo, DerivedData) sont placés dans
+`~/Library/Caches/PDFStudio` (modifiable par `PDFSTUDIO_BUILD_ROOT`) : la
+compilation de MuPDF échoue si son dossier de sortie contient un espace, et la
+signature refuse les attributs étendus qu'iCloud Drive ajoute aux fichiers d'un
+dossier synchronisé. Seule l'application finale est copiée dans `build/`.
+
 `make build` enchaîne :
 
 1. `make engine` : `cargo build --release --target aarch64-apple-darwin`
