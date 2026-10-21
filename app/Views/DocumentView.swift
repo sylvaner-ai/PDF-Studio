@@ -14,6 +14,7 @@ struct DocumentView: View {
             .background(Color(nsColor: .underPageBackgroundColor))
             .navigationTitle(model.title)
             .navigationSubtitle(subtitle)
+            .focusedSceneValue(\.documentModel, model)
             .task { await model.open() }
     }
 
@@ -35,7 +36,7 @@ struct DocumentView: View {
                 .padding(32)
         case .ready:
             if let renderer = model.renderer {
-                PageScrollView(pageSizes: model.pageSizes, renderer: renderer)
+                ReaderView(model: model, renderer: renderer)
             }
         }
     }
@@ -44,7 +45,63 @@ struct DocumentView: View {
         guard model.phase == .ready else { return "" }
         return model.pageCount == 1
             ? String(localized: "1 page")
-            : String(localized: "\(model.pageCount) pages")
+            : String(localized: "Page \(model.canvas.currentPage + 1) sur \(model.pageCount)")
+    }
+}
+
+/// Lecture d'un document : barre latérale, pages et recherche.
+struct ReaderView: View {
+    let model: DocumentViewModel
+    let renderer: PageRenderer
+
+    @State private var columnVisibility: NavigationSplitViewVisibility
+
+    init(model: DocumentViewModel, renderer: PageRenderer) {
+        self.model = model
+        self.renderer = renderer
+        // La page est le héros : pas de barre latérale pour un document d'une page.
+        _columnVisibility = State(initialValue: model.pageCount > 1 ? .all : .detailOnly)
+    }
+
+    var body: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            SidebarView(model: model, renderer: renderer)
+                .navigationSplitViewColumnWidth(min: 140, ideal: 168, max: 260)
+        } detail: {
+            PageCanvas(pageSizes: model.pageSizes, renderer: renderer, controller: model.canvas)
+                .accessibilityLabel(Text("Pages du document"))
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                if let search = model.search {
+                    SearchToolbarItem(search: search)
+                }
+            }
+        }
+    }
+}
+
+/// Champ de recherche et compteur d'occurrences.
+struct SearchToolbarItem: View {
+    let search: SearchModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let status = search.status {
+                Text(status)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            SearchField(
+                text: search.query,
+                focusRequest: search.focusRequest,
+                onChange: { search.update(query: $0) },
+                onNext: { search.next() },
+                onPrevious: { search.previous() }
+            )
+            .frame(minWidth: 140, idealWidth: 200, maxWidth: 240)
+        }
     }
 }
 

@@ -12,9 +12,11 @@ struct PDFStudioApp: App {
         WindowGroup(id: DocumentOpener.windowID, for: DocumentReference.self) { $reference in
             DocumentWindow(reference: $reference)
         }
-        .defaultSize(width: 920, height: 1040)
+        .defaultSize(width: 1080, height: 1040)
         .commands {
             FileCommands()
+            SidebarCommands()
+            ViewerCommands()
         }
     }
 }
