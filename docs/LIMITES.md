@@ -52,6 +52,10 @@ l'*inpainting* des scans (jalon 7).
 - **Rotation d'affichage :** elle s'applique à tout le document et n'est pas
   enregistrée ; la rotation enregistrée page par page relève de l'organiseur
   (jalon 3).
+- **Barre d'outils :** constaté sur un document d'une page dans une fenêtre de
+  920 pt, un chevron de débordement (») apparaît à droite de la barre d'outils
+  et le bouton de la barre latérale n'est pas visible. Cause à confirmer ; la barre
+  latérale reste accessible par le menu Présentation (⌃⌘S).
 - **Menu Édition :** les commandes de recherche remplacent le groupe « Édition de
   texte » standard (⌘F, ⌘G, ⇧⌘G) ; d'éventuelles entrées système de ce groupe,
   comme l'orthographe, n'apparaissent pas dans le menu.
