@@ -44,7 +44,7 @@ final class ImageExportOptions {
         view = ExportOptions.grid([
             (String(localized: "Format :"), format),
             (String(localized: "Résolution :"), resolution),
-            (String(localized: "Pages :"), scope),
+            (String(localized: "Pages :"), scope)
         ])
     }
 
@@ -83,7 +83,7 @@ final class SplitOptions: NSObject {
         pages.spacing = 4
         view = ExportOptions.grid([
             (String(localized: "Découper :"), mode),
-            (String(localized: "Pages par partie :"), pages),
+            (String(localized: "Pages par partie :"), pages)
         ])
         super.init()
         stepper.target = self

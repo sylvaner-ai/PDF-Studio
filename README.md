@@ -12,9 +12,26 @@ locale, hors ligne, sans compte ni télémétrie.
 | Jalon | Contenu | État |
 |---|---|---|
 | 1. Socle | moteur Rust, pont UniFFI, ouverture et affichage d'un PDF | terminé |
-| 2. Lecture complète | zoom, vignettes, recherche, signets, PDF chiffrés | terminé (à valider) |
-| 3. Organisation des pages | §4.5 et enregistrement sécurisé | à faire |
+| 2. Lecture complète | zoom, vignettes, recherche, signets, PDF chiffrés | terminé |
+| 3. Organisation des pages | §4.5 et enregistrement sécurisé | terminé (à valider) |
 | 4 à 9 | édition, OCR, structure, scans, design, durcissement | à faire |
+
+## Organiser les pages
+
+- **Présentations :** lecture (⌘1) ou grille d'organisation (⌘2) ; ⌘+ et ⌘-
+  changent la taille des vignettes de la grille.
+- **Menu Pages**, sur les pages sélectionnées : faire pivoter (⌘L, ⌘R), dupliquer
+  (⌘D), supprimer (⌘⌫), insérer une page vierge (⌥⌘N) ou les pages d'autres PDF
+  (⌥⌘I), extraire les pages (⌥⌘E), scinder le document. Tout s'annule par ⌘Z.
+- **Glisser-déposer :** les vignettes se déplacent dans la barre latérale ou la
+  grille ; un PDF déposé depuis le Finder sur la grille y insère ses pages ; des
+  pages glissées vers la grille d'une autre fenêtre y sont copiées.
+- **Fusionner :** ouvrir le premier document, y insérer les autres, puis
+  Enregistrer sous.
+- **Enregistrer** (⌘S) remplace le fichier après confirmation, en gardant une copie
+  de l'original ; **Enregistrer sous** (⇧⌘S) écrit une copie. Les modifications non
+  enregistrées sont proposées à la prochaine ouverture du document.
+- **Exporter**, menu Fichier : les pages en images (PNG ou JPEG) ou le texte en .txt.
 
 ## Prérequis
 

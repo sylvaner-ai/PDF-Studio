@@ -29,8 +29,8 @@ final class PageExporterTests: XCTestCase {
     }
 
     func testLimiteLaTailleDesImages() {
-        let a4 = CGSize(width: 595, height: 842)
-        XCTAssertEqual(PageExporter.scale(forDPI: 144, pageSize: a4), 2)
+        let portrait = CGSize(width: 595, height: 842)
+        XCTAssertEqual(PageExporter.scale(forDPI: 144, pageSize: portrait), 2)
         let poster = CGSize(width: 5000, height: 7000)
         XCTAssertEqual(PageExporter.scale(forDPI: 300, pageSize: poster) * 7000, PageExporter.maxPixels, accuracy: 0.5)
     }

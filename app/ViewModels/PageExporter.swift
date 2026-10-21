@@ -78,7 +78,7 @@ enum PageExporter {
         ) else { throw CocoaError(.fileWriteUnknown) }
         var properties: [CFString: Any] = [
             kCGImagePropertyDPIWidth: dpi,
-            kCGImagePropertyDPIHeight: dpi,
+            kCGImagePropertyDPIHeight: dpi
         ]
         if format == .jpeg {
             properties[kCGImageDestinationLossyCompressionQuality] = 0.9

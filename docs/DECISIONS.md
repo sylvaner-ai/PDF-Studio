@@ -124,3 +124,95 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   « œuvre » ; la correspondance octet par octet avec les glyphes donne des
   rectangles exacts. La recherche page par page permet d'afficher les premiers
   résultats tout de suite et de l'interrompre à la frappe suivante.
+
+## D11 — Organisation des pages : une liste dans le moteur et un historique (jalon 3)
+
+- **Retenu :** le crate `edit` tient la liste des pages : chacune vient d'une page
+  d'un document source ou est vierge, avec un nombre de quarts de tour. Chaque
+  opération (rotation, suppression, duplication, déplacement, insertion,
+  restauration) remplace cette liste et s'inscrit dans un historique (patron
+  Command : chaque commande retient la liste avant et après). Le gestionnaire
+  d'annulation de la fenêtre (`NSUndoManager`) pilote cet historique, d'où les
+  menus « Annuler la rotation », « Rétablir le déplacement »…
+- **Alternatives :** modifier le PDF dans MuPDF à chaque opération ; tenir
+  l'historique côté Swift.
+- **Raisons :** rien n'est écrit tant que l'utilisateur n'enregistre pas ;
+  l'annulation est immédiate ; le cache des images, indexé par page source, sert
+  encore après un déplacement ; la logique PDF reste dans le moteur.
+
+## D12 — Écriture : réagencer le document ouvert (jalon 3)
+
+- **Retenu :** l'enregistrement repart des octets lus à l'ouverture et garde le
+  catalogue du document (métadonnées, formulaire, préférences d'affichage, plan).
+  Toutes les pages sont retirées de l'arbre, puis les pages conservées y sont
+  remises dans le nouvel ordre ; une page répétée est copiée en profondeur, les
+  pages d'autres documents arrivent par `insert_pdf`, les pages vierges sont
+  créées. Les signets, liens et champs qui visaient une page supprimée sont
+  retirés. Une simple rotation, sans changement d'ordre, ne touche que l'attribut
+  `/Rotate`. Le PDF produit est relu par MuPDF avant d'être écrit.
+- **Alternatives :** `pdf_rearrange_pages` de MuPDF, qui « recrée l'arbre des pages
+  avec les pages listées, dans l'ordre » : il n'est pas exposé par le crate `mupdf`
+  (il faudrait du code `unsafe` hors du crate `ffi`) et ne traite que les pages du
+  document lui-même. Copier les pages dans un document neuf ferait perdre le
+  catalogue.
+- **Raisons :** une page conservée reste le même objet PDF, si bien que les liens et
+  signets qui la visent fonctionnent encore après un déplacement.
+- **Règle :** un objet direct ne doit jamais appartenir à deux conteneurs ; MuPDF
+  renumérote alors deux fois ses références à l'enregistrement, et elles deviennent
+  fausses ou nulles. Les attributs hérités de l'arbre des pages et les pages
+  dupliquées sont donc copiés en profondeur.
+
+## D13 — Enregistrer sans jamais écraser en silence (jalon 3)
+
+- **Retenu :** ⌘S demande confirmation, en prévenant si une signature numérique
+  sera invalidée. L'original est ensuite copié dans les sauvegardes
+  (`Application Support/PDF Studio/Sauvegardes` du conteneur, 30 copies au plus),
+  puis le fichier est réécrit en place. Le contenu écrit est relu, et l'original
+  est restauré en cas d'échec. ⇧⌘S écrit une copie, qui devient le fichier de la
+  fenêtre. Un fichier remplacé par une exportation est, lui aussi, d'abord
+  sauvegardé.
+- **Alternative :** l'écriture atomique, par un fichier temporaire échangé avec
+  l'original.
+- **Raisons :** la réécriture en place conserve l'emplacement du fichier, ses
+  étiquettes et sa synchronisation. La copie préalable et la relecture couvrent le
+  risque d'une écriture interrompue.
+
+## D14 — Récupération : retenir l'organisation des pages, pas leur contenu (jalon 3)
+
+- **Retenu :** à chaque modification non enregistrée, un fichier JSON de quelques
+  kilo-octets décrit les pages. Il est rangé dans
+  `Application Support/PDF Studio/Récupération`, avec le chemin du document et
+  l'empreinte de son fichier (taille, date). Avant le premier enregistrement, qui
+  remplace le fichier, la version d'ouverture est copiée à côté, de même que chaque
+  document dont des pages sont insérées. À la réouverture du fichier, PDF Studio
+  propose Restaurer ou Ignorer.
+- **Alternative :** enregistrer un PDF complet à intervalles réguliers.
+- **Raisons :** l'écriture est instantanée à chaque changement, et rien n'est perdu
+  entre deux sauvegardes automatiques. Le mot de passe d'un document protégé n'est
+  jamais écrit sur le disque.
+
+## D15 — ⌘L et ⌘R font pivoter les pages, ⌥⌘L et ⌥⌘R l'affichage (jalon 3)
+
+- **Retenu :** ⌘L et ⌘R font pivoter les pages sélectionnées, et la rotation est
+  enregistrée dans le fichier. La rotation d'affichage du jalon 2 passe à ⌥⌘L et
+  ⌥⌘R.
+- **Raisons :** décision de Sylvain du 21 octobre 2026 (rotation par page,
+  enregistrée, dès le jalon 3) ; ce sont aussi les raccourcis d'Aperçu.
+
+## D16 — Grille d'organisation en AppKit (jalon 3)
+
+- **Retenu :** une `NSCollectionView` avec une source de données différentielle,
+  intégrée à SwiftUI par `NSViewRepresentable`.
+- **Alternative :** `LazyVGrid` de SwiftUI, avec `draggable` et `dropDestination`.
+- **Raisons :** la sélection multiple native (⇧-clic, ⌘-clic, rectangle, flèches),
+  l'indicateur d'insertion entre deux vignettes, le glisser-déposer entre fenêtres
+  et depuis le Finder, les déplacements animés et le recyclage des cases sont
+  fournis par AppKit.
+
+## D17 — Confirmation de fermeture par un délégué intercalé (jalon 3)
+
+- **Retenu :** `WindowCloseGuard` se place devant le délégué que SwiftUI donne à la
+  fenêtre et lui transmet tout ce qu'il ne traite pas. Il demande « Enregistrer… /
+  Annuler / Ne pas enregistrer » avant de fermer un document modifié.
+- **Raisons :** sous macOS 14, SwiftUI n'offre aucun moyen d'empêcher la fermeture
+  d'une fenêtre.

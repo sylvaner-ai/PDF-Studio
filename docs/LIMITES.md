@@ -51,7 +51,7 @@ l'*inpainting* des scans (jalon 7).
   pages en vis-à-vis ni de couverture séparée.
 - **Rotation d'affichage :** elle s'applique à tout le document et n'est pas
   enregistrée ; la rotation enregistrée page par page relève de l'organiseur
-  (jalon 3).
+  (jalon 3). *Résolu au jalon 3 : ⌘L et ⌘R font pivoter les pages sélectionnées.*
 - **Barre d'outils :** constaté sur un document d'une page dans une fenêtre de
   920 pt, un chevron de débordement (») apparaît à droite de la barre d'outils
   et le bouton de la barre latérale n'est pas visible. Cause à confirmer ; la barre
@@ -59,3 +59,37 @@ l'*inpainting* des scans (jalon 7).
 - **Menu Édition :** les commandes de recherche remplacent le groupe « Édition de
   texte » standard (⌘F, ⌘G, ⇧⌘G) ; d'éventuelles entrées système de ce groupe,
   comme l'orthographe, n'apparaissent pas dans le menu.
+
+## Jalon 3
+
+- **Pages insérées depuis un autre document :** leurs annotations visibles sont
+  reprises, mais pas leurs champs de formulaire, leurs liens internes ni les
+  signets de leur document d'origine.
+- **Numérotation des pages** (« i, ii, 1, 2… », `/PageLabels`) : elle est abandonnée
+  dès que l'ordre des pages change, plutôt que de devenir fausse.
+- **Destinations nommées :** une destination nommée qui visait une page supprimée
+  reste dans le fichier ; elle ne mène plus nulle part.
+- **Signature numérique :** tout enregistrement la rend invalide (PDF Studio prévient
+  avant). Signer de nouveau relève d'un autre logiciel.
+- **Récupération :** seule l'organisation des pages est retenue. Si le fichier est
+  modifié par une autre application avant tout enregistrement dans PDF Studio, les
+  modifications retenues sont abandonnées à la réouverture. Insérer des pages d'un
+  PDF protégé par un mot de passe rend la récupération impossible pour ce document,
+  car le mot de passe n'est jamais écrit ; l'alerte de fin le signale. L'empreinte
+  d'un fichier se limite à sa taille et à sa date de modification.
+- **Glisser-déposer :** les pages se copient d'une fenêtre à l'autre depuis la grille
+  d'organisation seulement, pas depuis la barre latérale ; on ne peut pas encore
+  les déposer dans le Finder pour créer un fichier.
+- **Fusion :** il n'y a pas de commande dédiée. On ouvre le premier document, on y
+  insère les autres (⌥⌘I, plusieurs à la fois, ou par dépôt sur la grille), puis on
+  choisit Enregistrer sous.
+- **Export du texte :** seul le texte natif est exporté, sans OCR, dans l'ordre de
+  lecture établi par MuPDF.
+- **Export en images :** 10 000 pixels de côté au plus, pour une affiche exportée à
+  300 ppp.
+- **⌘Z dans le champ de recherche :** quand ce champ a le focus, ⌘Z annule la saisie
+  et non la dernière modification des pages.
+- **Développement :** dans le profil de débogage de Cargo, MuPDF est compilé avec ses
+  assertions. L'une d'elles (`pdf_load_hail_mary_font`) peut se déclencher quand des
+  tests parallèles chargent un formulaire sans police par défaut. La version Release
+  n'est pas concernée, et le jeu de test fournit cette police.
