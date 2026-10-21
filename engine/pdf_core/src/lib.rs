@@ -7,6 +7,7 @@
 
 mod document;
 mod error;
+mod fonts;
 mod outline;
 mod page;
 mod service;

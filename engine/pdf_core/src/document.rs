@@ -28,6 +28,7 @@ impl Document {
 
     /// Ouvre un PDF à partir de son contenu binaire.
     pub fn from_bytes(bytes: &[u8], password: Option<&str>) -> Result<Self> {
+        crate::fonts::install();
         let invalid = |err: mupdf::Error| PdfError::InvalidDocument {
             detail: err.to_string(),
         };

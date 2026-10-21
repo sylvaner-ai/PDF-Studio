@@ -6,10 +6,14 @@
 //!
 //! Usage :
 //!   render_bench [--pdfium DOSSIER] [--dpi 150] [--max-pages 20]
-//!                [--out DOSSIER] [--anonymize] [--fonts] FICHIER_OU_DOSSIER...
+//!                [--out DOSSIER] [--anonymize] [--fonts] [--profile] FICHIER_OU_DOSSIER...
 //!
 //! `--fonts` liste en plus, pour chaque document, les polices réellement
 //! utilisées par MuPDF (police intégrée, police système ou police de secours).
+//!
+//! `--profile` décompose le temps de rendu de MuPDF : préparation de la page,
+//! premier rendu (images à décoder), second rendu (images déjà décodées) et
+//! rendu par tuiles de 512 pixels à l'échelle 2, comme dans l'application.
 //!
 //! `--anonymize` remplace les noms de fichiers par doc-01, doc-02… dans le
 //! rapport, pour pouvoir publier les mesures faites sur des documents privés.
@@ -26,6 +30,7 @@ struct Options {
     out: Option<PathBuf>,
     anonymize: bool,
     fonts: bool,
+    profile: bool,
     inputs: Vec<PathBuf>,
 }
 
@@ -144,18 +149,118 @@ fn main() {
         );
     }
 
+    let label_of = |n: usize, file: &Path| {
+        if opts.anonymize {
+            format!("doc-{:02}", n + 1)
+        } else {
+            file.file_name().unwrap().to_string_lossy().into_owned()
+        }
+    };
     if opts.fonts {
         println!("\nPolices utilisées par MuPDF (première page) :\n");
         for (n, file) in files.iter().enumerate() {
-            let label = if opts.anonymize {
-                format!("doc-{:02}", n + 1)
-            } else {
-                file.file_name().unwrap().to_string_lossy().into_owned()
-            };
             let fonts = fonts_used(file, password_for(file));
-            println!("- {label} : {}", fonts.join(", "));
+            println!("- {} : {}", label_of(n, file), fonts.join(", "));
         }
     }
+    if opts.profile {
+        println!(
+            "\nDécomposition du rendu MuPDF à {} ppp (moyennes par page, ms) :\n",
+            opts.dpi
+        );
+        println!("| Document | Images | Préparation | 1er rendu | 2e rendu | Tuiles 512 px à 2× (nombre) |");
+        println!("|---|---|---:|---:|---:|---:|");
+        for (n, file) in files.iter().enumerate() {
+            println!(
+                "| {} | {} |",
+                label_of(n, file),
+                profile(file, password_for(file), &opts)
+            );
+        }
+    }
+}
+
+/// Codecs des images d'un PDF : les dictionnaires des flux ne sont jamais
+/// compressés dans des flux d'objets, une recherche dans les octets suffit.
+fn image_codecs(bytes: &[u8]) -> String {
+    let count = |needle: &[u8]| bytes.windows(needle.len()).filter(|w| *w == needle).count();
+    let codecs: Vec<String> = [
+        ("JPEG", &b"/DCTDecode"[..]),
+        ("JPEG 2000", b"/JPXDecode"),
+        ("JBIG2", b"/JBIG2Decode"),
+        ("CCITT", b"/CCITTFaxDecode"),
+    ]
+    .iter()
+    .filter_map(|(name, needle)| match count(needle) {
+        0 => None,
+        n => Some(format!("{name} ×{n}")),
+    })
+    .collect();
+    if codecs.is_empty() {
+        "aucune image compressée".into()
+    } else {
+        codecs.join(", ")
+    }
+}
+
+fn profile(file: &Path, password: Option<&str>, opts: &Options) -> String {
+    let Ok(bytes) = std::fs::read(file) else {
+        return "illisible | — | — | — | —".into();
+    };
+    let codecs = image_codecs(&bytes);
+    let open = || pdf_core::Document::from_bytes(&bytes, password).ok();
+    let Some(doc) = open() else {
+        return format!("{codecs} | échec | — | — | —");
+    };
+    let pages = (doc.page_count() as usize).min(opts.max_pages) as u32;
+    let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+    let (mut prepare, mut cold, mut warm) = (0.0, 0.0, 0.0);
+    for index in 0..pages {
+        let start = Instant::now();
+        let Ok(content) = doc.page_content(index) else {
+            continue;
+        };
+        prepare += ms(start.elapsed());
+        for total in [&mut cold, &mut warm] {
+            let start = Instant::now();
+            let _ = render::render_at_dpi(&content, opts.dpi);
+            *total += ms(start.elapsed());
+        }
+    }
+
+    // Tuiles sur un document rouvert, pour repartir d'images non décodées.
+    let (mut tiles, mut tile_count) = (0.0, 0);
+    if let Some(doc) = open() {
+        for index in 0..pages {
+            let Ok(content) = doc.page_content(index) else {
+                continue;
+            };
+            let (width, height) = render::image_size(content.size(), 2.0, render::Rotation::None);
+            let start = Instant::now();
+            for y in (0..height).step_by(512) {
+                for x in (0..width).step_by(512) {
+                    let region = render::Region {
+                        x,
+                        y,
+                        width: 512,
+                        height: 512,
+                    };
+                    let _ = render::render_region(&content, 2.0, render::Rotation::None, region);
+                    tile_count += 1;
+                }
+            }
+            tiles += ms(start.elapsed());
+        }
+    }
+    let per_page = |total: f64| total / pages.max(1) as f64;
+    format!(
+        "{codecs} | {:.1} | {:.1} | {:.1} | {:.1} ({})",
+        per_page(prepare),
+        per_page(cold),
+        per_page(warm),
+        per_page(tiles),
+        tile_count / pages.max(1) as usize,
+    )
 }
 
 /// Noms des polices chargées par MuPDF pour le texte de la première page.
@@ -419,6 +524,7 @@ fn parse_args() -> Result<Options, String> {
         out: None,
         anonymize: false,
         fonts: false,
+        profile: false,
         inputs: Vec::new(),
     };
     let mut args = std::env::args().skip(1);
@@ -435,10 +541,11 @@ fn parse_args() -> Result<Options, String> {
             "--out" => opts.out = Some(value("--out")?.into()),
             "--anonymize" => opts.anonymize = true,
             "--fonts" => opts.fonts = true,
+            "--profile" => opts.profile = true,
             "-h" | "--help" => {
                 return Err(
                     "render_bench [--pdfium DOSSIER] [--dpi 150] [--max-pages 20] \
-                            [--out DOSSIER] [--anonymize] [--fonts] FICHIER_OU_DOSSIER..."
+                            [--out DOSSIER] [--anonymize] [--fonts] [--profile] FICHIER_OU_DOSSIER..."
                         .into(),
                 )
             }
