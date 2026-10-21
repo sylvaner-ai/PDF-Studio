@@ -20,6 +20,11 @@ struct DocumentView: View {
             .navigationSubtitle(subtitle)
             .focusedSceneValue(\.documentModel, model)
             .background(DocumentWindowBridge(model: model, isModified: model.isModified))
+            .overlay(alignment: .bottom) {
+                if let activity = model.activity {
+                    ActivityBadge(text: activity)
+                }
+            }
             .alert(
                 replaceTitle,
                 isPresented: Binding(
@@ -194,6 +199,24 @@ struct SearchToolbarItem: View {
             )
             .frame(minWidth: 140, idealWidth: 200, maxWidth: 240)
         }
+    }
+}
+
+/// Exportation en cours, en bas de la fenêtre.
+struct ActivityBadge: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text(text)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.regularMaterial, in: Capsule())
+        .padding(.bottom, 16)
+        .accessibilityElement(children: .combine)
     }
 }
 

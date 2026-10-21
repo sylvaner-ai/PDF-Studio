@@ -28,6 +28,12 @@ struct PageCommands: Commands {
             Button("Insérer des pages d'un fichier…") { model?.chooseDocumentToInsert() }
                 .keyboardShortcut("i", modifiers: [.command, .option])
                 .disabled(!canEdit)
+            Divider()
+            Button("Extraire les pages…") { edit { $0.extractPages($1) } }
+                .keyboardShortcut("e", modifiers: [.command, .option])
+                .disabled(!canEdit)
+            Button("Scinder le document…") { model?.split() }
+                .disabled(!canEdit || (model?.pageCount ?? 0) < 2)
         }
     }
 
@@ -42,7 +48,8 @@ struct PageCommands: Commands {
     }
 }
 
-/// Menu Fichier : Enregistrer et Enregistrer sous, après « Fermer ».
+/// Menu Fichier : Enregistrer et Enregistrer sous, après « Fermer », puis les
+/// exportations en images et en texte.
 struct SaveCommands: Commands {
     @FocusedValue(\.documentModel) private var model
 
@@ -54,6 +61,11 @@ struct SaveCommands: Commands {
             Button("Enregistrer sous…") { model?.saveAs() }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
                 .disabled(model?.canSaveAs != true)
+            Divider()
+            Button("Exporter en images…") { model?.exportImages() }
+                .disabled(model?.canEdit != true)
+            Button("Exporter le texte…") { model?.exportText() }
+                .disabled(model?.canEdit != true)
         }
     }
 }

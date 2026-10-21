@@ -161,6 +161,9 @@ struct PageActions: View {
             model.chooseDocumentToInsert(before: positions.last.map { $0 + 1 })
         }
         .disabled(!model.canEdit)
+        Divider()
+        Button("Extraire les pages…") { model.extractPages(positions) }
+            .disabled(!model.canEdit || positions.isEmpty)
     }
 }
 

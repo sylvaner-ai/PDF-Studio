@@ -26,23 +26,35 @@ extension DocumentViewModel {
         select(inserted.map { [$0] } ?? [])
     }
 
-    /// Choisit un PDF et insère toutes ses pages avant `position` (par défaut, à
-    /// la position d'insertion).
+    /// Choisit un ou plusieurs PDF et insère toutes leurs pages avant `position`
+    /// (par défaut, à la position d'insertion), dans l'ordre de leurs noms : c'est
+    /// aussi ainsi que l'on fusionne des documents.
     func chooseDocumentToInsert(before position: Int? = nil) {
         guard canEdit else { return }
         let position = position ?? insertionPoint
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.pdf]
+        panel.allowsMultipleSelection = true
         panel.message = String(
-            localized: "Les pages du document choisi seront insérées après la page sélectionnée."
+            localized: "Les pages des documents choisis seront insérées après la page sélectionnée."
         )
         panel.prompt = String(localized: "Insérer")
         panel.begin { [weak self] response in
-            let url = response == .OK ? panel.url : nil
+            let urls = response == .OK ? panel.urls : []
             Task { @MainActor in
-                guard let self, let url else { return }
-                await self.insertDocument(at: url, before: position)
+                let sorted = urls.sorted {
+                    $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+                }
+                await self?.insertDocuments(sorted, before: position)
             }
+        }
+    }
+
+    /// Insère les pages de plusieurs PDF, dans l'ordre donné, avant `position`.
+    func insertDocuments(_ urls: [URL], before position: Int) async {
+        // Chaque document s'insère devant le suivant : ils gardent leur ordre.
+        for url in urls.reversed() {
+            await insertDocument(at: url, before: position)
         }
     }
 
@@ -94,10 +106,10 @@ extension DocumentViewModel {
     private func insert(_ document: PdfDocument, before position: Int, protected: Bool) async {
         guard canEdit, let source = addSource(document) else { return }
         await retainCopy(ofSource: source, protected: protected)
-        let at = UInt32(min(position, pages.count))
+        let insertion = UInt32(min(position, pages.count))
         let indices = Array(0..<document.pageCount())
         var inserted: [UInt32] = []
-        perform { inserted = try $0.insertPages(at: at, source: source, indices: indices) }
+        perform { inserted = try $0.insertPages(at: insertion, source: source, indices: indices) }
         select(inserted)
     }
 

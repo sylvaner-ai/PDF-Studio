@@ -156,6 +156,8 @@ final class PageGridCoordinator: NSObject, NSCollectionViewDelegate {
         menu.addItem(.separator())
         addItem(String(localized: "Insérer une page vierge"), #selector(insertBlankPage), to: menu)
         addItem(String(localized: "Insérer des pages d'un fichier…"), #selector(insertDocument), to: menu)
+        menu.addItem(.separator())
+        addItem(String(localized: "Extraire les pages…"), #selector(extractPages), to: menu)
         return menu
     }
 
@@ -188,6 +190,10 @@ final class PageGridCoordinator: NSObject, NSCollectionViewDelegate {
 
     @objc private func insertDocument() {
         model?.chooseDocumentToInsert(before: selectedPositions.last.map { $0 + 1 })
+    }
+
+    @objc private func extractPages() {
+        model?.extractPages(selectedPositions)
     }
 }
 
@@ -261,12 +267,7 @@ extension PageGridCoordinator {
         }
         let documents = droppedDocuments(draggingInfo)
         guard !documents.isEmpty else { return false }
-        Task {
-            // Chaque document s'insère devant le suivant : ils gardent l'ordre du dépôt.
-            for url in documents.reversed() {
-                await model.insertDocument(at: url, before: position)
-            }
-        }
+        Task { await model.insertDocuments(documents, before: position) }
         return true
     }
 

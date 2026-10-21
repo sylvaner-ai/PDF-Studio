@@ -47,6 +47,8 @@ final class DocumentViewModel {
     var saving = SavingState()
     /// Message d'une opération qui a échoué, à montrer à l'utilisateur.
     var failureMessage: String?
+    /// Exportation en cours, décrite dans la fenêtre ; les pages restent figées.
+    var activity: String?
     /// Modifications non enregistrées retrouvées à l'ouverture, en attente d'une réponse.
     var recoveryOffer: RecoveryRecord?
 
@@ -206,8 +208,9 @@ extension DocumentViewModel {
         pages.indices.filter { ids.contains(pages[$0].id) }
     }
 
-    /// Les pages restent figées tant que des modifications retrouvées attendent une réponse.
-    var canEdit: Bool { phase == .ready && session != nil && recoveryOffer == nil }
+    /// Les pages restent figées tant que des modifications retrouvées attendent une
+    /// réponse, ou pendant une exportation.
+    var canEdit: Bool { phase == .ready && session != nil && recoveryOffer == nil && activity == nil }
 
     /// Un document garde au moins une page.
     func canDelete(_ positions: [Int]) -> Bool {
