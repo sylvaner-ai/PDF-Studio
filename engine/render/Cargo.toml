@@ -1,0 +1,16 @@
+[package]
+name = "render"
+description = "Rendu des pages PDF en images bitmap."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+pdf_core.workspace = true
+mupdf.workspace = true
+
+[dev-dependencies]
+
+[lints]
+workspace = true

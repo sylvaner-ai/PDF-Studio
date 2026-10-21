@@ -1,0 +1,21 @@
+[package]
+name = "pdfstudio_ffi"
+description = "Interface du moteur exposée à l'application Swift via UniFFI."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+# staticlib : lié dans l'application ; cdylib : lu par uniffi-bindgen pour générer
+# les liaisons Swift ; lib : tests Rust.
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[dependencies]
+pdf_core.workspace = true
+render.workspace = true
+thiserror.workspace = true
+uniffi.workspace = true
+
+[lints]
+workspace = true

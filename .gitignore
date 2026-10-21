@@ -1,0 +1,19 @@
+# Produits de build
+/build/
+/engine/target/
+/.tools/
+
+# Projet Xcode généré par XcodeGen (app/project.yml fait foi)
+/app/PDFStudio.xcodeproj/
+/app/Bridge/Generated/
+xcuserdata/
+*.xcuserstate
+DerivedData/
+
+# Documents personnels de test : jamais dans le dépôt
+/tests/fixtures/private/*
+!/tests/fixtures/private/README.md
+
+# Divers
+.DS_Store
+__pycache__/
