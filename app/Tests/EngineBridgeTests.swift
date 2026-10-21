@@ -59,11 +59,30 @@ final class EngineBridgeTests: XCTestCase {
 
     func testLeRenduMetEnCache() async throws {
         let document = try PdfDocument.open(path: fixture("multipage_100"), password: nil)
-        let renderer = PageRenderer(document: document)
-        let first = try await renderer.image(page: 3, pixelWidth: 640, pageWidth: 595.28)
-        let second = try await renderer.image(page: 3, pixelWidth: 640, pageWidth: 595.28)
+        let renderer = PageRenderer(sources: PageSources(document))
+        let size = try XCTUnwrap(document.pageSizes().first).cgSize
+        let source = DisplayPage.Source(document: 0, index: 3)
+        let page = DisplayPage(id: 1, source: source, quarterTurns: 0, baseSize: size)
+        let first = try await renderer.image(of: page, pixelWidth: 640)
+        let second = try await renderer.image(of: page, pixelWidth: 640)
         XCTAssertLessThanOrEqual(abs(first.cgImage.width - 640), 1)
         XCTAssertTrue(first.cgImage === second.cgImage, "la deuxième demande doit venir du cache")
+
+        // Déplacée ou dupliquée, la page garde son image ; tournée, elle passe en paysage.
+        let copy = DisplayPage(id: 2, source: page.source, quarterTurns: 0, baseSize: size)
+        let copied = try await renderer.image(of: copy, pixelWidth: 640)
+        XCTAssertTrue(first.cgImage === copied.cgImage)
+        let turned = DisplayPage(id: 2, source: page.source, quarterTurns: 1, baseSize: size)
+        let landscape = try await renderer.image(of: turned, pixelWidth: 640)
+        XCTAssertGreaterThan(landscape.cgImage.width, landscape.cgImage.height)
+
+        let blank = DisplayPage(id: 3, source: nil, quarterTurns: 0, baseSize: size)
+        do {
+            _ = try await renderer.image(of: blank, pixelWidth: 640)
+            XCTFail("une page vierge ne se rend pas")
+        } catch {
+            XCTAssertTrue(error is BlankPageError)
+        }
     }
 
     func testRendUnePageTourneeEtUneZone() throws {
@@ -99,8 +118,10 @@ final class EngineBridgeTests: XCTestCase {
     @MainActor
     func testRechercheDansToutLeDocument() async throws {
         let document = try PdfDocument.open(path: fixture("multipage_100"), password: nil)
-        let canvas = CanvasController(pageCount: Int(document.pageCount()))
-        let search = SearchModel(document: document, canvas: canvas)
+        let sizes = [document.pageSizes().map(\.cgSize)]
+        let pages = EditSession(document: document).pages().map { DisplayPage($0, sizes: sizes) }
+        let canvas = CanvasController(pages: pages)
+        let search = SearchModel(sources: PageSources(document), pages: pages, canvas: canvas)
         search.update(query: "Page 50 sur")
         let deadline = Date().addingTimeInterval(10)
         while search.isSearching, Date() < deadline {
@@ -109,6 +130,47 @@ final class EngineBridgeTests: XCTestCase {
         XCTAssertFalse(search.isSearching)
         XCTAssertEqual(search.hits, [SearchHit(page: 49, index: 0)])
         XCTAssertEqual(search.status, "1 sur 1")
+
+        // Après une réorganisation, la recherche reprend sur les nouvelles positions.
+        let reversed = Array(pages.reversed())
+        canvas.setPages(reversed)
+        search.setPages(reversed)
+        let again = Date().addingTimeInterval(10)
+        repeat {
+            try await Task.sleep(for: .milliseconds(20))
+        } while search.isSearching && Date() < again
+        XCTAssertEqual(search.hits, [SearchHit(page: 50, index: 0)])
+    }
+
+    func testOrganiseLesPagesEtExporte() throws {
+        let document = try PdfDocument.open(path: fixture("organisation"), password: nil)
+        let session = EditSession(document: document)
+        try session.rotate(positions: [0], quarterTurns: 1)
+        XCTAssertEqual(try session.duplicate(positions: [1]), [2])
+        XCTAssertEqual(try session.movePages(positions: [5], before: 0), [0])
+        try session.delete(positions: [1])
+        XCTAssertEqual(session.undoName(), "la suppression")
+        XCTAssertTrue(session.isModified())
+        XCTAssertThrowsError(try session.delete(positions: [0, 1, 2, 3, 4])) { error in
+            XCTAssertEqual((error as? EngineError)?.userMessage, "Un document doit garder au moins une page.")
+        }
+
+        let sources = session.pages().map { page -> UInt32? in
+            guard case let .source(_, index) = page.kind else { return nil }
+            return index
+        }
+        XCTAssertEqual(sources, [4, 1, 1, 2, 3])
+
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("organise-\(UUID()).pdf")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try session.exportPdf().write(to: url)
+        let written = try PdfDocument.open(path: url.path, password: nil)
+        XCTAssertEqual(written.pageCount(), 5)
+        XCTAssertFalse(try written.plainText(index: 0).isEmpty)
+
+        XCTAssertTrue(session.undo())
+        XCTAssertEqual(session.redoName(), "la suppression")
+        XCTAssertFalse(try session.hasSignature())
     }
 }
 
@@ -118,7 +180,7 @@ final class PageLayoutTests: XCTestCase {
     private let landscape = CGSize(width: 800, height: 600)
 
     func testDisposeLesPagesEnColonneCentree() {
-        let layout = PageLayout(pageSizes: [portrait, landscape], rotation: DisplayRotation(), mode: .continuous)
+        let layout = PageLayout(sizes: [portrait, landscape], mode: .continuous)
         let margin = PageLayout.margin
         XCTAssertEqual(layout.documentSize.width, 800 + 2 * margin)
         XCTAssertEqual(layout.frames[0], CGRect(x: 100 + margin, y: margin, width: 600, height: 800))
@@ -128,9 +190,7 @@ final class PageLayoutTests: XCTestCase {
     }
 
     func testPageParPage() {
-        let layout = PageLayout(
-            pageSizes: [portrait, landscape], rotation: DisplayRotation(), mode: .singlePage, visiblePage: 1
-        )
+        let layout = PageLayout(sizes: [portrait, landscape], mode: .singlePage, visiblePage: 1)
         XCTAssertEqual(layout.frames[0], .zero)
         XCTAssertEqual(layout.frames[1].size, landscape)
         XCTAssertEqual(layout.pages(intersecting: CGRect(x: 0, y: 0, width: 2_000, height: 2_000)), [1])
@@ -156,7 +216,7 @@ final class PageLayoutTests: XCTestCase {
     }
 
     func testAjusteLeZoomEtSuitLesPaliers() {
-        let layout = PageLayout(pageSizes: [portrait], rotation: DisplayRotation(), mode: .continuous)
+        let layout = PageLayout(sizes: [portrait], mode: .continuous)
         // Document de 664 × 864 pt : la page et ses marges de 32 pt.
         let window = CGSize(width: 800, height: 600)
         XCTAssertEqual(layout.fitMagnification(.width, viewport: window, page: 0), 1.204, accuracy: 0.000_1)

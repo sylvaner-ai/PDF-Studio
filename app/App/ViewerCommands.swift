@@ -47,11 +47,12 @@ struct ViewerCommands: Commands {
                 .keyboardShortcut("9", modifiers: [.command, .option])
                 .disabled(canvas == nil)
             Divider()
-            Button("Faire pivoter à gauche") { canvas?.rotate(clockwise: false) }
-                .keyboardShortcut("l")
+            // Rotation de l'affichage seul ; ⌘L et ⌘R font pivoter les pages (menu Pages).
+            Button("Faire pivoter l'affichage à gauche") { canvas?.rotateDisplay(clockwise: false) }
+                .keyboardShortcut("l", modifiers: [.command, .option])
                 .disabled(canvas == nil)
-            Button("Faire pivoter à droite") { canvas?.rotate(clockwise: true) }
-                .keyboardShortcut("r")
+            Button("Faire pivoter l'affichage à droite") { canvas?.rotateDisplay(clockwise: true) }
+                .keyboardShortcut("r", modifiers: [.command, .option])
                 .disabled(canvas == nil)
             Divider()
             Picker("Affichage des pages", selection: displayMode) {

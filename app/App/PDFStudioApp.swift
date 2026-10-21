@@ -17,6 +17,7 @@ struct PDFStudioApp: App {
             FileCommands()
             SidebarCommands()
             ViewerCommands()
+            PageCommands()
         }
     }
 }

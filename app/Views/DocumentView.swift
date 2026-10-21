@@ -3,6 +3,7 @@ import SwiftUI
 /// Affiche un document selon son état : ouverture, mot de passe, erreur ou pages.
 struct DocumentView: View {
     @State private var model: DocumentViewModel
+    @Environment(\.undoManager) private var undoManager
 
     init(reference: DocumentReference) {
         _model = State(initialValue: DocumentViewModel(reference: reference))
@@ -15,6 +16,18 @@ struct DocumentView: View {
             .navigationTitle(model.title)
             .navigationSubtitle(subtitle)
             .focusedSceneValue(\.documentModel, model)
+            .alert(
+                "L'opération n'a pas abouti.",
+                isPresented: Binding(
+                    get: { model.failureMessage != nil },
+                    set: { if !$0 { model.failureMessage = nil } }
+                ),
+                actions: {},
+                message: { Text(model.failureMessage ?? "") }
+            )
+            .onAppear { model.undoManager = undoManager }
+            .onChange(of: undoManager) { _, manager in model.undoManager = manager }
+            .onDisappear { model.close() }
             .task { await model.open() }
     }
 
@@ -68,7 +81,7 @@ struct ReaderView: View {
             SidebarView(model: model, renderer: renderer)
                 .navigationSplitViewColumnWidth(min: 140, ideal: 168, max: 260)
         } detail: {
-            PageCanvas(pageSizes: model.pageSizes, renderer: renderer, controller: model.canvas)
+            PageCanvas(renderer: renderer, controller: model.canvas)
                 .accessibilityLabel(Text("Pages du document"))
         }
         .toolbar {

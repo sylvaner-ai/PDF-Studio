@@ -8,9 +8,11 @@ enum DisplayMode: String, CaseIterable, Sendable {
     case singlePage
 }
 
-/// Rotation d'affichage, en degrés dans le sens horaire : 0, 90, 180 ou 270.
+/// Rotation d'une page à l'écran, en degrés dans le sens horaire : 0, 90, 180
+/// ou 270.
 ///
-/// Le fichier n'est pas modifié : seule la présentation tourne.
+/// Elle combine la rotation d'affichage, qui ne modifie pas le fichier, et les
+/// quarts de tour donnés aux pages par l'organisation (cf. ``DisplayPage``).
 struct DisplayRotation: Equatable, Hashable, Sendable {
     private(set) var degrees: Int
 
@@ -72,10 +74,9 @@ struct PageLayout: Equatable, Sendable {
     let documentSize: CGSize
 
     /// - Parameters:
-    ///   - pageSizes: dimensions des pages droites, en points.
+    ///   - sizes: dimensions des pages telles qu'affichées (tournées), en points.
     ///   - visiblePage: en mode page par page, la seule page disposée.
-    init(pageSizes: [CGSize], rotation: DisplayRotation, mode: DisplayMode, visiblePage: Int = 0) {
-        let sizes = pageSizes.map(rotation.apply(to:))
+    init(sizes: [CGSize], mode: DisplayMode, visiblePage: Int = 0) {
         let margin = Self.margin
         switch mode {
         case .continuous:
