@@ -71,7 +71,6 @@ targets:
         PRODUCT_NAME: PDF Studio
         PRODUCT_MODULE_NAME: PDFStudio
         PRODUCT_BUNDLE_IDENTIFIER: fr.sylvainrobert.pdfstudio
-        ENABLE_HARDENED_RUNTIME: YES
         SWIFT_INCLUDE_PATHS: '"$(SRCROOT)/Bridge/Generated"'
         LIBRARY_SEARCH_PATHS: '"$(SRCROOT)/Bridge/Generated"'
         OTHER_LDFLAGS:
@@ -82,6 +81,11 @@ targets:
           - -framework CoreFoundation
           - -framework Security
           - -liconv
+      configs:
+        # Le runtime renforcé empêche de charger le bundle de tests (signature
+        # locale sans équipe) : il n'est activé que pour la version Release.
+        Release:
+          ENABLE_HARDENED_RUNTIME: YES
 
   PDFStudioTests:
     type: bundle.unit-test

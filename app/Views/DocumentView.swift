@@ -60,7 +60,9 @@ struct PasswordPrompt: View {
             Image(systemName: "lock")
                 .font(.system(size: 32, weight: .ultraLight))
                 .foregroundStyle(.tertiary)
-            Text(wrongAttempt ? "Le mot de passe est incorrect." : "Ce document est protégé par un mot de passe.")
+            Text(wrongAttempt
+                 ? LocalizedStringKey("Le mot de passe est incorrect.")
+                 : LocalizedStringKey("Ce document est protégé par un mot de passe."))
                 .foregroundStyle(.secondary)
             SecureField("Mot de passe", text: $password)
                 .textFieldStyle(.roundedBorder)

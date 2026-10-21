@@ -20,7 +20,6 @@ final class DocumentViewModel {
     private(set) var pageSizes: [CGSize] = []
     private(set) var renderer: PageRenderer?
 
-    @ObservationIgnored
     private let logger = Logger(subsystem: "fr.sylvainrobert.pdfstudio", category: "document")
 
     init(reference: DocumentReference) {
