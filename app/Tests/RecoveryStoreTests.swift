@@ -16,12 +16,13 @@ final class RecoveryStoreTests: XCTestCase {
     }
 
     private func record(
-        path: String, basePath: String? = nil, pages: [RecoveryRecord.Page]
+        path: String, basePath: String? = nil, sources: [String] = [], pages: [RecoveryRecord.Page]
     ) throws -> RecoveryRecord {
         let file = directory.appendingPathComponent("empreinte")
         try Data("contenu".utf8).write(to: file)
         return RecoveryRecord(
-            path: path, stamp: try FileStamp(of: file), basePath: basePath, sources: [], pages: pages, date: Date()
+            path: path, stamp: try FileStamp(of: file), basePath: basePath, sources: sources, pages: pages,
+            date: Date()
         )
     }
 
@@ -51,27 +52,36 @@ final class RecoveryStoreTests: XCTestCase {
         XCTAssertEqual(restored.last?.quarterTurns, 1)
         XCTAssertTrue(session.isModified())
         XCTAssertEqual(session.undoName(), "la restauration")
-        XCTAssertEqual(session.openingBytes(), try Data(contentsOf: url))
+        XCTAssertEqual(try session.sourceBytes(source: 0), try Data(contentsOf: url))
     }
 
-    func testNeGardeQueLesCopiesDOuvertureUtilisees() throws {
-        let used = try store.makeBase(Data("version d'ouverture".utf8))
-        let unused = try store.makeBase(Data("autre version".utf8))
-        store.save(try record(path: "/Documents/contrat.pdf", basePath: used, pages: []))
+    func testNeGardeQueLesCopiesUtilisees() throws {
+        let manager = FileManager.default
+        let used = try store.makeCopy(Data("version d'ouverture".utf8), of: .base)
+        let unused = try store.makeCopy(Data("autre version".utf8), of: .base)
+        let inserted = try store.makeCopy(Data("pages insérées".utf8), of: .source)
+        let dropped = try store.makeCopy(Data("insertion annulée".utf8), of: .source)
+        let saved = try record(path: "/Documents/contrat.pdf", basePath: used, sources: [inserted], pages: [])
+        store.save(saved)
 
-        store.removeUnusedBases()
-        XCTAssertTrue(FileManager.default.fileExists(atPath: used))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: unused))
+        store.removeUnusedCopies()
+        XCTAssertTrue(manager.fileExists(atPath: used))
+        XCTAssertTrue(manager.fileExists(atPath: inserted))
+        XCTAssertFalse(manager.fileExists(atPath: unused))
+        XCTAssertFalse(manager.fileExists(atPath: dropped))
         XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: used)), Data("version d'ouverture".utf8))
+
+        store.discard(saved)
+        XCTAssertNil(store.record(for: saved.path))
+        XCTAssertFalse(manager.fileExists(atPath: used))
+        XCTAssertFalse(manager.fileExists(atPath: inserted))
 
         // Seules les copies de ce rangement peuvent être supprimées.
         let outside = directory.deletingLastPathComponent().appendingPathComponent("base-\(UUID()).pdf")
         try Data("ailleurs".utf8).write(to: outside)
         defer { try? FileManager.default.removeItem(at: outside) }
-        store.removeBase(outside.path)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: outside.path))
-        store.removeBase(used)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: used))
+        store.removeCopy(outside.path)
+        XCTAssertTrue(manager.fileExists(atPath: outside.path))
     }
 
     func testLEmpreinteChangeAvecLeFichier() throws {

@@ -144,6 +144,14 @@ impl PdfDocument {
         Ok(Arc::new(Self { handle }))
     }
 
+    /// Ouvre un PDF déjà en mémoire (pages glissées depuis une autre fenêtre).
+    #[uniffi::constructor]
+    pub fn from_data(data: Vec<u8>, password: Option<String>) -> Result<Arc<Self>, EngineError> {
+        qos::install();
+        let handle = DocumentHandle::open(Source::Bytes(data), password)?;
+        Ok(Arc::new(Self { handle }))
+    }
+
     /// Nombre de pages.
     pub fn page_count(&self) -> u32 {
         self.handle.page_count()

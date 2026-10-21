@@ -154,6 +154,13 @@ struct PageActions: View {
             .disabled(positions.isEmpty)
         Button("Supprimer") { model.delete(positions) }
             .disabled(!model.canDelete(positions))
+        Divider()
+        Button("Insérer une page vierge") { model.insertBlankPage(before: positions.last.map { $0 + 1 }) }
+            .disabled(!model.canEdit)
+        Button("Insérer des pages d'un fichier…") {
+            model.chooseDocumentToInsert(before: positions.last.map { $0 + 1 })
+        }
+        .disabled(!model.canEdit)
     }
 }
 

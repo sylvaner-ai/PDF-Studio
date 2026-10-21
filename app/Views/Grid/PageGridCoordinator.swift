@@ -2,9 +2,13 @@ import AppKit
 
 /// Relie la grille AppKit au document : contenu, sélection, glisser-déposer et
 /// actions sur les pages.
+///
+/// Les pages glissées se déplacent dans la grille, ou se copient dans la grille
+/// d'une autre fenêtre ; un PDF déposé depuis le Finder y insère ses pages.
 @MainActor
 final class PageGridCoordinator: NSObject, NSCollectionViewDelegate {
-    /// Type des pages glissées dans la grille (identifiant de la page).
+    /// Type des pages glissées : « document page », identifiants du document
+    /// (``DocumentViewModel/documentID``) et de la page.
     static let pageType = NSPasteboard.PasteboardType("fr.sylvainrobert.pdfstudio.page")
 
     private weak var model: DocumentViewModel?
@@ -34,8 +38,8 @@ final class PageGridCoordinator: NSObject, NSCollectionViewDelegate {
         collectionView.allowsEmptySelection = true
         collectionView.backgroundColors = [.underPageBackgroundColor]
         collectionView.register(PageGridItem.self, forItemWithIdentifier: PageGridItem.identifier)
-        collectionView.registerForDraggedTypes([Self.pageType])
-        collectionView.setDraggingSourceOperationMask(.move, forLocal: true)
+        collectionView.registerForDraggedTypes([Self.pageType, .fileURL])
+        collectionView.setDraggingSourceOperationMask([.move, .copy], forLocal: true)
         collectionView.delegate = self
         collectionView.coordinator = self
         collectionView.setAccessibilityLabel(String(localized: "Pages du document"))
@@ -149,6 +153,9 @@ final class PageGridCoordinator: NSObject, NSCollectionViewDelegate {
         addItem(String(localized: "Dupliquer"), #selector(duplicatePages), to: menu)
         addItem(String(localized: "Supprimer"), #selector(deletePages), to: menu).isEnabled =
             model.canDelete(selectedPositions)
+        menu.addItem(.separator())
+        addItem(String(localized: "Insérer une page vierge"), #selector(insertBlankPage), to: menu)
+        addItem(String(localized: "Insérer des pages d'un fichier…"), #selector(insertDocument), to: menu)
         return menu
     }
 
@@ -175,8 +182,18 @@ final class PageGridCoordinator: NSObject, NSCollectionViewDelegate {
         deleteSelection()
     }
 
-    // MARK: Glisser-déposer
+    @objc private func insertBlankPage() {
+        model?.insertBlankPage(before: selectedPositions.last.map { $0 + 1 })
+    }
 
+    @objc private func insertDocument() {
+        model?.chooseDocumentToInsert(before: selectedPositions.last.map { $0 + 1 })
+    }
+}
+
+// MARK: - Glisser-déposer
+
+extension PageGridCoordinator {
     func collectionView(
         _ collectionView: NSCollectionView, canDragItemsAt indexPaths: Set<IndexPath>, with event: NSEvent
     ) -> Bool {
@@ -186,9 +203,9 @@ final class PageGridCoordinator: NSObject, NSCollectionViewDelegate {
     func collectionView(
         _ collectionView: NSCollectionView, pasteboardWriterForItemAt indexPath: IndexPath
     ) -> NSPasteboardWriting? {
-        guard let page = pages[safe: indexPath.item] else { return nil }
+        guard let model, let page = pages[safe: indexPath.item] else { return nil }
         let item = NSPasteboardItem()
-        item.setString(String(page.id), forType: Self.pageType)
+        item.setString("\(model.documentID.uuidString) \(page.id)", forType: Self.pageType)
         return item
     }
 
@@ -211,20 +228,63 @@ final class PageGridCoordinator: NSObject, NSCollectionViewDelegate {
         proposedIndexPath proposedDropIndexPath: AutoreleasingUnsafeMutablePointer<NSIndexPath>,
         dropOperation proposedDropOperation: UnsafeMutablePointer<NSCollectionView.DropOperation>
     ) -> NSDragOperation {
-        // Seules les pages de cette grille s'y déplacent ; on dépose entre deux pages.
-        guard dragged != nil, draggingInfo.draggingSource as? NSCollectionView === collectionView else { return [] }
+        guard model?.canEdit == true else { return [] }
+        let operation: NSDragOperation
+        if dragged != nil, draggingInfo.draggingSource as? NSCollectionView === collectionView {
+            operation = .move
+        } else if !draggedPages(draggingInfo).isEmpty || !droppedDocuments(draggingInfo).isEmpty {
+            operation = .copy
+        } else {
+            return []
+        }
+        // On dépose entre deux pages.
         if proposedDropOperation.pointee == .on {
             proposedDropOperation.pointee = .before
         }
-        return .move
+        return operation
     }
 
     func collectionView(
         _ collectionView: NSCollectionView, acceptDrop draggingInfo: NSDraggingInfo,
         indexPath: IndexPath, dropOperation: NSCollectionView.DropOperation
     ) -> Bool {
-        guard let dragged, let model else { return false }
-        model.move(dragged, before: indexPath.item)
+        guard let model else { return false }
+        let position = indexPath.item
+        if let dragged, draggingInfo.draggingSource as? NSCollectionView === collectionView {
+            model.move(dragged, before: position)
+            return true
+        }
+        let pages = draggedPages(draggingInfo)
+        if let origin = pages.first.flatMap({ OpenDocuments.model($0.document) }), origin !== model {
+            Task { await model.insertPages(pages.map(\.page), from: origin, before: position) }
+            return true
+        }
+        let documents = droppedDocuments(draggingInfo)
+        guard !documents.isEmpty else { return false }
+        Task {
+            // Chaque document s'insère devant le suivant : ils gardent l'ordre du dépôt.
+            for url in documents.reversed() {
+                await model.insertDocument(at: url, before: position)
+            }
+        }
         return true
+    }
+
+    /// Pages glissées depuis la grille d'une fenêtre (document, page).
+    private func draggedPages(_ info: NSDraggingInfo) -> [(document: UUID, page: UInt64)] {
+        (info.draggingPasteboard.pasteboardItems ?? []).compactMap { item in
+            let parts = item.string(forType: Self.pageType)?.split(separator: " ") ?? []
+            guard parts.count == 2, let document = UUID(uuidString: String(parts[0])),
+                  let page = UInt64(parts[1]) else { return nil }
+            return (document, page)
+        }
+    }
+
+    /// Fichiers PDF déposés depuis le Finder.
+    private func droppedDocuments(_ info: NSDraggingInfo) -> [URL] {
+        let urls = info.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL] ?? []
+        return urls.filter(DocumentOpener.isPDF)
     }
 }

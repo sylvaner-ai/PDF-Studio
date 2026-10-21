@@ -28,7 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Copies d'ouverture laissées par un arrêt imprévu.
         if let store = try? RecoveryStore.standard() {
-            store.removeUnusedBases()
+            store.removeUnusedCopies()
         }
     }
 
@@ -46,11 +46,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard DocumentOpener.shared.hasUnsavedChanges else { return .terminateNow }
         let alert = NSAlert()
         alert.messageText = String(localized: "Des documents ont des modifications non enregistrées.")
-        alert.informativeText = String(
-            localized: "Elles vous seront proposées à la prochaine ouverture de ces documents."
-        )
         alert.addButton(withTitle: String(localized: "Annuler"))
-        alert.addButton(withTitle: String(localized: "Quitter"))
+        if DocumentOpener.shared.hasUnrecoverableChanges {
+            alert.informativeText = String(
+                localized: "Certaines ne pourront pas être retrouvées : enregistrez-les avant de quitter."
+            )
+            alert.addButton(withTitle: String(localized: "Quitter sans enregistrer"))
+        } else {
+            alert.informativeText = String(
+                localized: "Elles vous seront proposées à la prochaine ouverture de ces documents."
+            )
+            alert.addButton(withTitle: String(localized: "Quitter"))
+        }
         return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
     }
 }

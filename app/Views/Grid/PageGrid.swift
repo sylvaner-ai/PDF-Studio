@@ -12,8 +12,10 @@ enum Workspace: Hashable {
 /// Grille des vignettes de toutes les pages, pour les organiser.
 ///
 /// Sélection au clic, ⌘-clic, ⇧-clic, au rectangle, par ⌘A et aux flèches ;
-/// glisser-déposer pour déplacer ; touche d'effacement pour supprimer ; menu
-/// contextuel. Un double-clic ou la touche Entrée ouvre la page en lecture.
+/// glisser-déposer pour déplacer les pages, ou les copier dans la grille d'une
+/// autre fenêtre ; dépôt d'un PDF depuis le Finder pour en insérer les pages ;
+/// touche d'effacement pour supprimer ; menu contextuel. Un double-clic ou la
+/// touche Entrée ouvre la page en lecture.
 struct PageGrid: NSViewRepresentable {
     let model: DocumentViewModel
     let renderer: PageRenderer

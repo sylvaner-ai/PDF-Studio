@@ -62,12 +62,15 @@ final class DocumentViewModel {
     @ObservationIgnored private var sourceSizes: [[CGSize]] = []
 
     let logger = Logger(subsystem: "fr.sylvainrobert.pdfstudio", category: "document")
+    /// Identifie la fenêtre du document, pour les pages glissées vers une autre fenêtre.
+    let documentID = UUID()
     /// Rangement des modifications non enregistrées ; `nil` s'il n'a pas pu être créé.
     let recoveryStore = try? RecoveryStore.standard()
 
     init(reference: DocumentReference) {
         self.reference = reference
         self.title = reference.displayName
+        OpenDocuments.register(self)
     }
 
     var pageCount: Int { pages.count }
@@ -286,7 +289,7 @@ extension DocumentViewModel {
 
     func setModified(_ modified: Bool) {
         isModified = modified
-        DocumentOpener.shared.setUnsaved(modified, for: self)
+        DocumentOpener.shared.setUnsaved(modified, recoverable: isRecoverable, for: self)
     }
 
     func report(_ error: Error) {

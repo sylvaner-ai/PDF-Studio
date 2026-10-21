@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Menu Pages : organisation des pages sélectionnées dans les vignettes, ou de
-/// la page lue s'il n'y a pas de sélection. Chaque action s'annule par ⌘Z.
+/// la page lue s'il n'y a pas de sélection ; les insertions se font après elles.
+/// Chaque action s'annule par ⌘Z.
 struct PageCommands: Commands {
     @FocusedValue(\.documentModel) private var model
 
@@ -20,6 +21,13 @@ struct PageCommands: Commands {
             Button("Supprimer") { edit { $0.delete($1) } }
                 .keyboardShortcut(.delete, modifiers: .command)
                 .disabled(model.map { $0.canDelete($0.targetPositions) } != true)
+            Divider()
+            Button("Insérer une page vierge") { model?.insertBlankPage() }
+                .keyboardShortcut("n", modifiers: [.command, .option])
+                .disabled(!canEdit)
+            Button("Insérer des pages d'un fichier…") { model?.chooseDocumentToInsert() }
+                .keyboardShortcut("i", modifiers: [.command, .option])
+                .disabled(!canEdit)
         }
     }
 

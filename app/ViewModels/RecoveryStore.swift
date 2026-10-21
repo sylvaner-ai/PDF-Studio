@@ -19,9 +19,9 @@ struct FileStamp: Codable, Equatable, Sendable {
 /// Modifications non enregistrées d'un document, de quoi les retrouver après un
 /// arrêt imprévu ou quand l'application a été quittée sans enregistrer.
 ///
-/// Seule l'organisation des pages est retenue, jamais leur contenu : les pages
-/// renvoient au document (ou à une copie de sa version d'ouverture, s'il a été
-/// enregistré depuis) et aux documents dont des pages ont été insérées.
+/// Seule l'organisation des pages est retenue : les pages renvoient au document
+/// (ou à une copie de sa version d'ouverture, s'il a été enregistré depuis) et à
+/// des copies des documents dont des pages ont été insérées.
 struct RecoveryRecord: Codable, Equatable, Sendable {
     struct Page: Codable, Equatable, Sendable {
         /// Document source (0 : le document) ; `nil` pour une page vierge.
@@ -39,8 +39,8 @@ struct RecoveryRecord: Codable, Equatable, Sendable {
     let stamp: FileStamp
     /// Copie de la version d'ouverture du document, s'il a été enregistré depuis.
     let basePath: String?
-    /// Documents dont des pages ont été insérées (sources 1, 2…).
-    let sources: [DocumentReference]
+    /// Copies des documents dont des pages ont été insérées (sources 1, 2…).
+    let sources: [String]
     let pages: [Page]
     let date: Date
 }
@@ -106,28 +106,40 @@ struct RecoveryStore: Sendable {
         try? FileManager.default.removeItem(at: recordURL(for: path))
     }
 
-    /// Conserve la version d'ouverture d'un document avant son premier
-    /// enregistrement ; renvoie le chemin de la copie.
-    func makeBase(_ data: Data) throws -> String {
-        let copy = directory.appendingPathComponent("base-\(UUID().uuidString).pdf")
+    /// Copie conservée pour la récupération.
+    enum Copy: String {
+        /// Version d'ouverture d'un document, avant son premier enregistrement.
+        case base
+        /// Document dont des pages ont été insérées.
+        case source
+    }
+
+    /// Range une copie ; renvoie son chemin.
+    func makeCopy(_ data: Data, of kind: Copy) throws -> String {
+        let copy = directory.appendingPathComponent("\(kind.rawValue)-\(UUID().uuidString).pdf")
         try data.write(to: copy, options: .atomic)
         return copy.path
     }
 
-    /// Supprime une copie d'ouverture (seulement dans ce rangement).
-    func removeBase(_ path: String?) {
+    /// Supprime une copie (seulement dans ce rangement).
+    func removeCopy(_ path: String?) {
         guard let path else { return }
-        let base = URL(fileURLWithPath: path)
-        let folder = base.deletingLastPathComponent().resolvingSymlinksInPath().path
-        guard base.lastPathComponent.hasPrefix("base-"), folder == directory.resolvingSymlinksInPath().path else {
-            return
-        }
-        try? FileManager.default.removeItem(at: base)
+        let copy = URL(fileURLWithPath: path)
+        let folder = copy.deletingLastPathComponent().resolvingSymlinksInPath().path
+        guard Self.isCopy(copy), folder == directory.resolvingSymlinksInPath().path else { return }
+        try? FileManager.default.removeItem(at: copy)
     }
 
-    /// Supprime les copies d'ouverture qu'aucune modification retenue n'utilise
-    /// plus (à appeler au lancement, avant l'ouverture des documents).
-    func removeUnusedBases() {
+    /// Supprime des modifications retenues et leurs copies.
+    func discard(_ record: RecoveryRecord) {
+        removeRecord(for: record.path)
+        removeCopy(record.basePath)
+        record.sources.forEach(removeCopy)
+    }
+
+    /// Supprime les copies qu'aucune modification retenue n'utilise plus (à
+    /// appeler au lancement, avant l'ouverture des documents).
+    func removeUnusedCopies() {
         let manager = FileManager.default
         guard let files = try? manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
             return
@@ -135,10 +147,17 @@ struct RecoveryStore: Sendable {
         let records = files.filter { $0.pathExtension == "json" }.compactMap { url in
             (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(RecoveryRecord.self, from: $0) }
         }
-        let used = Set(records.compactMap { $0.basePath.map { URL(fileURLWithPath: $0).lastPathComponent } })
-        for file in files where file.lastPathComponent.hasPrefix("base-") && !used.contains(file.lastPathComponent) {
+        let used = Set(records.flatMap { [$0.basePath].compactMap { $0 } + $0.sources }.map {
+            URL(fileURLWithPath: $0).lastPathComponent
+        })
+        for file in files where Self.isCopy(file) && !used.contains(file.lastPathComponent) {
             try? manager.removeItem(at: file)
         }
+    }
+
+    private static func isCopy(_ url: URL) -> Bool {
+        let name = url.lastPathComponent
+        return url.pathExtension == "pdf" && (name.hasPrefix("base-") || name.hasPrefix("source-"))
     }
 
     private func recordURL(for path: String) -> URL {

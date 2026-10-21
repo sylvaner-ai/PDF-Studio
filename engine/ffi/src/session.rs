@@ -263,10 +263,15 @@ impl EditSession {
         Ok(pdf_core::write_pdf(&sources, &pages)?)
     }
 
-    /// Octets du fichier du document tel qu'il a été ouvert, avant tout
-    /// enregistrement (copie conservée pour la récupération).
-    pub fn opening_bytes(&self) -> Vec<u8> {
-        self.lock().sources[0].data.bytes().to_vec()
+    /// Octets d'un document source tel qu'il a été ouvert (0 : le document,
+    /// avant tout enregistrement), pour en conserver une copie de récupération.
+    pub fn source_bytes(&self, source: u32) -> Result<Vec<u8>, EngineError> {
+        let state = self.lock();
+        let source = state
+            .sources
+            .get(source as usize)
+            .ok_or_else(|| invalid("document source inexistant"))?;
+        Ok(source.data.bytes().to_vec())
     }
 
     /// Vrai si le document ouvert porte une signature numérique, qu'un
@@ -396,7 +401,11 @@ mod tests {
         // Les octets d'ouverture restent ceux du fichier, quelles que soient les modifications.
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/organisation.pdf");
-        assert_eq!(session.opening_bytes(), std::fs::read(path).unwrap());
+        assert_eq!(
+            session.source_bytes(0).unwrap(),
+            std::fs::read(path).unwrap()
+        );
+        assert!(session.source_bytes(1).is_err());
 
         session.mark_saved();
         assert!(!session.is_modified());
@@ -409,7 +418,9 @@ mod tests {
     #[test]
     fn insere_des_pages_d_un_autre_document() {
         let session = EditSession::new(open("organisation.pdf"));
-        let other = session.add_source(open("signets.pdf"));
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/signets.pdf");
+        let copy = PdfDocument::from_data(std::fs::read(path).unwrap(), None).unwrap();
+        let other = session.add_source(copy);
         assert_eq!(other, 1);
         assert_eq!(session.insert_pages(5, other, vec![0, 5]).unwrap(), [5, 6]);
         let blank = PageSize {

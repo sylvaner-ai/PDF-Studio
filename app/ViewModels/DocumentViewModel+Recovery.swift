@@ -8,8 +8,8 @@ struct RecoveryContext {
     var stamp: FileStamp?
     /// Copie de la version d'ouverture, faite au premier enregistrement.
     var basePath: String?
-    /// Documents dont des pages ont été insérées (sources 1, 2…).
-    var extraSources: [DocumentReference] = []
+    /// Copies des documents dont des pages ont été insérées (sources 1, 2…).
+    var extraSources: [String] = []
     /// Vrai quand la fenêtre a la charge des modifications retenues pour son fichier.
     var isActive = false
     /// Faux si la version d'ouverture n'a pas pu être conservée : plus rien n'est retenu.
@@ -22,7 +22,8 @@ struct RecoveryContext {
 /// est retenue à chaque changement (cf. ``RecoveryStore``). Si l'application
 /// s'arrête ou est quittée entre-temps, elle est proposée à la prochaine ouverture
 /// du fichier. Les pages renvoient au fichier tel qu'il a été ouvert ; avant le
-/// premier enregistrement, qui le remplace, une copie en est conservée.
+/// premier enregistrement, qui le remplace, une copie en est conservée, comme
+/// des documents dont des pages sont insérées.
 extension DocumentViewModel {
     /// Le document vient de s'ouvrir : propose les modifications retenues pour son fichier.
     func offerRecovery() {
@@ -33,8 +34,7 @@ extension DocumentViewModel {
             ?? (record.stamp == recovery.stamp)
         guard usable, record.version == 1, !record.pages.isEmpty else {
             logger.info("Modifications retenues périmées, supprimées")
-            store.removeRecord(for: reference.path)
-            store.removeBase(record.basePath)
+            store.discard(record)
             return
         }
         recoveryOffer = record
@@ -49,8 +49,7 @@ extension DocumentViewModel {
     func declineRecovery() {
         guard let record = recoveryOffer else { return }
         recoveryOffer = nil
-        recoveryStore?.removeRecord(for: reference.path)
-        recoveryStore?.removeBase(record.basePath)
+        recoveryStore?.discard(record)
     }
 
     /// Restaure les modifications proposées ; elles s'annulent comme les autres.
@@ -82,13 +81,13 @@ extension DocumentViewModel {
     func prepareRecoveryBase() async {
         guard recovery.isAvailable, recovery.basePath == nil, let store = recoveryStore, let session else { return }
         let base = await Task.detached(priority: .userInitiated) {
-            try? store.makeBase(session.openingBytes())
+            try? store.makeCopy(session.sourceBytes(source: 0), of: .base)
         }.value
         if let base {
             recovery.basePath = base
         } else {
             logger.error("Copie d'ouverture impossible : les modifications ne seront plus retenues")
-            recovery.isAvailable = false
+            disableRecovery()
         }
     }
 
@@ -107,7 +106,38 @@ extension DocumentViewModel {
     func endRecovery() {
         guard recovery.isActive, !isModified, recoveryOffer == nil, let store = recoveryStore else { return }
         store.removeRecord(for: reference.path)
-        store.removeBase(recovery.basePath)
+        store.removeCopy(recovery.basePath)
+        recovery.extraSources.forEach(store.removeCopy)
+    }
+
+    /// Plus rien ne peut être retenu pour ce document (copie impossible, document
+    /// inséré protégé par un mot de passe, qui n'est jamais écrit sur le disque).
+    func disableRecovery() {
+        recovery.isAvailable = false
+        updateRecovery()
+        setModified(isModified)
+    }
+
+    /// Les modifications pourront être proposées à la prochaine ouverture.
+    var isRecoverable: Bool {
+        recovery.isAvailable && recovery.stamp != nil && recoveryStore != nil
+    }
+
+    /// Conserve une copie d'un document dont des pages vont être insérées
+    /// (source `source` de la session).
+    func retainCopy(ofSource source: UInt32, protected: Bool) async {
+        guard recovery.isAvailable, let store = recoveryStore, let session else { return }
+        var copy: String?
+        if !protected {
+            copy = await Task.detached(priority: .userInitiated) {
+                try? store.makeCopy(session.sourceBytes(source: source), of: .source)
+            }.value
+        }
+        guard let copy, Int(source) == recovery.extraSources.count + 1 else {
+            disableRecovery()
+            return
+        }
+        recovery.extraSources.append(copy)
     }
 
     private func restore(_ record: RecoveryRecord) async {
@@ -116,9 +146,7 @@ extension DocumentViewModel {
         let opened = await Task.detached(priority: .userInitiated) {
             Result { () -> (PdfDocument?, [PdfDocument]) in
                 let base = try record.basePath.map { try PdfDocument.open(path: $0, password: password) }
-                let others = try record.sources.map { source in
-                    try source.withAccess { try PdfDocument.open(path: $0.path, password: nil) }
-                }
+                let others = try record.sources.map { try PdfDocument.open(path: $0, password: nil) }
                 return (base, others)
             }
         }.value
@@ -154,8 +182,7 @@ extension DocumentViewModel {
 
     /// Les modifications retenues ne peuvent pas être restaurées : elles sont supprimées.
     private func abandon(_ record: RecoveryRecord) {
-        recoveryStore?.removeRecord(for: reference.path)
-        recoveryStore?.removeBase(record.basePath)
+        recoveryStore?.discard(record)
         recovery.basePath = nil
         recovery.extraSources = []
         failureMessage = String(localized: "Les modifications non enregistrées n'ont pas pu être restaurées.")
