@@ -50,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
 
+    @MainActor
     private func confirmQuit() -> Bool {
         let alert = NSAlert()
         alert.messageText = String(localized: "Des documents ont des modifications non enregistrées.")

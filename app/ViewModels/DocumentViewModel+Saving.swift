@@ -16,6 +16,13 @@ struct SavingState {
     var completion: (@MainActor () -> Void)?
 }
 
+/// Fichier écrit : nouvel emplacement s'il change, empreinte et révision écrite.
+private struct WrittenFile: Sendable {
+    let relocated: DocumentReference?
+    let stamp: FileStamp?
+    let revision: UInt64
+}
+
 // MARK: - Enregistrement
 
 /// Enregistrer (⌘S) remplace le fichier d'origine après confirmation et copie de
@@ -126,23 +133,23 @@ extension DocumentViewModel {
             defer { DocumentOpener.shared.endSave() }
             await prepareRecoveryBase()
             let result = await Task.detached(priority: .userInitiated) {
-                Result { () -> (DocumentReference?, FileStamp?, UInt64) in
+                Result { () -> WrittenFile in
                     let exported = try session.exportPdf()
                     let relocated = try store(exported.bytes)
                     let stamp = try? (relocated ?? original).withAccess { try FileStamp(of: $0) }
-                    return (relocated, stamp, exported.revision)
+                    return WrittenFile(relocated: relocated, stamp: stamp, revision: exported.revision)
                 }
             }.value
             saving.inProgress = false
             switch result {
-            case let .success((relocated, stamp, revision)):
-                if let relocated {
+            case let .success(written):
+                if let relocated = written.relocated {
                     relocate(to: relocated)
                 }
                 // Une modification faite pendant l'écriture reste à enregistrer.
-                session.markSaved(revision: revision)
+                session.markSaved(revision: written.revision)
                 setModified(session.isModified())
-                didSave(stamp: stamp, previousPath: original.path)
+                didSave(stamp: written.stamp, previousPath: original.path)
                 let completion = saving.completion
                 saving.completion = nil
                 completion?()
