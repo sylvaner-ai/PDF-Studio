@@ -1,0 +1,22 @@
+[package]
+name = "ocr_bench"
+description = "Banc d'essai des moteurs de reconnaissance de texte (Vision, Tesseract, ocrs)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+ocr.workspace = true
+pdf_core.workspace = true
+render.workspace = true
+# Réservés au banc d'essai, jamais à l'application : moteur ONNX en Rust
+# (ocrs, sur le runtime rten), codage des images et des réponses des moteurs
+# externes.
+ocrs = "0.13"
+rten = { version = "0.26", default-features = false }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+serde_json = "1"
+
+[lints]
+workspace = true

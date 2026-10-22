@@ -108,6 +108,12 @@ impl PageModel {
         &self.objects
     }
 
+    /// Transformation de l'espace de la page PDF vers l'espace d'affichage
+    /// (origine en haut à gauche, rotation `/Rotate` comprise).
+    pub fn display_matrix(&self) -> Matrix {
+        self.to_display
+    }
+
     /// Convertit un déplacement de l'espace d'affichage vers l'espace de la
     /// page PDF.
     pub fn display_to_page_offset(&self, dx: f64, dy: f64) -> (f64, f64) {

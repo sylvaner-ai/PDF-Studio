@@ -12,11 +12,12 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use edit::PageEdits;
+use edit::{PageEdits, TextLayer};
 use mupdf::pdf::{Encryption, PdfDocument, PdfGraftMap, PdfObject, PdfWriteOptions};
 use mupdf::{Buffer, Size};
 
 use crate::editing::{self, EmbeddedFonts, FontProvider, PageModel};
+use crate::textlayer;
 
 use crate::error::{PdfError, Result};
 
@@ -84,6 +85,17 @@ pub fn write_edited_pdf(
     pages: &[OutputPage],
     edits: &[Option<Arc<PageEdits>>],
 ) -> Result<Vec<u8>> {
+    write_document(sources, pages, edits, &[])
+}
+
+/// Comme [`write_edited_pdf`], en ajoutant aux pages reconnues leur couche de
+/// texte invisible `layers` (même position que dans `pages`).
+pub fn write_document(
+    sources: &[SourceData],
+    pages: &[OutputPage],
+    edits: &[Option<Arc<PageEdits>>],
+    layers: &[Option<Arc<TextLayer>>],
+) -> Result<Vec<u8>> {
     let base = sources
         .first()
         .ok_or_else(|| invalid("aucun document source"))?;
@@ -101,6 +113,7 @@ pub fn write_edited_pdf(
         rebuild(&mut doc, sources, pages, original_count)?;
     }
     apply_edits(&mut doc, edits)?;
+    apply_layers(&mut doc, layers)?;
 
     let mut options = PdfWriteOptions::default();
     options
@@ -132,6 +145,64 @@ fn apply_edits(doc: &mut PdfDocument, edits: &[Option<Arc<PageEdits>>]) -> Resul
         if let Some(resources) = edited.resources {
             page.dict_put("Resources", resources)?;
         }
+    }
+    Ok(())
+}
+
+/// Ajoute aux pages leur couche de texte invisible : un flux de contenu de
+/// plus, après le contenu de la page entouré de `q … Q` (il peut laisser l'état
+/// graphique modifié), et la police de la couche dans ses ressources. La police
+/// est ajoutée une seule fois au document.
+fn apply_layers(doc: &mut PdfDocument, layers: &[Option<Arc<TextLayer>>]) -> Result<()> {
+    let mut font: Option<PdfObject> = None;
+    for (position, layer) in layers.iter().enumerate() {
+        let Some(layer) = layer.as_ref().filter(|layer| !layer.is_empty()) else {
+            continue;
+        };
+        let font = match &font {
+            Some(font) => font.try_clone()?,
+            None => {
+                let added = textlayer::add_layer_font(doc)?;
+                font = Some(added.try_clone()?);
+                added
+            }
+        };
+        let mut page = doc.find_page(position as i32)?;
+
+        let resources = page.get_dict_inheritable("Resources")?;
+        let mut copy = match &resources {
+            Some(resources) if resources.is_dict()? => detached_copy(resources)?,
+            _ => doc.new_dict()?,
+        };
+        let mut fonts = match copy.get_dict("Font")? {
+            Some(dict) if dict.is_dict()? => detached_copy(&dict)?,
+            _ => doc.new_dict()?,
+        };
+        let mut name = String::from("PSOCR");
+        let mut suffix = 1;
+        while fonts.get_dict(name.as_str())?.is_some() {
+            suffix += 1;
+            name = format!("PSOCR{suffix}");
+        }
+        fonts.dict_put(name.as_str(), font)?;
+        copy.dict_put("Font", fonts)?;
+        page.dict_put("Resources", copy)?;
+
+        let mut contents = doc.new_array()?;
+        contents.array_push(doc.add_stream(&Buffer::from_bytes(b"q\n")?, None, false)?)?;
+        match page.get_dict("Contents")? {
+            Some(existing) if existing.is_array()? => {
+                for item in existing.array_iter()? {
+                    contents.array_push(item?)?;
+                }
+            }
+            Some(existing) => contents.array_push(existing)?,
+            None => {}
+        }
+        let mut layer_stream = b"\nQ\n".to_vec();
+        layer_stream.extend_from_slice(&textlayer::layer_content(layer, &name));
+        contents.array_push(doc.add_stream(&Buffer::from_bytes(&layer_stream)?, None, false)?)?;
+        page.dict_put("Contents", contents)?;
     }
     Ok(())
 }

@@ -15,6 +15,7 @@ mod page;
 mod qos;
 mod service;
 mod text;
+mod textlayer;
 mod writer;
 
 pub use document::Document;
@@ -24,5 +25,5 @@ pub use outline::OutlineEntry;
 pub use page::{PageContent, PageSize};
 pub use qos::{install_qos_hooks, QosHooks};
 pub use service::{DocumentHandle, Source};
-pub use text::{PageRect, PageText, TextMatch};
-pub use writer::{is_signed, write_edited_pdf, write_pdf, OutputPage, SourceData};
+pub use text::{PageRect, PageText, TextLine, TextMatch};
+pub use writer::{is_signed, write_document, write_edited_pdf, write_pdf, OutputPage, SourceData};

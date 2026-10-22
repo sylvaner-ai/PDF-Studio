@@ -2,14 +2,15 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use edit::{FontChoice, PageEdits};
+use edit::{FontChoice, PageEdits, TextLayer};
 use mupdf::pdf::PdfDocument;
 
+use crate::content::geometry::{Matrix, Point};
 use crate::editing::{self, EmbeddedFonts, FontProvider, ObjectInfo, PageModel, Scratch};
 use crate::error::{PdfError, Result};
 use crate::outline::{self, OutlineEntry};
 use crate::page::{PageContent, PageSize};
-use crate::text::PageText;
+use crate::text::{PageRect, PageText, TextLine};
 
 /// Un document PDF ouvert en mémoire.
 ///
@@ -121,6 +122,62 @@ impl Document {
         Ok(PageText::from_text_page(&text))
     }
 
+    /// Lignes de texte de la page (texte invisible compris), avec leur emprise
+    /// dans l'espace d'affichage, dans l'ordre établi par MuPDF.
+    pub fn text_lines(&self, index: u32) -> Result<Vec<TextLine>> {
+        self.page_size(index)?;
+        let page = self.inner.load_page(index as i32)?;
+        let text = page.to_text_page(mupdf::TextPageFlags::empty())?;
+        let mut lines = Vec::new();
+        for block in text.blocks() {
+            if block.r#type() != mupdf::text_page::TextBlockType::Text {
+                continue;
+            }
+            for line in block.lines() {
+                let content: String = line.chars().filter_map(|c| c.char()).collect();
+                if content.trim().is_empty() {
+                    continue;
+                }
+                let mut rect: Option<PageRect> = None;
+                for c in line.chars() {
+                    let glyph = PageRect::from_quad(c.quad());
+                    rect = Some(rect.map_or(glyph, |r| r.union(glyph)));
+                }
+                if let Some(rect) = rect {
+                    lines.push(TextLine {
+                        text: content,
+                        rect,
+                    });
+                }
+            }
+        }
+        Ok(lines)
+    }
+
+    /// Vrai si la page doit passer par la reconnaissance de texte : elle ne
+    /// contient aucun texte (ni visible ni invisible) mais dessine quelque
+    /// chose (image d'un scan, texte vectorisé).
+    pub fn needs_recognition(&mut self, index: u32) -> Result<bool> {
+        if !self.text_lines(index)?.is_empty() {
+            return Ok(false);
+        }
+        Ok(!self.page_model(index)?.objects().is_empty())
+    }
+
+    /// Transformation de l'espace de la page PDF vers l'espace d'affichage
+    /// (origine en haut à gauche, rotation `/Rotate` comprise).
+    pub fn display_matrix(&mut self, index: u32) -> Result<Matrix> {
+        Ok(self.page_model(index)?.display_matrix())
+    }
+
+    /// Texte d'une page augmenté de la couche de texte `layer`, pour la
+    /// recherche.
+    pub fn page_text_with_layer(&mut self, index: u32, layer: &TextLayer) -> Result<PageText> {
+        let native = self.page_text(index)?;
+        let to_display = self.display_matrix(index)?;
+        Ok(native.with_lines(&layer_lines(layer, &to_display)))
+    }
+
     /// Texte brut d'une page, dans l'ordre de lecture établi par MuPDF ; les mots
     /// coupés en fin de ligne sont recollés.
     pub fn plain_text(&self, index: u32) -> Result<String> {
@@ -209,6 +266,46 @@ impl Document {
                 count: self.page_count(),
             })
     }
+}
+
+/// Mots d'une couche de texte, ligne par ligne, avec leur emprise dans
+/// l'espace d'affichage.
+pub(crate) fn layer_lines(layer: &TextLayer, to_display: &Matrix) -> Vec<Vec<(String, PageRect)>> {
+    let mut lines: Vec<Vec<(String, PageRect)>> = Vec::new();
+    let mut current = None;
+    for word in &layer.words {
+        let corners = [
+            word.bottom_left(),
+            word.bottom_right(),
+            word.top_right(),
+            word.top_left(),
+        ]
+        .map(|(x, y)| to_display.apply(Point::new(f64::from(x), f64::from(y))));
+        let x0 = corners.iter().map(|p| p.x).fold(f64::INFINITY, f64::min);
+        let y0 = corners.iter().map(|p| p.y).fold(f64::INFINITY, f64::min);
+        let x1 = corners
+            .iter()
+            .map(|p| p.x)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let y1 = corners
+            .iter()
+            .map(|p| p.y)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let rect = PageRect {
+            x: x0 as f32,
+            y: y0 as f32,
+            width: (x1 - x0) as f32,
+            height: (y1 - y0) as f32,
+        };
+        if current != Some(word.line) || lines.is_empty() {
+            lines.push(Vec::new());
+            current = Some(word.line);
+        }
+        if let Some(line) = lines.last_mut() {
+            line.push((word.text.clone(), rect));
+        }
+    }
+    lines
 }
 
 /// Lit le contenu d'un fichier.

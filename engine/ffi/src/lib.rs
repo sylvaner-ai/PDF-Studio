@@ -14,9 +14,14 @@ use render::{Region, Rotation};
 
 mod content;
 mod qos;
+mod recognition;
 mod session;
 
 pub use content::{ContentEdits, ObjectEditItem, PageObjectItem, PageObjectKind, TextFont};
+pub use recognition::{
+    default_recognition_settings, LayerWordItem, OcrImage, PageRecognition, RecognitionSettings,
+    RecognizedText, RecognizedWordItem, TextRecognizer,
+};
 pub use session::{EditSession, PageItem, PageKind};
 
 uniffi::setup_scaffolding!();
@@ -280,23 +285,7 @@ impl PdfDocument {
     /// ni des ligatures. L'application parcourt les pages une à une, ce qui lui
     /// permet d'afficher les résultats au fil de l'eau et d'interrompre la recherche.
     pub fn search_page(&self, index: u32, query: String) -> Result<Vec<SearchMatch>, EngineError> {
-        Ok(self
-            .handle
-            .search_page(index, &query)?
-            .into_iter()
-            .map(|found| SearchMatch {
-                rects: found
-                    .rects
-                    .into_iter()
-                    .map(|r| PageRect {
-                        x: r.x,
-                        y: r.y,
-                        width: r.width,
-                        height: r.height,
-                    })
-                    .collect(),
-            })
-            .collect())
+        Ok(search_matches(self.handle.search_page(index, &query)?))
     }
 }
 
@@ -305,6 +294,25 @@ impl PdfDocument {
     pub(crate) fn source_data(&self) -> SourceData {
         self.handle.source_data().clone()
     }
+}
+
+/// Occurrences du moteur, converties pour l'application.
+pub(crate) fn search_matches(found: Vec<pdf_core::TextMatch>) -> Vec<SearchMatch> {
+    found
+        .into_iter()
+        .map(|found| SearchMatch {
+            rects: found
+                .rects
+                .into_iter()
+                .map(|r| PageRect {
+                    x: r.x,
+                    y: r.y,
+                    width: r.width,
+                    height: r.height,
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 /// Version du moteur, affichée dans « À propos ».

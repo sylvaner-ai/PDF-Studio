@@ -1,14 +1,21 @@
-//! Session de modification d'un document (organisation des pages et contenu
-//! des pages), avec son historique.
+//! Session de modification d'un document (organisation des pages, contenu des
+//! pages et couche de texte des pages reconnues), avec son historique.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use edit::{EditError, Editor, PageEdits, PageEntry, PageOrigin, RestoredPage, TextReplacement};
+use edit::{
+    EditError, Editor, PageEdits, PageEntry, PageOrigin, Recognition, RestoredPage, TextLayer,
+    TextReplacement,
+};
 use pdf_core::{OutputPage, SourceData};
 
 use crate::content::{restored_content, ContentEdits, ObjectEditItem, PageObjectItem};
-use crate::{EngineError, PageSize, PdfDocument};
+use crate::recognition::{
+    self, layer_from_items, LayerWordItem, PageRecognition, RecognitionSettings,
+    RecognizedWordItem, TextRecognizer, DOUBTFUL_BELOW,
+};
+use crate::{search_matches, EngineError, PageSize, PdfDocument, SearchMatch};
 
 /// Contenu d'une page de la session.
 #[derive(Debug, Clone, Copy, PartialEq, uniffi::Enum)]
@@ -40,6 +47,9 @@ pub struct PageItem {
     /// État des modifications du contenu de la page (0 : contenu d'origine) ;
     /// il change à chaque modification, annulation comprise.
     pub edit_revision: u64,
+    /// État de la couche de texte de la page reconnue (0 : aucune couche) ;
+    /// il change à chaque reconnaissance, annulation comprise.
+    pub text_layer_revision: u64,
 }
 
 impl PageItem {
@@ -55,6 +65,7 @@ impl PageItem {
             kind,
             quarter_turns: entry.quarter_turns,
             edit_revision: editor.content(entry.id).map_or(0, |edits| edits.revision()),
+            text_layer_revision: editor.text_layer_revision(entry.id),
         }
     }
 }
@@ -217,12 +228,14 @@ impl EditSession {
     /// les identifiants donnés sont ignorés. `contents` donne les
     /// modifications du contenu de chaque page, dans le même ordre (liste
     /// plus courte : contenu d'origine) ; celles dont l'objet ne correspond
-    /// plus sont ignorées. Les documents sources doivent avoir été ajoutés au
-    /// préalable, dans le même ordre.
+    /// plus sont ignorées. `layers` donne de même la couche de texte des pages
+    /// reconnues (liste vide : aucune couche). Les documents sources doivent
+    /// avoir été ajoutés au préalable, dans le même ordre.
     pub fn restore(
         &self,
         pages: Vec<PageItem>,
         contents: Vec<Vec<ObjectEditItem>>,
+        layers: Vec<Vec<LayerWordItem>>,
     ) -> Result<(), EngineError> {
         let documents = self.documents();
         let mut kept: Vec<Vec<ObjectEditItem>> = Vec::with_capacity(pages.len());
@@ -278,6 +291,12 @@ impl EditSession {
                     .get(position)
                     .map(|items| restored_content(items))
                     .unwrap_or_default(),
+                text_layer: layers
+                    .get(position)
+                    .filter(|items| {
+                        !items.is_empty() && !matches!(page.kind, PageKind::Blank { .. })
+                    })
+                    .map(|items| layer_from_items(items, "récupération")),
             });
         }
         Ok(state.editor.restore(&entries)?)
@@ -373,6 +392,115 @@ impl EditSession {
             .collect())
     }
 
+    /// Pages qui doivent passer par la reconnaissance de texte : sans aucun
+    /// texte, mais avec un contenu (image d'un scan), et pas encore reconnues.
+    pub fn pages_to_recognize(&self) -> Result<Vec<u64>, EngineError> {
+        let candidates: Vec<(u64, Arc<PdfDocument>, u32)> = {
+            let state = self.lock();
+            state
+                .editor
+                .pages()
+                .iter()
+                .filter(|entry| state.editor.text_layer(entry.id).is_none())
+                .filter_map(|entry| match entry.origin {
+                    PageOrigin::Source { source, index } => state
+                        .sources
+                        .get(source as usize)
+                        .map(|source| (entry.id, Arc::clone(&source.document), index)),
+                    PageOrigin::Blank { .. } => None,
+                })
+                .collect()
+        };
+        let mut pages = Vec::new();
+        for (id, document, index) in candidates {
+            if document.handle.needs_recognition(index)? {
+                pages.push(id);
+            }
+        }
+        Ok(pages)
+    }
+
+    /// Lit le texte de la page `page` avec `recognizer`, sans modifier le
+    /// document : le résultat s'applique ensuite, avec celui des autres pages,
+    /// par [`EditSession::apply_recognitions`]. Les mots qui recouvrent un
+    /// texte déjà présent dans la page sont écartés. Une page vierge ne
+    /// donne aucun mot.
+    pub fn recognize_page(
+        &self,
+        page: u64,
+        recognizer: Arc<dyn TextRecognizer>,
+        settings: RecognitionSettings,
+    ) -> Result<PageRecognition, EngineError> {
+        let (document, index, edits) = self.page_source(page)?;
+        let Some(document) = document else {
+            return Ok(PageRecognition::empty(page, recognizer.name()));
+        };
+        recognition::recognize(page, &document.handle, index, edits, recognizer, &settings)
+    }
+
+    /// Ajoute aux pages reconnues leur couche de texte et remet à l'endroit
+    /// celles qui étaient couchées ou retournées, en une seule étape
+    /// d'annulation (« la reconnaissance du texte »). Les pages supprimées
+    /// entre-temps sont ignorées.
+    pub fn apply_recognitions(&self, results: Vec<PageRecognition>) {
+        let results = results
+            .into_iter()
+            .map(|result| Recognition {
+                page: result.page,
+                layer: layer_from_items(&result.words, &result.engine),
+                quarter_turns: result.quarter_turns % 4,
+            })
+            .collect();
+        self.lock().editor.recognize(results);
+    }
+
+    /// Mots de la couche de texte de la page `page`, avec leur emprise sur la
+    /// page droite ; vide si la page n'a pas été reconnue.
+    pub fn recognized_words(&self, page: u64) -> Result<Vec<RecognizedWordItem>, EngineError> {
+        let (document, index, layer) = self.page_layer(page)?;
+        let (Some(document), Some(layer)) = (document, layer) else {
+            return Ok(Vec::new());
+        };
+        let to_display = document.handle.display_matrix(index)?;
+        Ok(layer
+            .words
+            .iter()
+            .map(|word| RecognizedWordItem {
+                text: word.text.clone(),
+                bounds: recognition::display_bounds(word, &to_display),
+                confidence: word.confidence,
+                doubtful: word.confidence < DOUBTFUL_BELOW,
+            })
+            .collect())
+    }
+
+    /// Couche de texte de la page `page`, à conserver pour la récupération ;
+    /// vide si la page n'a pas été reconnue.
+    pub fn text_layer_record(&self, page: u64) -> Vec<LayerWordItem> {
+        self.lock()
+            .editor
+            .text_layer(page)
+            .map(|layer| layer.words.iter().map(LayerWordItem::from).collect())
+            .unwrap_or_default()
+    }
+
+    /// Cherche `query` dans la page `page` : son texte et, si elle a été
+    /// reconnue, sa couche de texte. Les rectangles sont exprimés sur la page
+    /// droite.
+    pub fn search_page(&self, page: u64, query: String) -> Result<Vec<SearchMatch>, EngineError> {
+        let (document, index, layer) = self.page_layer(page)?;
+        let Some(document) = document else {
+            return Ok(Vec::new());
+        };
+        let found = match layer {
+            Some(layer) => document
+                .handle
+                .search_page_with_layer(index, &query, layer)?,
+            None => document.handle.search_page(index, &query)?,
+        };
+        Ok(search_matches(found))
+    }
+
     /// Défait la dernière modification ; `false` s'il n'y en a pas.
     pub fn undo(&self) -> bool {
         self.lock().editor.undo()
@@ -419,14 +547,9 @@ impl EditSession {
     /// PDF formé de toutes les pages, relu et vérifié, et la révision écrite.
     pub fn export_pdf(&self) -> Result<ExportedPdf, EngineError> {
         let (snapshot, revision) = self.freeze();
-        let pages: Vec<OutputPage> = snapshot.pages.iter().map(|(_, page, _)| *page).collect();
-        let edits: Vec<_> = snapshot
-            .pages
-            .iter()
-            .map(|(_, _, edits)| edits.clone())
-            .collect();
+        let ids: Vec<u64> = snapshot.pages.iter().map(|page| page.id).collect();
         Ok(ExportedPdf {
-            bytes: pdf_core::write_edited_pdf(&snapshot.sources, &pages, &edits)?,
+            bytes: snapshot.export_pages(ids)?,
             revision,
         })
     }
@@ -473,6 +596,29 @@ impl EditSession {
             .iter()
             .map(|source| Arc::clone(&source.document))
             .collect()
+    }
+
+    /// Document et indice de la page `page` (aucun document pour une page
+    /// vierge), et sa couche de texte.
+    fn page_layer(&self, page: u64) -> Result<PageLayer, EngineError> {
+        let state = self.lock();
+        let entry = state
+            .editor
+            .pages()
+            .iter()
+            .find(|entry| entry.id == page)
+            .ok_or_else(changed)?;
+        let layer = state.editor.text_layer(page).cloned();
+        Ok(match entry.origin {
+            PageOrigin::Source { source, index } => {
+                let document = state
+                    .sources
+                    .get(source as usize)
+                    .map(|source| Arc::clone(&source.document));
+                (document, index, layer)
+            }
+            PageOrigin::Blank { .. } => (None, 0, None),
+        })
     }
 
     /// Document et indice de la page `page` (aucun document pour une page
@@ -527,7 +673,12 @@ impl EditSession {
                         quarter_turns: entry.quarter_turns,
                     },
                 };
-                (entry.id, page, state.editor.content(entry.id).cloned())
+                FrozenPage {
+                    id: entry.id,
+                    page,
+                    edits: state.editor.content(entry.id).cloned(),
+                    layer: state.editor.text_layer(entry.id).cloned(),
+                }
             })
             .collect();
         let sources = state
@@ -544,13 +695,25 @@ impl EditSession {
 /// les modifications de son contenu.
 type PageSource = (Option<Arc<PdfDocument>>, u32, Option<Arc<PageEdits>>);
 
+/// Document et indice d'une page (aucun document pour une page vierge), et sa
+/// couche de texte.
+type PageLayer = (Option<Arc<PdfDocument>>, u32, Option<Arc<TextLayer>>);
+
+/// Une page figée : identifiant, contenu, modifications du contenu et couche
+/// de texte.
+struct FrozenPage {
+    id: u64,
+    page: OutputPage,
+    edits: Option<Arc<PageEdits>>,
+    layer: Option<Arc<TextLayer>>,
+}
+
 /// Pages d'une session figées à un instant donné.
 #[derive(uniffi::Object)]
 pub struct PageSnapshot {
     sources: Vec<SourceData>,
-    /// Identifiant, contenu et modifications du contenu de chaque page, dans
-    /// l'ordre.
-    pages: Vec<(u64, OutputPage, Option<Arc<PageEdits>>)>,
+    /// Pages, dans l'ordre.
+    pages: Vec<FrozenPage>,
 }
 
 #[uniffi::export]
@@ -566,13 +729,19 @@ impl PageSnapshot {
             .map(|&id| {
                 self.pages
                     .iter()
-                    .find(|(page, _, _)| *page == id)
+                    .find(|page| page.id == id)
                     .ok_or_else(changed)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let pages: Vec<OutputPage> = selected.iter().map(|(_, page, _)| *page).collect();
-        let edits: Vec<_> = selected.iter().map(|(_, _, edits)| edits.clone()).collect();
-        Ok(pdf_core::write_edited_pdf(&self.sources, &pages, &edits)?)
+        let pages: Vec<OutputPage> = selected.iter().map(|page| page.page).collect();
+        let edits: Vec<_> = selected.iter().map(|page| page.edits.clone()).collect();
+        let layers: Vec<_> = selected.iter().map(|page| page.layer.clone()).collect();
+        Ok(pdf_core::write_document(
+            &self.sources,
+            &pages,
+            &edits,
+            &layers,
+        )?)
     }
 }
 
@@ -604,6 +773,7 @@ mod tests {
     use std::path::Path;
 
     use super::*;
+    use crate::recognition::{default_recognition_settings, OcrImage, RecognizedText};
     use crate::PageObjectKind;
 
     fn open(name: &str) -> Arc<PdfDocument> {
@@ -724,8 +894,9 @@ mod tests {
             },
             quarter_turns: 0,
             edit_revision: 0,
+            text_layer_revision: 0,
         });
-        session.restore(pages, Vec::new()).unwrap();
+        session.restore(pages, Vec::new(), Vec::new()).unwrap();
         assert_eq!(
             sources(&session),
             [(0, 4), (0, 3), (0, 2), (0, 1), (0, 0), (1, 0)]
@@ -741,8 +912,11 @@ mod tests {
             },
             quarter_turns: 0,
             edit_revision: 0,
+            text_layer_revision: 0,
         };
-        assert!(session.restore(vec![missing], Vec::new()).is_err());
+        assert!(session
+            .restore(vec![missing], Vec::new(), Vec::new())
+            .is_err());
         assert_eq!(session.pages().len(), 6);
 
         // Restaurées sur une version antérieure du fichier, les pages ne
@@ -810,6 +984,7 @@ mod tests {
             .restore(
                 pages.clone(),
                 vec![stale, session.content_record(rotated).unwrap()],
+                Vec::new(),
             )
             .unwrap();
         let restored_pages = restored.pages();
@@ -839,6 +1014,97 @@ mod tests {
         );
         assert!(!session.is_modified());
         assert!(session.undo_name().is_none());
+    }
+
+    /// Moteur factice : trois mots sur une ligne, à un endroit fixe de l'image.
+    struct Factice;
+
+    impl TextRecognizer for Factice {
+        fn name(&self) -> String {
+            "Factice".into()
+        }
+
+        fn recognize(
+            &self,
+            image: OcrImage,
+            _languages: Vec<String>,
+        ) -> Result<Vec<RecognizedText>, EngineError> {
+            assert!(image.width > 0 && image.pixels.len() == (image.width * image.height) as usize);
+            let word = |text: &str, x: f32, confidence: f32| RecognizedText {
+                text: text.into(),
+                confidence,
+                line: 7,
+                quad: vec![x, 300.0, x + 100.0, 300.0, x + 100.0, 330.0, x, 330.0],
+            };
+            Ok(vec![
+                word("Facture", 150.0, 0.95),
+                word("n°", 260.0, 0.9),
+                word("4521", 370.0, 0.3),
+            ])
+        }
+    }
+
+    #[test]
+    fn reconnait_une_page_scannee() {
+        let session = EditSession::new(open("scan_simule.pdf"));
+        let pages = session.pages_to_recognize().unwrap();
+        assert_eq!(pages.len(), session.pages().len());
+        let page = pages[0];
+        let settings = RecognitionSettings {
+            dpi: 150.0,
+            flatten: false,
+            deskew: false,
+            orientation: false,
+            ..default_recognition_settings()
+        };
+        let result = session
+            .recognize_page(page, Arc::new(Factice), settings)
+            .unwrap();
+        assert_eq!(result.words.len(), 3);
+        assert_eq!(result.words[0].line, 0);
+        assert_eq!(result.doubtful_words, 1);
+        assert!(session
+            .search_page(page, "facture".into())
+            .unwrap()
+            .is_empty());
+
+        session.apply_recognitions(vec![result]);
+        assert_eq!(
+            session.undo_name().as_deref(),
+            Some("la reconnaissance du texte")
+        );
+        assert!(!session.pages_to_recognize().unwrap().contains(&page));
+        assert!(session.pages()[0].text_layer_revision > 0);
+
+        // Mots signalés à l'endroit où le moteur les a lus (150 dpi).
+        let words = session.recognized_words(page).unwrap();
+        assert_eq!(words.len(), 3);
+        assert!(
+            (words[0].bounds.x - 72.0).abs() < 0.5,
+            "{:?}",
+            words[0].bounds
+        );
+        assert!(
+            (words[0].bounds.y - 144.0).abs() < 0.5,
+            "{:?}",
+            words[0].bounds
+        );
+        assert!(words[2].doubtful && !words[0].doubtful);
+
+        let found = session.search_page(page, "facture n° 4521".into()).unwrap();
+        assert_eq!(found.len(), 1);
+
+        // La couche est enregistrée dans le PDF et cherchable après réouverture.
+        let exported = session.export_pdf().unwrap();
+        let reopened = PdfDocument::from_data(exported.bytes, None).unwrap();
+        assert_eq!(reopened.search_page(0, "4521".into()).unwrap().len(), 1);
+
+        assert!(session.undo());
+        assert!(session.recognized_words(page).unwrap().is_empty());
+        assert!(session
+            .search_page(page, "facture".into())
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

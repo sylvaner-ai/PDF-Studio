@@ -1,6 +1,7 @@
 //! Modifications d'un document : organisation des pages (ordre, rotation,
-//! suppression, duplication, insertion) et contenu de chaque page (objets
-//! supprimés, déplacés, texte remplacé).
+//! suppression, duplication, insertion), contenu de chaque page (objets
+//! supprimés, déplacés, texte remplacé) et couche de texte des pages
+//! reconnues.
 //!
 //! Le document n'est pas modifié : on manipule une liste de pages qui désignent
 //! chacune une page d'un document source (ou une page vierge), et pour chaque
@@ -14,6 +15,7 @@ use std::sync::Arc;
 
 use crate::content::{ObjectEdit, PageEdits, TextReplacement};
 use crate::history::{Command, History};
+use crate::layer::TextLayer;
 
 /// Origine d'une page.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -71,12 +73,25 @@ pub enum EditError {
 /// Résultat d'une opération sur les pages.
 pub type Result<T> = std::result::Result<T, EditError>;
 
-/// État du document : ses pages, et les modifications du contenu de chacune,
-/// par identifiant de page.
+/// État du document : ses pages, les modifications du contenu de chacune et
+/// leur couche de texte (avec son numéro), par identifiant de page.
 #[derive(Clone, Default, PartialEq)]
 struct State {
     pages: Vec<PageEntry>,
     contents: HashMap<u64, Arc<PageEdits>>,
+    layers: HashMap<u64, (u64, Arc<TextLayer>)>,
+}
+
+/// Résultat de la reconnaissance du texte d'une page.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Recognition {
+    /// Identifiant de la page.
+    pub page: u64,
+    /// Mots reconnus ; une couche vide retire la couche existante.
+    pub layer: TextLayer,
+    /// Quarts de tour (sens horaire) qui remettent à l'endroit la page
+    /// d'origine (sans la rotation de l'organisation) ; 0 si elle l'est déjà.
+    pub quarter_turns: u8,
 }
 
 /// Pages du document, dans l'ordre, modifications de leur contenu et historique
@@ -114,6 +129,48 @@ impl Editor {
         self.state.contents.get(&page)
     }
 
+    /// Couche de texte d'une page reconnue ; `None` si elle n'en a pas.
+    pub fn text_layer(&self, page: u64) -> Option<&Arc<TextLayer>> {
+        self.state.layers.get(&page).map(|(_, layer)| layer)
+    }
+
+    /// Numéro de la couche de texte d'une page, unique dans la session
+    /// (0 : aucune couche).
+    pub fn text_layer_revision(&self, page: u64) -> u64 {
+        self.state
+            .layers
+            .get(&page)
+            .map_or(0, |(revision, _)| *revision)
+    }
+
+    /// Ajoute aux pages reconnues leur couche de texte et les remet à
+    /// l'endroit, en une seule étape d'annulation. Une page qui n'existe plus
+    /// est ignorée. La page est lue sans la rotation de l'organisation : si
+    /// elle était couchée ou retournée, sa rotation devient celle qui la
+    /// remet à l'endroit, quelle qu'elle soit (une rotation déjà corrigée à
+    /// la main n'est pas doublée) ; sinon la rotation choisie est gardée.
+    pub fn recognize(&mut self, results: Vec<Recognition>) {
+        let mut state = self.state.clone();
+        for result in results {
+            let Some(entry) = state.pages.iter_mut().find(|entry| entry.id == result.page) else {
+                continue;
+            };
+            if result.quarter_turns % 4 != 0 {
+                entry.quarter_turns = result.quarter_turns % 4;
+            }
+            if result.layer.is_empty() {
+                state.layers.remove(&result.page);
+            } else {
+                let revision = self.next_content_revision;
+                self.next_content_revision += 1;
+                state
+                    .layers
+                    .insert(result.page, (revision, Arc::new(result.layer)));
+            }
+        }
+        self.commit("la reconnaissance du texte", state);
+    }
+
     /// Fait pivoter les pages désignées de `quarter_turns` quarts de tour
     /// (positif : sens horaire).
     pub fn rotate(&mut self, positions: &[usize], quarter_turns: i32) -> Result<()> {
@@ -147,6 +204,7 @@ impl Editor {
         // retrouve l'état précédent tout entier.
         let kept: BTreeSet<u64> = state.pages.iter().map(|page| page.id).collect();
         state.contents.retain(|id, _| kept.contains(id));
+        state.layers.retain(|id, _| kept.contains(id));
         self.commit("la suppression", state);
         Ok(())
     }
@@ -165,6 +223,9 @@ impl Editor {
                 let copy = self.new_entry(page.origin, page.quarter_turns);
                 if let Some(content) = self.state.contents.get(&page.id) {
                     state.contents.insert(copy.id, Arc::clone(content));
+                }
+                if let Some(layer) = self.state.layers.get(&page.id) {
+                    state.layers.insert(copy.id, layer.clone());
                 }
                 state.pages.push(copy);
             }
@@ -240,6 +301,13 @@ impl Editor {
             if !page.content.is_empty() {
                 let content = self.new_content(page.content.clone());
                 state.contents.insert(entry.id, content);
+            }
+            if let Some(layer) = page.text_layer.as_ref().filter(|layer| !layer.is_empty()) {
+                let revision = self.next_content_revision;
+                self.next_content_revision += 1;
+                state
+                    .layers
+                    .insert(entry.id, (revision, Arc::new(layer.clone())));
             }
             state.pages.push(entry);
         }
@@ -397,6 +465,12 @@ impl Editor {
 /// Deux états identiques, aux numéros de révision du contenu près.
 fn same_state(a: &State, b: &State) -> bool {
     a.pages == b.pages
+        && a.layers.len() == b.layers.len()
+        && a.layers.iter().all(|(id, (_, layer))| {
+            b.layers
+                .get(id)
+                .is_some_and(|(_, other)| Arc::ptr_eq(layer, other) || layer == other)
+        })
         && a.contents.len() == b.contents.len()
         && a.contents.iter().all(|(id, content)| {
             b.contents
@@ -415,6 +489,8 @@ pub struct RestoredPage {
     pub quarter_turns: u8,
     /// Modifications du contenu, par numéro d'objet.
     pub content: BTreeMap<u32, ObjectEdit>,
+    /// Couche de texte d'une page reconnue.
+    pub text_layer: Option<TextLayer>,
 }
 
 /// Modification du document, retenue par ses états avant et après.
@@ -567,11 +643,13 @@ mod tests {
                 },
                 quarter_turns: 5,
                 content,
+                text_layer: None,
             },
             RestoredPage {
                 origin: blank,
                 quarter_turns: 0,
                 content: BTreeMap::new(),
+                text_layer: None,
             },
         ];
         organizer.restore(&pages).unwrap();
@@ -669,5 +747,106 @@ mod tests {
         assert!(editor.content(page).is_none());
         editor.undo();
         assert!(editor.content(page).is_some());
+    }
+
+    fn layer(text: &str) -> TextLayer {
+        TextLayer {
+            words: vec![crate::LayerWord {
+                text: text.into(),
+                quad: [0.0, 0.0, 10.0, 0.0, 10.0, 5.0, 0.0, 5.0],
+                confidence: 0.9,
+                line: 0,
+            }],
+            engine: "test".into(),
+        }
+    }
+
+    #[test]
+    fn reconnaissance_annulable_et_page_remise_a_l_endroit() {
+        let mut editor = Editor::new(3);
+        let ids: Vec<u64> = editor.pages().iter().map(|page| page.id).collect();
+        editor.recognize(vec![
+            Recognition {
+                page: ids[0],
+                layer: layer("Bonjour"),
+                quarter_turns: 0,
+            },
+            Recognition {
+                page: ids[2],
+                layer: layer("Merci"),
+                quarter_turns: 2,
+            },
+            Recognition {
+                page: 999,
+                layer: layer("disparue"),
+                quarter_turns: 1,
+            },
+        ]);
+        assert_eq!(editor.undo_name(), Some("la reconnaissance du texte"));
+        assert_eq!(editor.text_layer(ids[0]).unwrap().words[0].text, "Bonjour");
+        assert!(editor.text_layer(ids[1]).is_none());
+        assert_eq!(editor.text_layer_revision(ids[1]), 0);
+        assert_ne!(
+            editor.text_layer_revision(ids[0]),
+            editor.text_layer_revision(ids[2])
+        );
+        assert_eq!(editor.pages()[2].quarter_turns, 2);
+
+        // Une page déjà redressée à la main n'est pas tournée une fois de
+        // plus ; une rotation choisie sur une page droite est gardée.
+        editor.rotate(&[1], 2).unwrap();
+        editor.rotate(&[0], 1).unwrap();
+        editor.recognize(vec![
+            Recognition {
+                page: ids[1],
+                layer: layer("Retournée"),
+                quarter_turns: 2,
+            },
+            Recognition {
+                page: ids[0],
+                layer: layer("Bonjour"),
+                quarter_turns: 0,
+            },
+        ]);
+        assert_eq!(editor.pages()[1].quarter_turns, 2);
+        assert_eq!(editor.pages()[0].quarter_turns, 1);
+
+        // La copie d'une page garde sa couche ; la suppression la retire.
+        let position = editor.duplicate(&[0]).unwrap()[0];
+        let copy = editor.pages()[position].id;
+        assert!(editor.text_layer(copy).is_some());
+        editor.delete(&[0]).unwrap();
+        assert!(editor.text_layer(ids[0]).is_none());
+
+        while editor.undo() {}
+        assert!(editor.text_layer(ids[0]).is_none());
+        assert_eq!(editor.pages()[2].quarter_turns, 0);
+        assert!(!editor.is_modified());
+
+        // Une reconnaissance sans effet n'entre pas dans l'historique.
+        editor.recognize(vec![Recognition {
+            page: ids[1],
+            layer: TextLayer::default(),
+            quarter_turns: 0,
+        }]);
+        assert!(editor.undo_name().is_none());
+    }
+
+    #[test]
+    fn restaure_une_couche_de_texte() {
+        let mut editor = Editor::new(1);
+        editor
+            .restore(&[RestoredPage {
+                origin: PageOrigin::Source {
+                    source: 0,
+                    index: 0,
+                },
+                quarter_turns: 0,
+                content: BTreeMap::new(),
+                text_layer: Some(layer("Retrouvé")),
+            }])
+            .unwrap();
+        let id = editor.pages()[0].id;
+        assert_eq!(editor.text_layer(id).unwrap().words[0].text, "Retrouvé");
     }
 }

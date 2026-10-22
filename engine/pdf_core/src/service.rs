@@ -3,15 +3,16 @@ use std::path::PathBuf;
 use std::sync::{mpsc, Arc};
 use std::thread;
 
-use edit::{FontChoice, PageEdits};
+use edit::{FontChoice, PageEdits, TextLayer};
 
-use crate::document::{self, Document};
+use crate::content::geometry::Matrix;
+use crate::document::{self, layer_lines, Document};
 use crate::editing::ObjectInfo;
 use crate::error::{PdfError, Result};
 use crate::outline::OutlineEntry;
 use crate::page::{PageContent, PageSize};
 use crate::qos::Qos;
-use crate::text::{PageText, TextMatch};
+use crate::text::{PageText, TextLine, TextMatch};
 use crate::writer::SourceData;
 
 /// Nombre de pages dont le contenu préparé est gardé en mémoire.
@@ -200,6 +201,39 @@ impl DocumentHandle {
     pub fn search_page(&self, index: u32, query: &str) -> Result<Vec<TextMatch>> {
         let query = query.to_owned();
         self.run(move |worker| Ok(worker.page_text(index)?.search(&query)))?
+    }
+
+    /// Cherche `query` dans une page et dans sa couche de texte `layer`.
+    pub fn search_page_with_layer(
+        &self,
+        index: u32,
+        query: &str,
+        layer: Arc<TextLayer>,
+    ) -> Result<Vec<TextMatch>> {
+        let query = query.to_owned();
+        self.run(move |worker| {
+            let native = worker.page_text(index)?;
+            let to_display = worker.doc.display_matrix(index)?;
+            let text = native.with_lines(&layer_lines(&layer, &to_display));
+            Ok(text.search(&query))
+        })?
+    }
+
+    /// Lignes de texte d'une page (texte invisible compris), avec leur emprise
+    /// dans l'espace d'affichage.
+    pub fn text_lines(&self, index: u32) -> Result<Vec<TextLine>> {
+        self.run(move |worker| worker.doc.text_lines(index))?
+    }
+
+    /// Vrai si la page ne contient aucun texte mais dessine quelque chose :
+    /// elle doit passer par la reconnaissance de texte.
+    pub fn needs_recognition(&self, index: u32) -> Result<bool> {
+        self.run(move |worker| worker.doc.needs_recognition(index))?
+    }
+
+    /// Transformation de l'espace de la page PDF vers son espace d'affichage.
+    pub fn display_matrix(&self, index: u32) -> Result<Matrix> {
+        self.run(move |worker| worker.doc.display_matrix(index))?
     }
 
     /// Texte brut d'une page, pour l'export en texte.
