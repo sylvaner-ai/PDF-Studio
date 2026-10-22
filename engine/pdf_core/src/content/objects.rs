@@ -50,6 +50,12 @@ pub struct TextLine {
     pub start: Point,
     /// Fin du dernier glyphe.
     pub end: Point,
+    /// Début du premier glyphe visible qui n'est pas une espace (`start` si la
+    /// ligne n'a que des espaces) : les espaces de tête ne comptent pas pour
+    /// l'alignement.
+    pub left: Point,
+    /// Fin du dernier glyphe qui n'est pas une espace (`end` à défaut).
+    pub right: Point,
     /// Corps du texte dans l'espace de la page.
     pub size: f64,
     /// Direction de la ligne de base (vecteur unitaire).
@@ -253,6 +259,8 @@ pub fn lines(run: &Interpretation) -> Vec<TextLine> {
             glyphs: vec![index],
             start: glyph.baseline,
             end: glyph.end,
+            left: glyph.baseline,
+            right: glyph.end,
             size,
             direction,
             text: glyph.text.clone(),
@@ -260,6 +268,16 @@ pub fn lines(run: &Interpretation) -> Vec<TextLine> {
         });
     }
     lines.extend(current);
+    for line in &mut lines {
+        let mut ink =
+            line.glyphs.iter().map(|&g| &run.glyphs[g]).filter(|glyph| {
+                !glyph.text.chars().all(char::is_whitespace) || glyph.text.is_empty()
+            });
+        if let Some(first) = ink.next() {
+            line.left = first.baseline;
+            line.right = ink.next_back().unwrap_or(first).end;
+        }
+    }
     lines
 }
 
@@ -268,17 +286,25 @@ pub fn lines(run: &Interpretation) -> Vec<TextLine> {
 const OPEN_BLOCKS: usize = 8;
 
 /// Blocs de texte, dans l'ordre du flux de leur première ligne.
+///
+/// Une ligne rejoint, parmi les blocs encore ouverts qu'elle peut continuer,
+/// celui dont elle est le mieux alignée ; à égalité, le plus récent.
 pub fn blocks(run: &Interpretation) -> Vec<TextBlock> {
     let mut groups: Vec<Vec<TextLine>> = Vec::new();
-    'lines: for line in lines(run) {
+    for line in lines(run) {
         let open = groups.len().saturating_sub(OPEN_BLOCKS);
-        for group in groups[open..].iter_mut().rev() {
-            if joins(group, &line) {
-                group.push(line);
-                continue 'lines;
+        let mut best: Option<(usize, f64)> = None;
+        for index in (open..groups.len()).rev() {
+            if let Some(score) = joins(&groups[index], &line) {
+                if best.is_none_or(|(_, top)| score < top) {
+                    best = Some((index, score));
+                }
             }
         }
-        groups.push(vec![line]);
+        match best {
+            Some((index, _)) => groups[index].push(line),
+            None => groups.push(vec![line]),
+        }
     }
     groups
         .into_iter()
@@ -286,39 +312,59 @@ pub fn blocks(run: &Interpretation) -> Vec<TextBlock> {
         .collect()
 }
 
-/// Vrai si `line` continue le bloc formé par `group`.
-fn joins(group: &[TextLine], line: &TextLine) -> bool {
+/// Si `line` peut continuer le bloc formé par `group`, écart entre leurs bords
+/// alignés (plus il est faible, mieux la ligne s'y rattache).
+///
+/// La ligne doit être de même direction et de corps voisin, sous la dernière
+/// ligne à un interligne cohérent, et alignée sur elle : même bord gauche,
+/// même bord droit ou même centre. Une ligne isolée accepte aussi une suivante
+/// qui commence un peu plus à gauche (alinéa) ou un peu plus à droite (retrait
+/// d'une liste). Deux colonnes voisines, une étiquette et sa valeur par
+/// exemple, restent ainsi des blocs distincts.
+fn joins(group: &[TextLine], line: &TextLine) -> Option<f64> {
     let first = &group[0];
     let last = &group[group.len() - 1];
     let (u, v) = (first.direction, line.direction);
     if (u.0 * v.1 - u.1 * v.0).abs() > 0.035 || u.0 * v.0 + u.1 * v.1 <= 0.0 {
-        return false;
+        return None;
     }
     let size = first.size.max(1e-6);
     let ratio = line.size / size;
     if !(0.8..=1.25).contains(&ratio) {
-        return false;
+        return None;
     }
     // Distance entre lignes de base : la nouvelle ligne est sous la précédente.
     let step = first.across(last.start) - first.across(line.start);
     if !(0.8 * size..=2.0 * size).contains(&step) {
-        return false;
+        return None;
     }
     if group.len() >= 2 {
         let leading = first.across(group[0].start) - first.across(group[1].start);
         if (step - leading).abs() > 0.15 * size {
-            return false;
+            return None;
         }
     }
-    let (b0, b1) = group
-        .iter()
-        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), l| {
-            let (s, e) = (first.along(l.start), first.along(l.end));
-            (lo.min(s), hi.max(e))
-        });
-    let (l0, l1) = (first.along(line.start), first.along(line.end));
+    let (b0, b1) = (first.along(last.left), first.along(last.right));
+    let (l0, l1) = (first.along(line.left), first.along(line.right));
     let overlap = b1.min(l1) - b0.max(l0);
-    overlap > 0.0 && overlap >= 0.3 * (b1 - b0).min(l1 - l0)
+    if overlap <= 0.0 {
+        return None;
+    }
+    let tolerance = 0.5 + 0.15 * size;
+    let edges = [
+        (b0 - l0).abs(),
+        (b1 - l1).abs(),
+        ((b0 + b1) - (l0 + l1)).abs() / 2.0,
+    ];
+    let aligned = edges.into_iter().fold(f64::INFINITY, f64::min);
+    if aligned <= tolerance {
+        return Some(aligned);
+    }
+    let indent = b0 - l0;
+    let indented = group.len() == 1
+        && (-2.0 * size..=4.0 * size).contains(&indent)
+        && overlap >= 0.3 * (b1 - b0).min(l1 - l0);
+    indented.then_some(tolerance + indent.abs())
 }
 
 fn finish_block(run: &Interpretation, lines: Vec<TextLine>) -> TextBlock {
@@ -349,6 +395,11 @@ fn median(mut values: Vec<f64>) -> f64 {
     values.get(values.len() / 2).copied().unwrap_or(0.0)
 }
 
+/// Largeur minimale d'un paragraphe, en cadratins : en deçà, des lignes
+/// pleines sont une colonne de valeurs (un tableau, un encadré), pas un texte
+/// coupé par manque de place.
+const PARAGRAPH_EMS: f64 = 12.0;
+
 fn alignment(lines: &[TextLine]) -> Alignment {
     if lines.len() < 2 {
         return Alignment::Left;
@@ -357,7 +408,7 @@ fn alignment(lines: &[TextLine]) -> Alignment {
     let tolerance = 0.5 + 0.1 * first.size;
     let extents: Vec<(f64, f64)> = lines
         .iter()
-        .map(|l| (first.along(l.start), first.along(l.end)))
+        .map(|l| (first.along(l.left), first.along(l.right)))
         .collect();
     let close = |values: &mut dyn Iterator<Item = f64>| {
         let values: Vec<f64> = values.collect();
@@ -375,9 +426,13 @@ fn alignment(lines: &[TextLine]) -> Alignment {
     let all_rights = close(&mut extents.iter().map(|e| e.1));
     let centers = close(&mut extents.iter().map(|e| (e.0 + e.1) / 2.0));
     let all_lefts = close(&mut extents.iter().map(|e| e.0));
-    if left && full_rights && lines.len() >= 3 {
+    // Une colonne de valeurs de même largeur n'est pas un paragraphe justifié.
+    let wide = extents
+        .iter()
+        .any(|e| e.1 - e.0 >= PARAGRAPH_EMS * first.size);
+    if wide && left && full_rights && lines.len() >= 3 {
         Alignment::Justified
-    } else if left && full_rights && !all_rights {
+    } else if wide && lines.len() == 2 && left && extents[0].1 > extents[1].1 + tolerance {
         // Deux lignes, la première pleine et la seconde plus courte.
         Alignment::Justified
     } else if all_lefts || left {
@@ -397,26 +452,33 @@ fn alignment(lines: &[TextLine]) -> Alignment {
 ///
 /// Une ligne est coupée par manque de place si elle est pleine (au moins 80 %
 /// de la plus longue, et une autre ligne l'est aussi : la largeur du bloc est
-/// alors celle d'une colonne et non celle d'une ligne isolée) et que le premier
-/// mot de la suivante n'y tenait pas. Dans le doute, le retour à la ligne est
+/// alors celle d'une colonne et non celle d'une ligne isolée), que le premier
+/// mot de la suivante n'y tenait pas et que le bloc est un paragraphe (voir
+/// plus bas). Les espaces en début et en fin de ligne sont omises. Dans le doute, le retour à la ligne est
 /// gardé : une adresse ne doit pas devenir une seule ligne.
 fn block_text(run: &Interpretation, lines: &[TextLine], alignment: Alignment) -> String {
     let first = &lines[0];
     let widths: Vec<f64> = lines
         .iter()
-        .map(|l| first.along(l.end) - first.along(l.start))
+        .map(|l| first.along(l.right) - first.along(l.start))
         .collect();
     let max_width = widths.iter().copied().fold(0.0, f64::max);
     let full: Vec<bool> = widths.iter().map(|&w| w >= 0.8 * max_width).collect();
+    // Un paragraphe est assez large et a au moins la moitié de ses lignes
+    // pleines, la dernière exceptée ; sinon c'est une liste (colonne
+    // d'étiquettes ou de valeurs, adresse), dont chaque ligne est voulue.
+    let wrapped = full[..lines.len() - 1].iter().filter(|&&f| f).count();
+    let paragraph = 2 * wrapped >= lines.len() - 1 && max_width >= PARAGRAPH_EMS * first.size;
     let mut text = String::new();
     for (index, line) in lines.iter().enumerate() {
-        let line_text = line.text.trim_end();
+        let line_text = line.text.trim();
         if index == 0 {
             text.push_str(line_text);
             continue;
         }
         let previous = index - 1;
         let hard = match alignment {
+            _ if !paragraph => true,
             Alignment::Justified => false,
             _ => {
                 let other_full = (0..lines.len() - 1).any(|j| j != previous && full[j]);
@@ -443,14 +505,19 @@ fn block_text(run: &Interpretation, lines: &[TextLine], alignment: Alignment) ->
     text
 }
 
-/// Largeur du premier mot d'une ligne, le long de sa ligne de base.
+/// Largeur du premier mot d'une ligne (espaces de tête exclues), le long de
+/// sa ligne de base.
 fn first_word_width(run: &Interpretation, line: &TextLine) -> f64 {
-    let mut end = line.along(line.start);
+    let begin = line.along(line.left);
+    let mut end = begin;
     let mut previous_end: Option<f64> = None;
     for &g in &line.glyphs {
         let glyph = &run.glyphs[g];
         if glyph.text.chars().all(char::is_whitespace) && !glyph.text.is_empty() {
-            break;
+            if previous_end.is_some() {
+                break;
+            }
+            continue;
         }
         let start = line.along(glyph.origin);
         if previous_end.is_some_and(|previous| start - previous > 0.18 * line.size) {
@@ -459,7 +526,7 @@ fn first_word_width(run: &Interpretation, line: &TextLine) -> f64 {
         end = line.along(glyph.end);
         previous_end = Some(end);
     }
-    end - line.along(line.start)
+    end - begin
 }
 
 // MARK: - Tracés, images, formulaires
@@ -669,15 +736,18 @@ mod tests {
         // Trois lignes de même largeur (justifiées), puis une ligne courte, puis
         // un titre plus gros, ailleurs.
         let (_, objects) = objects(
-            b"BT /F1 10 Tf 12 TL 100 700 Td (aaaa bbbb cc) Tj T* (dddd eeee ff) Tj T* (gggg hhhh ii) Tj \
-              T* (jj kk) Tj ET BT /F1 20 Tf 100 750 Td (Titre) Tj ET",
+            b"BT /F1 10 Tf 12 TL 100 700 Td (aaaa bbbb cc dddd eeee ff) Tj T* (gggg hhhh ii jjjj kkkk ll) Tj \
+              T* (mmmm nnnn oo pppp qqqq rr) Tj T* (ss tt) Tj ET BT /F1 20 Tf 100 750 Td (Titre) Tj ET",
         );
         assert_eq!(objects.len(), 2);
         let block = objects[0].text.as_ref().unwrap();
         assert_eq!(block.lines.len(), 4);
         assert_eq!(block.alignment, Alignment::Justified);
         assert_eq!(block.leading, 12.0);
-        assert_eq!(block.text, "aaaa bbbb cc dddd eeee ff gggg hhhh ii jj kk");
+        assert_eq!(
+            block.text,
+            "aaaa bbbb cc dddd eeee ff gggg hhhh ii jjjj kkkk ll mmmm nnnn oo pppp qqqq rr ss tt"
+        );
         assert_eq!(objects[1].text.as_ref().unwrap().text, "Titre");
         assert!(objects[0].editable && objects[0].movable);
     }
@@ -696,12 +766,13 @@ mod tests {
     #[test]
     fn mots_coupes_et_espaces_par_decalage() {
         let (_, objects) = objects(
-            b"BT /F1 10 Tf 12 TL 50 500 Td (le pont effica-) Tj T* (cite des ponts) Tj T* (de la ville) Tj ET \
+            b"BT /F1 10 Tf 12 TL 50 500 Td (le pont de la ville effica-) Tj T* (cite des ponts et des rues) Tj \
+              T* (de la ville) Tj ET \
               BT /F1 10 Tf 50 300 Td [(un) -400 (deux)] TJ ET",
         );
         assert_eq!(
             objects[0].text.as_ref().unwrap().text,
-            "le pont efficacite des ponts de la ville"
+            "le pont de la ville efficacite des ponts et des rues de la ville"
         );
         assert_eq!(objects[1].text.as_ref().unwrap().text, "un deux");
     }
@@ -717,7 +788,8 @@ mod tests {
             .iter()
             .map(|o| o.text.as_ref().unwrap().text.as_str())
             .collect();
-        assert_eq!(texts, ["gauche un gauche deux", "droite un droite deux"]);
+        // Lignes courtes : les retours à la ligne sont gardés.
+        assert_eq!(texts, ["gauche un\ngauche deux", "droite un\ndroite deux"]);
     }
 
     #[test]

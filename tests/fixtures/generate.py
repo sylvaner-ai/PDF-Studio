@@ -455,6 +455,70 @@ def police_cff() -> None:
     save(pdf, "police_cff.pdf")
 
 
+ENCADRE_LIGNES = (
+    ("Date de facture", "02/04/2026"),
+    ("N° de facture", "12345678901234"),
+    ("Remise à zéro", "01/01/2026"),
+    ("Mode de paiement", "Prélèvement automatique"),
+    ("N° de compte client", "87654321"),
+    ("N° de ligne", "01 23 45 67 89"),
+    ("Référence", "XX-1234-5678"),
+)
+
+
+def encadre() -> None:
+    """Encadré d'étiquettes et de valeurs, comme en tête de certaines factures :
+    une ligne par objet BT, étiquettes en gras bleu nuit à gauche, valeurs à
+    droite dans une autre couleur ou une autre police, précédées d'une espace
+    décalée ; la première étiquette partage son BT avec le pied de page, et
+    deux lignes réunissent étiquette et valeur."""
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    pdf = pikepdf.new()
+    fonts = {
+        name: pdf.make_indirect(pikepdf.Dictionary(
+            Type=pikepdf.Name.Font, Subtype=pikepdf.Name.Type1,
+            BaseFont=pikepdf.Name("/" + base), Encoding=pikepdf.Name.WinAnsiEncoding,
+        ))
+        for name, base in (("F1", "Helvetica-Bold"), ("F2", "Helvetica"))
+    }
+
+    def show(text: str) -> bytes:
+        escaped = text.encode("cp1252").replace(b"\\", b"\\\\")
+        return b"(" + escaped.replace(b"(", b"\\(").replace(b")", b"\\)") + b") Tj "
+
+    label_color, value_color = b"0 0.11 0.369 rg ", b"0 0.58 0.729 rg "
+    content = b""
+    for row, (label, value) in enumerate(ENCADRE_LIGNES):
+        y = 680.2 - 12.7 * row
+        content += b"BT "
+        if row == 0:
+            content += b"0.4 g /F2 6 Tf 1 0 0 1 36 40 Tm " + show("Page 1/1 · facture fictive")
+        content += label_color + b"/F1 9 Tf 1 0 0 1 31.2 %.1f Tm " % y
+        if row in (3, 4):
+            # Étiquette et valeur dans la même ligne, la valeur en clair.
+            gap = "  " if row == 3 else " "
+            content += show(label + gap) + b"/F2 9 Tf "
+            if row == 3:
+                content += value_color
+            content += show(value)
+        else:
+            content += show(label + "   ")
+            if row == 0:
+                content += b"0 g /F2 9 Tf 1 0 0 1 119.3 %.1f Tm " % (y + 5.5) + show(" ")
+                content += value_color + b"/F1 9 Tf 1 0 0 1 127.4 %.1f Tm " % y + show(value)
+            else:
+                content += b"0 g /F2 9 Tf 1 0 0 1 119.3 %.1f Tm " % (y + 0.5) + show(" ")
+                content += b"1 0 0 1 127.4 %.1f Tm " % y + show(value)
+        content += b"ET\n"
+    assert stringWidth(ENCADRE_LIGNES[3][0] + "  ", "Helvetica-Bold", 9) + 31.2 < 127.4
+    pdf.add_blank_page(page_size=(595, 842))
+    page = pdf.pages[0]
+    page.obj.Resources = pikepdf.Dictionary(Font=pikepdf.Dictionary(**fonts))
+    page.obj.Contents = pdf.make_stream(content)
+    save(pdf, "encadre.pdf")
+
+
 def save(pdf: pikepdf.Pdf, name: str, **kwargs) -> None:
     pdf.save(OUT / name, static_id=True, deterministic_id=False, **kwargs)
 
@@ -502,6 +566,7 @@ def main() -> None:
     organisation()
     edition()
     police_cff()
+    encadre()
     signature_factice()
     corrompu()
     pas_un_pdf()

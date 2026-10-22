@@ -73,13 +73,14 @@ pub fn layout(run: &Interpretation, block: &TextBlock, text: &str, shaper: &dyn 
     let scale = state.h_scale;
     let spacing = state.char_spacing;
 
-    // Lignes d'origine dans l'espace du texte : début, fin, ordonnée.
+    // Lignes d'origine dans l'espace du texte, espaces de tête et de queue
+    // exclues : début, fin, ordonnée.
     let originals: Vec<(f64, f64, f64)> = block
         .lines
         .iter()
         .map(|line| {
-            let start = to_text.apply(line.start);
-            let end = to_text.apply(line.end);
+            let start = to_text.apply(line.left);
+            let end = to_text.apply(line.right);
             (start.x, end.x, start.y)
         })
         .collect();
@@ -100,7 +101,11 @@ pub fn layout(run: &Interpretation, block: &TextBlock, text: &str, shaper: &dyn 
         .iter()
         .map(|l| l.1)
         .fold(f64::NEG_INFINITY, f64::max);
-    let wraps = count >= 2;
+    // Un bloc dont chaque ligne finit par un retour voulu (liste, adresse,
+    // colonne d'un encadré) n'est pas remis en page comme un paragraphe :
+    // chaque nouvelle ligne reprend la place de la ligne d'origine.
+    let list = count >= 2 && block.text.matches('\n').count() + 1 == count;
+    let wraps = count >= 2 && !list;
 
     let mut missing = Vec::new();
     let mut measure = |c: char| -> Option<(Vec<u8>, f64)> {
@@ -189,7 +194,11 @@ pub fn layout(run: &Interpretation, block: &TextBlock, text: &str, shaper: &dyn 
                 + space.1 * members.len().saturating_sub(1) as f64;
             let line_left = if k == 0 { left_first } else { left };
             let available = right - line_left;
+            let own = originals.get(k).copied().unwrap_or(originals[count - 1]);
             let x = match block.alignment {
+                Alignment::Right if list => own.1 - width,
+                Alignment::Center if list => (own.0 + own.1) / 2.0 - width / 2.0,
+                _ if list => own.0,
                 _ if !wraps => left_first,
                 Alignment::Left | Alignment::Justified => line_left,
                 Alignment::Right => right - width,
@@ -304,45 +313,39 @@ mod tests {
     }
 
     const JUSTIFIED: &[u8] =
-        b"BT /F1 10 Tf 12 TL 100 700 Td (aaaa bbbb cc) Tj T* (dddd eeee ff) Tj \
-        T* (gggg hhhh ii) Tj T* (jj kk) Tj ET";
+        b"BT /F1 10 Tf 12 TL 100 700 Td (aaaa bbbb cc dddd eeee ff) Tj T* (gggg hhhh ii jjjj kkkk ll) Tj \
+        T* (mmmm nnnn oo pppp qqqq rr) Tj T* (ss tt) Tj ET";
 
     #[test]
     fn justifie_les_lignes_sauf_la_derniere() {
-        let layout = lay(JUSTIFIED, 0, "aa bb cccc dddd");
+        let layout = lay(JUSTIFIED, 0, "aa bb cccc dddd eeee fff gg");
         assert_eq!(layout.lines.len(), 2);
         let first = &layout.lines[0];
         assert_eq!((first.x, first.y), (0.0, 0.0));
-        assert_eq!(
-            first.items,
-            [
-                LaidItem::Codes(b"aa ".to_vec()),
-                LaidItem::Kern(-500.0),
-                LaidItem::Codes(b"bb ".to_vec()),
-                LaidItem::Kern(-500.0),
-                LaidItem::Codes(b"cccc".to_vec()),
-            ]
-        );
-        assert!((first.width - 60.0).abs() < 1e-9);
+        // 120 pt de texte étirés à 125 : 1 pt de plus par espace.
+        let mut expected = Vec::new();
+        for word in ["aa ", "bb ", "cccc ", "dddd ", "eeee "] {
+            expected.push(LaidItem::Codes(word.as_bytes().to_vec()));
+            expected.push(LaidItem::Kern(-100.0));
+        }
+        expected.push(LaidItem::Codes(b"fff".to_vec()));
+        assert_eq!(first.items, expected);
+        assert!((first.width - 125.0).abs() < 1e-9);
         let second = &layout.lines[1];
         assert_eq!((second.x, second.y), (0.0, -12.0));
-        assert_eq!(second.items, [LaidItem::Codes(b"dddd".to_vec())]);
+        assert_eq!(second.items, [LaidItem::Codes(b"gg".to_vec())]);
         assert!(!layout.overflow);
         assert_eq!(layout.frame, Matrix::new(1.0, 0.0, 0.0, 1.0, 100.0, 700.0));
     }
 
     #[test]
     fn signale_le_debordement() {
-        let layout = lay(
-            JUSTIFIED,
-            0,
-            "aaaa bbbb cc dddd eeee ff gggg hhhh ii jjjj kkkk ll mm",
-        );
+        let layout = lay(JUSTIFIED, 0, &"aaaa bbbb cc dddd eeee ff ".repeat(5));
         assert_eq!(layout.lines.len(), 5);
         assert_eq!(layout.lines[4].y, -48.0);
         assert!(layout.overflow);
         // Un mot plus large que le bloc déborde aussi.
-        assert!(lay(JUSTIFIED, 0, "aaaaaaaaaaaaaaaaaaaa").overflow);
+        assert!(lay(JUSTIFIED, 0, &"a".repeat(30)).overflow);
     }
 
     #[test]
@@ -355,6 +358,23 @@ mod tests {
         let bbox = layout.bbox;
         assert!((bbox.x0 - 100.0).abs() < 1e-9 && (bbox.x1 - 130.0).abs() < 1e-9);
         assert!((bbox.y0 - 746.0).abs() < 1e-9 && (bbox.y1 - 766.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn liste_ligne_a_ligne() {
+        // Colonne de valeurs alignées à droite : chaque ligne garde sa place,
+        // sans remise en page ni coupure.
+        let source = b"BT /F1 10 Tf 200 500 Td (12) Tj ET BT /F1 10 Tf 185 488 Td (12345) Tj ET \
+            BT /F1 10 Tf 195 476 Td (123) Tj ET";
+        let layout = lay(source, 0, "12\n9999999999\n1");
+        assert_eq!(layout.lines.len(), 3);
+        let ends: Vec<f64> = layout.lines.iter().map(|l| l.x + l.width).collect();
+        assert!(
+            ends.iter().all(|&end| (end - 10.0).abs() < 1e-9),
+            "{ends:?}"
+        );
+        assert_eq!(layout.lines[1].y, -12.0);
+        assert!(!layout.overflow);
     }
 
     #[test]

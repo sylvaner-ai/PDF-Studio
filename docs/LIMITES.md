@@ -113,6 +113,11 @@ l'*inpainting* des scans (jalon 7).
   lien coloré) sont perdus, de même que le crénage d'origine. Un texte plus long
   que l'original déborde du bloc vers le bas sans repousser ce qui suit ; le
   bandeau le signale.
+- **Blocs de texte :** une ligne qui réunit une étiquette et sa valeur (deux styles
+  côte à côte) est rattachée à la colonne des étiquettes ; la modifier redessine
+  toute la ligne dans le style de l'étiquette. Les blocs sont devinés d'après la
+  position des lignes : un paragraphe de deux lignes courtes est traité comme deux
+  lignes distinctes.
 - **Polices :** une police installée est intégrée entière, sans réduction aux
   caractères utilisés (quelques centaines de kilo-octets à quelques
   méga-octets). Une police qui interdit l'intégration, ou de plus de 16 Mo, est

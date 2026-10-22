@@ -323,3 +323,19 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
 - **Raisons :** demande de Sylvain du 22 octobre 2026 ; la barre d'outils reste
   épurée, comme le demande le cahier des charges.
 
+
+## D25 — Blocs de texte : lignes alignées, listes modifiées ligne à ligne (jalon 4)
+
+- **Retenu :** une ligne ne rejoint un bloc que si elle est alignée sur sa
+  dernière ligne (même bord gauche, même bord droit ou même centre, les espaces
+  de tête et de queue ne comptant pas), sous elle à un interligne cohérent ; une
+  ligne isolée accepte aussi un alinéa ou un retrait de liste. Parmi les blocs
+  possibles, la ligne va à celui dont elle est le mieux alignée. Un bloc dont
+  moins de la moitié des lignes sont pleines, ou plus étroit que douze
+  cadratins, est une liste : chaque ligne garde son retour à la ligne et, à la
+  modification, sa place d'origine au lieu d'être remise en page.
+- **Alternative :** le chevauchement horizontal des lignes, retenu jusque-là.
+- **Raisons :** dans un encadré d'étiquettes et de valeurs (en-tête de facture),
+  le chevauchement mêlait les deux colonnes, et modifier une valeur bouleversait
+  toute la mise en page (constat de Sylvain du 22 octobre 2026). Une colonne de
+  tableau n'est plus prise pour un paragraphe.

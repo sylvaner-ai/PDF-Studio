@@ -292,3 +292,65 @@ fn lit_l_encodage_propre_d_une_police_cff() {
         .unwrap();
     assert!(text.contains(new), "{text}");
 }
+
+/// Encadré d'étiquettes et de valeurs (en-tête de facture) : les étiquettes
+/// forment un bloc, les valeurs alignées à leur droite un autre, et modifier
+/// une valeur laisse chaque ligne à sa place.
+#[test]
+fn encadre_etiquettes_et_valeurs() {
+    let bytes = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/encadre.pdf"),
+    )
+    .unwrap();
+    let found = objects(&bytes, 0);
+    let block = |objects: &[ObjectInfo], needle: &str| {
+        objects
+            .iter()
+            .find(|o| o.text.as_deref().is_some_and(|t| t.contains(needle)))
+            .cloned()
+            .unwrap()
+    };
+    let labels = block(&found, "Date de facture");
+    let label_text = labels.text.as_deref().unwrap();
+    assert_eq!(label_text.lines().count(), 7, "{label_text:?}");
+    assert!(label_text.starts_with("Date de facture\nN° de facture\nRemise à zéro\n"));
+    assert!(!label_text.contains("02/04/2026"));
+    let values = block(&found, "02/04/2026");
+    assert_eq!(
+        values.text.as_deref(),
+        Some("02/04/2026\n12345678901234\n01/01/2026")
+    );
+    assert!(values.editable);
+    let lower = block(&found, "01 23 45 67 89");
+    assert_eq!(lower.text.as_deref(), Some("01 23 45 67 89\nXX-1234-5678"));
+
+    let new = "02/04/2026\n98765432109876\n01/01/2026";
+    let written = write_edited_pdf(
+        &[SourceData::new(bytes.clone(), None)],
+        &[OutputPage::Source {
+            source: 0,
+            index: 0,
+            quarter_turns: 0,
+        }],
+        &[Some(edits(vec![(
+            values.id,
+            replaced(new, FontChoice::Original),
+        )]))],
+    )
+    .unwrap();
+    let after = objects(&written, 0);
+    let edited = block(&after, "98765432109876");
+    assert_eq!(edited.text.as_deref(), Some(new));
+    // Mêmes lignes de base, au même bord gauche (127,4 pt), sans débordement.
+    assert!(!edited.overflow);
+    assert!(
+        (edited.bounds.y - values.bounds.y).abs() < 1.0,
+        "{edited:?}"
+    );
+    assert!((edited.bounds.height - values.bounds.height).abs() < 1.0);
+    assert!((edited.bounds.x - 127.4).abs() < 0.5, "{edited:?}");
+    let unchanged = block(&after, "Date de facture");
+    assert_eq!(unchanged.text, labels.text);
+    assert!((unchanged.bounds.x - labels.bounds.x).abs() < 0.01);
+    assert!((unchanged.bounds.y - labels.bounds.y).abs() < 0.01);
+}
