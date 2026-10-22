@@ -40,18 +40,11 @@ struct RecoveryRecord: Codable, Equatable, Sendable {
     struct ObjectEdit: Codable, Equatable, Sendable {
         let object: UInt32
         let deleted: Bool
-        let dx: Float
-        let dy: Float
+        let offsetX: Float
+        let offsetY: Float
         let text: String?
-        let font: Font?
+        let font: RecoveryTextFont?
         let fingerprint: String
-
-        /// Police d'un texte modifié (cf. ``TextFont``).
-        enum Font: Codable, Equatable, Sendable {
-            case original
-            case installed(postscriptName: String)
-            case standard(name: String)
-        }
     }
 
     var version = 1
@@ -65,6 +58,13 @@ struct RecoveryRecord: Codable, Equatable, Sendable {
     let sources: [String]
     let pages: [Page]
     let date: Date
+}
+
+/// Police d'un texte modifié (cf. ``TextFont``).
+enum RecoveryTextFont: Codable, Equatable, Sendable {
+    case original
+    case installed(postscriptName: String)
+    case standard(name: String)
 }
 
 extension RecoveryRecord.Page {
@@ -94,21 +94,22 @@ extension RecoveryRecord.ObjectEdit {
     init(_ item: ObjectEditItem) {
         object = item.object
         deleted = item.deleted
-        dx = item.dx
-        dy = item.dy
+        offsetX = item.dx
+        offsetY = item.dy
         text = item.text
-        font = item.font.map { Font($0) }
+        font = item.font.map { RecoveryTextFont($0) }
         fingerprint = item.fingerprint
     }
 
     var item: ObjectEditItem {
         ObjectEditItem(
-            object: object, deleted: deleted, dx: dx, dy: dy, text: text, font: font?.engine, fingerprint: fingerprint
+            object: object, deleted: deleted, dx: offsetX, dy: offsetY,
+            text: text, font: font?.engine, fingerprint: fingerprint
         )
     }
 }
 
-extension RecoveryRecord.ObjectEdit.Font {
+extension RecoveryTextFont {
     init(_ font: TextFont) {
         switch font {
         case .original: self = .original
