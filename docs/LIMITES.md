@@ -141,9 +141,16 @@ l'*inpainting* des scans (jalon 7).
 
 ## Jalon 5
 
-- **Mesures de Vision :** le moteur de l'application est Vision, qui ne
-  fonctionne que sous macOS ; ses mesures (taux de caractères corrects, temps
-  par page) sont faites sur le Mac et consignées dans `OCR_BENCHMARK.md`.
+- **Pages retournées ou couchées :** Vision lit le texte dans tous les sens
+  avec la même confiance, donc la page n'est pas relue ni remise à l'endroit
+  (0 page retournée sur 15, 6 couchées sur 15) ; le texte reconnu est juste et
+  cherchable, mais la page reste à l'envers à l'écran. Tesseract les remet à
+  l'endroit (15 sur 15 et 13 sur 15).
+- **Petit texte sur une page presque vide :** Vision peut ne pas lire un pied de
+  page minuscule sur une page presque blanche (`encadre.pdf` : 53 à 59 %).
+- **Mesures :** deux des cinq documents privés de test ont une référence
+  inexploitable (texte natif sans Unicode, ou texte invisible) : leur taux n'est
+  pas significatif.
 - **Confiance perdue à l'enregistrement :** la couche de texte enregistrée ne
   garde pas la confiance des mots. Après réouverture, les mots douteux ne sont
   plus signalés, et la couche n'est pas modifiable en mode Édition (le texte

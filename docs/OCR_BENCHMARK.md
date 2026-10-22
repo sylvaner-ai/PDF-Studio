@@ -116,16 +116,97 @@ mots faux parmi eux, part des mots faux signalés.
 - **Tesseract atteint le critère** (99,3 % à 99,7 % sur les scans propres en
   français, 2 s par page) mais lit mal les tableaux dès que le scan se dégrade.
 
-## Mesures du Mac : Vision
+## Mesures du Mac : Vision, Tesseract, ocrs
 
-*À compléter par la vérification sur le Mac de Sylvain (`make ocr-bench`) :
-caractères corrects par profil, critère des 98 % sur les documents publics et
-privés, temps par page, calibration de la confiance, vrais scans.*
+Mesures du 22 octobre 2026 sur le Mac de développement (MacBook Air M3, macOS
+27.0.1, Tesseract 5.5.3), commit 392db38 : 15 documents à texte de référence
+(10 publics, 5 privés anonymisés), 810 lectures de scans simulés, 36 lectures de
+vrais scans. Un seul passage par page.
+
+### Critère d'acceptation : scans propres en français (≥ 98 %)
+
+| Moteur | Prétraitement | Documents publics | Documents privés |
+|---|---|---:|---:|
+| Vision | brut | 98,63 % | 63,03 % |
+| Vision | préparé | 98,88 % | 65,41 % |
+| Vision | binarisé | 99,68 % | 64,52 % |
+| Tesseract | brut | 99,65 % | 63,01 % |
+| Tesseract | préparé | 99,30 % | 63,08 % |
+| Tesseract | binarisé | 99,69 % | 62,77 % |
+| ocrs | préparé | 91,04 % | 58,59 % |
+
+**Le critère des 98 % est atteint par Vision et par Tesseract sur les documents
+publics.** Les documents privés sont tirés vers le bas par deux d'entre eux dont
+la référence est inexploitable, pour les trois moteurs : dans le premier, le
+texte natif n'a pas de correspondance Unicode (aucun caractère extrait par
+PDFKit), dans le second, il contient du texte invisible à l'image (les moteurs
+plafonnent à 46–55 %). Ce ne sont pas des échecs de lecture. Les trois autres
+documents privés sont à 82–86 %, 98–99 % et 97 % pour Vision.
+
+### Temps par page (300 ppp, lancement du programme compris)
+
+| Moteur | brut | préparé | binarisé |
+|---|---:|---:|---:|
+| Vision | 0,29 s | 0,43 s | 0,54 s |
+| Tesseract | 1,29 s | 1,80 s | 2,00 s |
+| ocrs | 0,52 s | 0,87 s | 1,02 s |
+
+Les vrais scans sont lus par Vision en 0,34 à 0,60 s : **le critère de 5 s par
+page est tenu avec une large marge.**
+
+### Caractères corrects par profil (tous documents, références douteuses comprises)
+
+| Moteur | Prétraitement | propre | dégradé | incliné | retourné | couché | 150 ppp |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Vision | brut | 80,68 % | 79,98 % | 81,00 % | 81,18 % | 80,86 % | 81,56 % |
+| Vision | préparé | 82,00 % | 80,92 % | 76,91 % | 81,18 % | 81,95 % | 81,29 % |
+| Tesseract | brut | 81,15 % | 37,24 % | 54,41 % | 15,09 % | 15,15 % | 79,82 % |
+| Tesseract | préparé | 81,02 % | 79,90 % | 79,70 % | 80,89 % | 81,32 % | 80,03 % |
+| ocrs | préparé | 74,89 % | 71,01 % | 74,29 % | 12,44 % | 67,73 % | 74,94 % |
+
+Ces moyennes sont basses à cause des références douteuses ; ce qui compte est
+l'écart entre profils. **Vision lit aussi bien une page dégradée, inclinée,
+retournée ou couchée qu'une page propre, même sans préparation** ; Tesseract
+s'effondre sans elle. Par document, Vision est à 97–100 % sur les documents
+publics, sauf `encadre.pdf` (53–59 % en propre, retourné et dégradé : page
+presque vide, où Vision ne lit pas le petit texte du pied de page sans
+inclinaison) et `texte_simple.pdf` (98,5–99 %).
+
+### Orientation et inclinaison
+
+| Moteur | Pages retournées remises à l'endroit | Pages couchées remises à l'endroit |
+|---|---:|---:|
+| Vision (préparé) | 0 sur 15 | 6 sur 15 |
+| Tesseract (préparé) | 15 sur 15 | 13 sur 15 |
+| ocrs (préparé) | 0 sur 15 | 13 sur 15 |
+
+Vision lit le texte dans tous les sens avec la même confiance : il n'y a aucune
+raison de relire la page, le texte est donc juste et bien placé, mais **la page
+n'est pas remise à l'endroit** (limite, cf. `LIMITES.md`). Inclinaison de 4°
+mesurée à 0,02° près.
+
+### Confiance (Vision, meilleur prétraitement)
+
+16,71 % des mots sont faux (références douteuses comprises).
+
+| Seuil | Mots signalés | Faux parmi les signalés | Faux signalés |
+|---:|---:|---:|---:|
+| 0,3 | 1,51 % | 33,45 % | 3,03 % |
+| 0,5 | 3,02 % | 26,42 % | 4,78 % |
+| 0,6 | 16,62 % | 23,41 % | 23,28 % |
+| 0,9 | 40,59 % | 22,25 % | 54,06 % |
+
+La confiance de Vision, par ligne, est un signal faible : au seuil retenu (0,5),
+peu de mots sont signalés et peu de fautes sont repérées ; au-delà de 0,6, un
+mot sur six l'est, pour un quart de vraies fautes. Seuil conservé à 0,5 (D30) :
+il vaut mieux signaler peu que noyer la page.
 
 ## Choix
 
-Vision est retenu à titre provisoire (D26) : intégré à macOS, sans dépendance
-ni modèle à embarquer. Le choix sera confirmé si Vision atteint au moins 98 %
-de caractères corrects sur les scans propres en français et moins de 5 s par
-page ; sinon, Tesseract, qui atteint le critère dans le cloud, serait intégré
-derrière le même trait.
+**Vision est retenu (D26, confirmé)** : il atteint le critère de précision,
+lit un scan en moins d'une demi-seconde, supporte sans préparation les pages
+dégradées, et n'ajoute aucune dépendance. Tesseract fait jeu égal sur les scans
+propres mais il est 3 à 4 fois plus lent et il faut l'embarquer ; son seul
+avantage, la remise à l'endroit des pages retournées, pourrait être obtenu plus
+tard sans changer de moteur (relecture à 180° et comparaison). Le trait
+`OcrEngine` permet de changer de moteur sans toucher au reste.

@@ -347,7 +347,7 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   modifier une valeur ne bouleverse plus la mise en page. Une colonne de tableau
   n'est plus prise pour un paragraphe.
 
-## D26 — Moteur OCR de l'application : Vision, derrière un trait (jalon 5, provisoire)
+## D26 — Moteur OCR de l'application : Vision, derrière un trait (jalon 5)
 
 - **Retenu :** le framework Vision de macOS (`VNRecognizeTextRequest`, niveau
   « précis », correction linguistique, français puis anglais). Le moteur Rust
@@ -366,9 +366,9 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
 - **Raisons :** Vision est fourni par macOS (aucune dépendance, aucun modèle à
   embarquer, aucune connexion réseau), accéléré par le Neural Engine des puces
   Apple, et lit le français et l'anglais. Le trait permet de changer de moteur
-  sans toucher au reste. Décision provisoire : elle sera confirmée par les
-  mesures de Vision sur le Mac (`make ocr-bench`), à comparer aux 98 % de
-  caractères corrects et aux 5 s par page exigés.
+  sans toucher au reste. **Confirmé par les mesures sur le Mac** (22 octobre
+  2026, `OCR_BENCHMARK.md`) : 98,6 % à 99,7 % de caractères corrects sur les
+  scans propres en français (documents publics) et 0,4 s par page.
 
 ## D27 — Préparation de l'image avant la lecture (jalon 5, provisoire)
 
