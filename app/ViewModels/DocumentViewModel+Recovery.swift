@@ -21,9 +21,10 @@ struct RecoveryContext {
 /// Tant que des modifications ne sont pas enregistrées, l'organisation des pages,
 /// les modifications de leur contenu et le texte reconnu sont retenus à chaque
 /// changement (cf. ``RecoveryStore``). Si l'application s'arrête ou est quittée
-/// entre-temps, ils sont proposés à la prochaine ouverture du fichier. Les pages renvoient au fichier tel qu'il a été ouvert ; avant le
-/// premier enregistrement, qui le remplace, une copie en est conservée, comme
-/// des documents dont des pages sont insérées.
+/// entre-temps, ils sont proposés à la prochaine ouverture du fichier. Les pages
+/// renvoient au fichier tel qu'il a été ouvert ; avant le premier enregistrement,
+/// qui le remplace, une copie en est conservée, comme des documents dont des
+/// pages sont insérées.
 extension DocumentViewModel {
     /// Le document vient de s'ouvrir : propose les modifications retenues pour son fichier.
     func offerRecovery() {

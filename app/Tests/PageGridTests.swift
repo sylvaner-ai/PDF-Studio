@@ -29,7 +29,7 @@ final class PageGridTests: XCTestCase {
             DisplayPage(
                 PageItem(
                     id: UInt64(index), kind: .source(source: 0, index: UInt32(index)), quarterTurns: 0,
-                    editRevision: 0
+                    editRevision: 0, textLayerRevision: 0
                 ),
                 sizes: sizes
             )

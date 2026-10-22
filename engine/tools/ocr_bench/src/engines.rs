@@ -110,7 +110,9 @@ impl OcrEngine for Tesseract {
         if let Some(dir) = &self.tessdata {
             command.arg("--tessdata-dir").arg(dir);
         }
-        command.arg("tsv");
+        // Sortie TSV demandée par un paramètre : l'argument `tsv` exige le
+        // dossier `configs` de Tesseract, absent d'un dossier de modèles seul.
+        command.args(["-c", "tessedit_create_tsv=1"]);
         Ok(parse_tsv(&run(&mut command)?))
     }
 }
