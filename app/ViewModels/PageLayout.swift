@@ -50,6 +50,17 @@ struct DisplayRotation: Equatable, Hashable, Sendable {
         }
     }
 
+    /// Convertit un déplacement sur la page tournée (vers la droite et vers le
+    /// bas) en déplacement sur la page droite.
+    func unapply(to vector: CGVector) -> CGVector {
+        switch degrees {
+        case 90: return CGVector(dx: vector.dy, dy: -vector.dx)
+        case 180: return CGVector(dx: -vector.dx, dy: -vector.dy)
+        case 270: return CGVector(dx: -vector.dy, dy: vector.dx)
+        default: return vector
+        }
+    }
+
     /// Ordonnée, sur la page tournée, d'une position verticale de la page droite
     /// (destination d'un signet). Sans objet si la page est couchée.
     func applyTop(_ top: CGFloat, pageSize size: CGSize) -> CGFloat? {

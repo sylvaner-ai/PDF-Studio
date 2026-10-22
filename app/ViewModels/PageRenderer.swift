@@ -9,8 +9,9 @@ import os
 /// (page sortie de l'écran) est abandonnée sans être rendue.
 ///
 /// Le cache est indexé par page source et non par position : déplacer une page
-/// ne demande pas de nouveau rendu. Une page vierge n'est jamais rendue (la vue
-/// la peint en blanc).
+/// ne demande pas de nouveau rendu. Une page dont le contenu est modifié est
+/// rendue avec ses modifications, et son cache indexé aussi par leur état. Une
+/// page vierge n'est jamais rendue (la vue la peint en blanc).
 final class PageRenderer: Sendable {
     private let sources: PageSources
     private let cache = ImageCache()
@@ -21,6 +22,7 @@ final class PageRenderer: Sendable {
 
     private struct PageKey: Hashable {
         let source: DisplayPage.Source
+        let revision: UInt64
         let rotation: Int
     }
 
@@ -36,18 +38,26 @@ final class PageRenderer: Sendable {
     ) async throws -> PageImage {
         let (source, document) = try resolve(page)
         let rotation = page.rotation(display)
-        let key = Self.cacheKey(source: source, pixelWidth: pixelWidth, rotation: rotation)
+        let edits = sources.edits(for: page)
+        let revision = edits?.revision() ?? 0
+        let key = Self.cacheKey(source: source, revision: revision, pixelWidth: pixelWidth, rotation: rotation)
         if let cached = cache.object(forKey: key) {
             return cached.image
         }
         let scale = Float(CGFloat(pixelWidth) / page.size(display).width)
+        let index = UInt32(source.index)
+        let degrees = Int32(rotation.degrees)
         let image = try await limited {
-            try document.renderPage(index: UInt32(source.index), scale: scale, rotation: Int32(rotation.degrees))
+            if let edits {
+                return try document.renderEditedPage(index: index, edits: edits, scale: scale, rotation: degrees)
+            }
+            return try document.renderPage(index: index, scale: scale, rotation: degrees)
         }
         let cost = image.cgImage.bytesPerRow * image.cgImage.height
         cache.setObject(ImageBox(image), forKey: key, cost: cost)
         renderedWidths.withLock { widths in
-            _ = widths[PageKey(source: source, rotation: rotation.degrees), default: []].insert(pixelWidth)
+            let pageKey = PageKey(source: source, revision: revision, rotation: rotation.degrees)
+            _ = widths[pageKey, default: []].insert(pixelWidth)
         }
         return image
     }
@@ -57,10 +67,13 @@ final class PageRenderer: Sendable {
     func cachedImage(of page: DisplayPage, pixelWidth: Int, display: DisplayRotation) -> PageImage? {
         guard let source = page.source else { return nil }
         let rotation = page.rotation(display)
-        let widths = renderedWidths.withLock { $0[PageKey(source: source, rotation: rotation.degrees)] ?? [] }
+        let revision = page.editRevision
+        let pageKey = PageKey(source: source, revision: revision, rotation: rotation.degrees)
+        let widths = renderedWidths.withLock { $0[pageKey] ?? [] }
         let ordered = widths.filter { $0 <= pixelWidth }.sorted(by: >) + widths.filter { $0 > pixelWidth }.sorted()
         for width in ordered {
-            if let cached = cache.object(forKey: Self.cacheKey(source: source, pixelWidth: width, rotation: rotation)) {
+            let key = Self.cacheKey(source: source, revision: revision, pixelWidth: width, rotation: rotation)
+            if let cached = cache.object(forKey: key) {
                 return cached.image
             }
         }
@@ -74,8 +87,21 @@ final class PageRenderer: Sendable {
     ) async throws -> PageImage {
         let (source, document) = try resolve(page)
         let rotation = page.rotation(display)
+        let edits = sources.edits(for: page)
         return try await limited {
-            try document.renderRegion(
+            if let edits {
+                return try document.renderEditedRegion(
+                    index: UInt32(source.index),
+                    edits: edits,
+                    scale: Float(scale),
+                    rotation: Int32(rotation.degrees),
+                    x: UInt32(rect.minX),
+                    y: UInt32(rect.minY),
+                    width: UInt32(rect.width),
+                    height: UInt32(rect.height)
+                )
+            }
+            return try document.renderRegion(
                 index: UInt32(source.index),
                 scale: Float(scale),
                 rotation: Int32(rotation.degrees),
@@ -113,8 +139,10 @@ final class PageRenderer: Sendable {
         }
     }
 
-    private static func cacheKey(source: DisplayPage.Source, pixelWidth: Int, rotation: DisplayRotation) -> NSString {
-        "\(source.document)-\(source.index)-\(pixelWidth)-\(rotation.degrees)" as NSString
+    private static func cacheKey(
+        source: DisplayPage.Source, revision: UInt64, pixelWidth: Int, rotation: DisplayRotation
+    ) -> NSString {
+        "\(source.document)-\(source.index)-\(revision)-\(pixelWidth)-\(rotation.degrees)" as NSString
     }
 }
 

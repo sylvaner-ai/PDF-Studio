@@ -27,7 +27,10 @@ final class PageGridTests: XCTestCase {
         let sizes = [Array(repeating: CGSize(width: 595, height: 842), count: 3)]
         let pages = (0..<3).map { index in
             DisplayPage(
-                PageItem(id: UInt64(index), kind: .source(source: 0, index: UInt32(index)), quarterTurns: 0),
+                PageItem(
+                    id: UInt64(index), kind: .source(source: 0, index: UInt32(index)), quarterTurns: 0,
+                    editRevision: 0
+                ),
                 sizes: sizes
             )
         }

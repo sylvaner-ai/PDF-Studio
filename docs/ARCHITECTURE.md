@@ -8,33 +8,41 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
 ┌──────────────────────── Application SwiftUI (app/) ──────────────────────────┐
 │ Views/        DocumentWindow, DocumentView (lecteur), SidebarView,           │
 │               DocumentWindowBridge (fermeture), ExportOptions, SearchField ; │
-│               Canvas/ : PageCanvasView (AppKit), PageTileView ;              │
+│               EditingBadge ; Canvas/ : PageCanvasView (AppKit),              │
+│               PageTileView, EditingOverlayView ;                             │
 │               Grid/ : PageGrid, PageGridCoordinator, PageGridItem (AppKit)   │
 │ ViewModels/   DocumentViewModel (+Saving, +Recovery, +Inserting,             │
 │               +Exporting), DisplayPage, CanvasController, SearchModel,       │
 │               OutlineTree, PageLayout, PageRenderer, FileSaver,              │
-│               RecoveryStore, PageExporter                                    │
+│               RecoveryStore, PageExporter, PageEditing                       │
 │ App/          PDFStudioApp, ViewerCommands et PageCommands (menus),          │
 │               DocumentOpener, DocumentReference (signets de sécurité)        │
 │ Bridge/       EngineBridge.swift + Generated/ (liaisons UniFFI générées)     │
 └───────────────────────────────┬──────────────────────────────────────────────┘
                                 │ UniFFI : PdfDocument, EditSession, PageItem,
                                 │          RenderedPage, OutlineItem, SearchMatch,
-                                │          PageRect, EngineError
+                                │          PageRect, PageObjectItem, ContentEdits,
+                                │          ObjectEditItem, EngineError
 ┌───────────────────────────────▼──────────── Moteur Rust (engine/) ───────────┐
 │ ffi/        interface pour Swift (seule couche contenant du code unsafe :    │
 │             macros UniFFI et deux appels système de qualité de service)      │
-│ edit/       liste des pages et historique d'annulation (patron Command)      │
+│ edit/       pages, modifications de leur contenu et historique d'annulation  │
+│             (patron Command)                                                 │
 │ render/     rastérisation RGBA : page entière ou zone, rotation d'affichage  │
 │ pdf_core/   ouverture, pages, métadonnées, plan, texte et recherche ;        │
 │             écriture d'un PDF réorganisé ; fil dédié par document ;          │
-│             choix des polices standard                                       │
+│             choix des polices standard ; content/ : lecture du flux de       │
+│             contenu, objets des pages, mise en page et réécriture ;          │
+│             editing : polices, aperçu et application des modifications       │
 │ (MuPDF)     analyse, rendu, extraction du texte, écriture                    │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 Les crates `ocr`, `layout` et `fonts` prévus par le cahier des charges seront
-créés aux jalons qui les utilisent (4 à 7) ; `edit` l'a été au jalon 3.
+créés aux jalons qui les utilisent (5 à 7) ; `edit` l'a été au jalon 3. Au
+jalon 4, la mise en page du texte modifié et le choix de sa police sont restés
+dans `pdf_core` (`content::layout`, `editing`), car ils reposent sur
+l'interprétation du flux de contenu et sur MuPDF.
 
 ## Modèle d'exécution
 
@@ -98,6 +106,9 @@ créés aux jalons qui les utilisent (4 à 7) ; `edit` l'a été au jalon 3.
   un par ligne. L'application interroge les pages une à une (`search_page`) :
   les résultats s'affichent au fil de l'eau et une nouvelle saisie interrompt la
   recherche en cours. Le texte de 256 pages reste en cache dans le moteur.
+  Côté application, la recherche s'ouvre par ⌘F ou le menu Édition dans un
+  panneau posé en haut à droite des pages (`SearchPanel`), et non dans la barre
+  d'outils (décision D24).
 - **Plan.** Le plan MuPDF est aplati en parcours en profondeur (titre, niveau, page,
   position verticale), forme simple à faire traverser le pont ; l'application
   reconstruit l'arbre (`OutlineTree`).
@@ -119,13 +130,37 @@ créés aux jalons qui les utilisent (4 à 7) ; `edit` l'a été au jalon 3.
   sources de la session. Les pages glissées depuis une autre fenêtre sont exportées
   par celle-ci en PDF, puis rouvertes en mémoire (`PdfDocument.fromData`).
 
+## Édition du contenu
+
+- **Objets.** `pdf_core::content` analyse le flux de contenu d'une page
+  (`lexer`), l'interprète en suivant l'état graphique et les polices (`interp`,
+  `resources`, `font`, `cmap`, `encodings`) et en tire les objets de la page
+  (`objects`) : blocs de texte, images, tracés, formulaires, dégradés. `editing`
+  les présente à l'application (`PageObjectItem`, emprise sur la page droite).
+- **Modifications.** Supprimer, déplacer ou remplacer le texte d'un objet passe
+  par l'`EditSession`, qui les range dans l'état du crate `edit`, avec les pages
+  (décision D21). Chaque page modifiée porte un numéro d'état (`edit_revision`),
+  qui change à chaque modification ou annulation.
+- **Aperçu et écriture.** `editing::edit_page` met en page le nouveau texte
+  (`layout`), choisit sa police (D20) et réécrit le flux (`rewrite`, D19). Pour
+  l'aperçu, le fil du document substitue un instant le contenu modifié à celui de
+  la page, en tire la liste d'affichage puis rétablit l'original ; à
+  l'enregistrement, le contenu modifié remplace celui de la page dans la copie
+  écrite. Le cache d'images de l'application est indexé aussi par l'état des
+  modifications.
+- **Interface.** `PageEditing` garde la sélection et les objets connus de chaque
+  page ; `EditingOverlayView` dessine la sélection sur chaque page du canevas et
+  traduit souris et clavier en modifications (D23), toujours exprimées sur la page
+  droite, rotation d'affichage et quarts de tour de l'organisation retirés.
+
 ## Enregistrement, récupération et exportations
 
 - **Écriture.** `EditSession.export_pdf` produit les octets du nouveau PDF à partir
   des octets lus à l'ouverture (décision D12) ; `FileSaver` les écrit après
   confirmation et copie de sauvegarde, puis relit le résultat (D13).
 - **Récupération.** `RecoveryStore` retient, à chaque modification non enregistrée,
-  l'organisation des pages et des copies des documents dont elles viennent (D14).
+  l'organisation des pages, les modifications de leur contenu (D22) et des copies
+  des documents dont elles viennent (D14).
   Les copies orphelines sont supprimées au lancement.
 - **Exportations.** Extraction et scission passent par `export_pages` ; les images
   sont rendues par le moteur et encodées par ImageIO ; le texte vient de
@@ -172,8 +207,11 @@ lancé depuis Xcode reste donc à jour.
 - `make test-engine` : tests Rust (`cargo test`) sur `tests/fixtures/`.
 - `make test-app` : tests XCTest du pont, du rendu, de la recherche, de la
   géométrie d'affichage, de l'organisation, de l'enregistrement, de la
-  récupération et des exportations, hébergés dans l'application.
+  récupération, des exportations et de l'édition du contenu, hébergés dans
+  l'application.
 - `tests/fixtures/generate.py` régénère le jeu de PDF publics, dont
   `organisation.pdf` (signets, liens, champs, note, numérotation et métadonnées à
-  préserver) et `signature_factice.pdf` (champ de signature) pour le jalon 3 ;
+  préserver) et `signature_factice.pdf` (champ de signature) pour le jalon 3,
+  `edition.pdf` (titre en police intégrée, paragraphe justifié, ligne en
+  Helvetica, image, tracés, page tournée) pour le jalon 4 ;
   `tests/fixtures/private/` reçoit les documents personnels, jamais versionnés.

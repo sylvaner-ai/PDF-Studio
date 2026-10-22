@@ -56,6 +56,11 @@ fn standard_name(name: &str) -> Option<&'static str> {
         .find(|&standard| standard == name)
 }
 
+/// Police standard (clone URW) désignée par l'un des 14 noms standard.
+pub(crate) fn standard_font(name: &str) -> Option<mupdf::Font> {
+    mupdf::Font::new(standard_name(name)?).ok()
+}
+
 /// Installe le chargeur de polices, une fois pour tout le processus.
 ///
 /// À appeler avant d'ouvrir le premier document : MuPDF garde en cache les

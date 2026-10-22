@@ -2,7 +2,8 @@
 """Génère le jeu de PDF de test publics de PDF Studio.
 
 Usage : python3 tests/fixtures/generate.py
-Dépendances : reportlab, pikepdf, pillow (pip install reportlab pikepdf pillow).
+Dépendances : reportlab, pikepdf, pillow, fonttools
+(pip install reportlab pikepdf pillow fonttools).
 
 Les fichiers produits sont déterministes (dates et identifiants figés) pour que
 leur régénération ne modifie pas le dépôt, sauf chiffre.pdf (cf. chiffre()). Les documents personnels de
@@ -331,6 +332,188 @@ def signature_factice() -> None:
         save(pdf, "signature_factice.pdf")
 
 
+EDITION_PARAGRAPHE = (
+    "Le chiffre d'affaires du trimestre progresse de 12 % par rapport à "
+    "l'an dernier, porté par les nouveaux contrats d'infogérance. La marge "
+    "brute reste stable malgré la hausse des coûts de l'énergie, et la "
+    "trésorerie couvre six mois d'activité."
+)
+
+
+def edition() -> None:
+    """Contenu à modifier (jalon 4) : titre et paragraphe justifié dans une
+    police TrueType intégrée en sous-ensemble (Vera), ligne en Helvetica non
+    intégrée, image, tracés ; seconde page tournée de 90°."""
+    from reportlab.lib.enums import TA_JUSTIFY
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    pdfmetrics.registerFont(TTFont("Vera", "Vera.ttf"))
+    pdfmetrics.registerFont(TTFont("VeraBd", "VeraBd.ttf"))
+    c = new_canvas("edition.pdf", title="Édition du contenu")
+    width, height = A4
+    c.setFont("VeraBd", 20)
+    c.drawString(2 * cm, height - 3 * cm, "Rapport trimestriel")
+    style = ParagraphStyle("corps", fontName="Vera", fontSize=11, leading=14,
+                           alignment=TA_JUSTIFY)
+    paragraph = Paragraph(EDITION_PARAGRAPHE, style)
+    _, used = paragraph.wrap(12 * cm, 10 * cm)
+    paragraph.drawOn(c, 2 * cm, height - 4.5 * cm - used)
+    c.setFont("Helvetica", 12)
+    c.setFillColor(colors.HexColor("#b3261e"))
+    c.drawString(2 * cm, height - 9 * cm, "Texte en Helvetica, police standard.")
+    c.setFillColor(colors.black)
+
+    image = Image.new("RGB", (60, 40), "#1f4e9c")
+    ImageDraw.Draw(image).ellipse((10, 5, 50, 35), fill="#f2c94c")
+    buffer = io.BytesIO()
+    image.save(buffer, "PNG")
+    buffer.seek(0)
+    from reportlab.lib.utils import ImageReader
+    c.drawImage(ImageReader(buffer), 2 * cm, height - 14 * cm, 4 * cm, 8 / 3 * cm)
+
+    c.setStrokeColor(colors.HexColor("#2e7d32"))
+    c.setLineWidth(2)
+    c.rect(10 * cm, height - 14 * cm, 5 * cm, 3 * cm, stroke=1, fill=0)
+    c.line(10 * cm, height - 15 * cm, 15 * cm, height - 15 * cm)
+    c.showPage()
+
+    c.setFont("Helvetica", 14)
+    c.drawString(2 * cm, height - 3 * cm, "Page tournée")
+    c.showPage()
+    c.save()
+
+    with pikepdf.open(OUT / "edition.pdf", allow_overwriting_input=True) as pdf:
+        pdf.pages[1].obj.Rotate = 90
+        save(pdf, "edition.pdf")
+
+
+POLICE_CFF_LIGNES = ("Montant prélevé : 42,50 €", "Échéance réglée")
+
+
+def police_cff() -> None:
+    """Police CFF intégrée (Type1C), réduite aux caractères utilisés, sans
+    /Encoding dans le PDF : les codes suivent l'encodage propre au programme
+    (« é » en 0xE9, qui vaut « Ø » en StandardEncoding), comme dans des
+    factures produites par certains logiciels."""
+    import reportlab
+    from fontTools.fontBuilder import FontBuilder
+    from fontTools.pens.t2CharStringPen import T2CharStringPen
+    from fontTools.ttLib import TTFont as FontFile
+
+    source = FontFile(Path(reportlab.__file__).parent / "fonts" / "Vera.ttf")
+    cmap = source.getBestCmap()
+    glyphs = source.getGlyphSet()
+    units = source["head"].unitsPerEm
+    chars = sorted(set("".join(POLICE_CFF_LIGNES)))
+    names = [".notdef"] + [cmap[ord(c)] for c in chars]
+    charstrings = {}
+    for name in names:
+        pen = T2CharStringPen(glyphs[name].width, glyphs)
+        glyphs[name].draw(pen)
+        charstrings[name] = pen.getCharString()
+
+    builder = FontBuilder(units, isTTF=False)
+    builder.setupGlyphOrder(names)
+    builder.setupCharacterMap({ord(c): cmap[ord(c)] for c in chars})
+    builder.setupCFF("VeraCFF", {"FullName": "Vera CFF"}, charstrings, {})
+    builder.setupHorizontalMetrics({name: (glyphs[name].width, 0) for name in names})
+    cff = builder.font["CFF "].cff
+    encoding = [".notdef"] * 256
+    codes = {c: c.encode("cp1252")[0] for c in chars}
+    for c, code in codes.items():
+        encoding[code] = cmap[ord(c)]
+    cff.topDictIndex[0].Encoding = encoding
+    program = io.BytesIO()
+    cff.compile(program, builder.font)
+
+    pdf = pikepdf.new()
+    by_code = {code: c for c, code in codes.items()}
+    widths = [
+        round(glyphs[cmap[ord(by_code[code])]].width * 1000 / units) if code in by_code else 0
+        for code in range(32, 256)
+    ]
+    fontfile = pikepdf.Stream(pdf, program.getvalue())
+    fontfile.Subtype = pikepdf.Name.Type1C
+    descriptor = pdf.make_indirect(pikepdf.Dictionary(
+        Type=pikepdf.Name.FontDescriptor, FontName=pikepdf.Name("/ABCDEF+VeraCFF"),
+        Flags=32, FontBBox=[-183, -236, 1287, 928], ItalicAngle=0, Ascent=928,
+        Descent=-236, CapHeight=729, StemV=80, FontFile3=fontfile,
+    ))
+    font = pdf.make_indirect(pikepdf.Dictionary(
+        Type=pikepdf.Name.Font, Subtype=pikepdf.Name.Type1,
+        BaseFont=pikepdf.Name("/ABCDEF+VeraCFF"), FirstChar=32, LastChar=255,
+        Widths=widths, FontDescriptor=descriptor,
+    ))
+    lines = [line.encode("cp1252") for line in POLICE_CFF_LIGNES]
+    content = b"BT /F1 18 Tf 72 760 Td (" + lines[0] + b") Tj 0 -40 Td (" + lines[1] + b") Tj ET"
+    pdf.add_blank_page(page_size=(595, 842))
+    page = pdf.pages[0]
+    page.obj.Resources = pikepdf.Dictionary(Font=pikepdf.Dictionary(F1=font))
+    page.obj.Contents = pdf.make_stream(content)
+    save(pdf, "police_cff.pdf")
+
+
+ENCADRE_LIGNES = (
+    ("Date de facture", "02/04/2026"),
+    ("N° de facture", "12345678901234"),
+    ("Remise à zéro", "01/01/2026"),
+    ("Fin d'engagement", "Sans engagement"),
+    ("N° de compte client", "87654321"),
+    ("N° de ligne", "01 23 45 67 89"),
+    ("Référence", "XX-1234-5678"),
+)
+
+
+def encadre() -> None:
+    """Encadré d'étiquettes et de valeurs, comme en tête de certaines factures :
+    une ligne par objet BT, étiquettes en gras bleu nuit à gauche, valeurs en
+    gras bleu clair à droite, souvent précédées d'une espace noire dans une
+    autre police ; la première étiquette partage son BT avec le pied de page,
+    et deux lignes enchaînent étiquette et valeur sans saut de ligne de base
+    (assez près pour former une seule ligne de texte)."""
+    pdf = pikepdf.new()
+    fonts = {
+        name: pdf.make_indirect(pikepdf.Dictionary(
+            Type=pikepdf.Name.Font, Subtype=pikepdf.Name.Type1,
+            BaseFont=pikepdf.Name("/" + base), Encoding=pikepdf.Name.WinAnsiEncoding,
+        ))
+        for name, base in (("F1", "Helvetica-Bold"), ("F2", "Helvetica"))
+    }
+
+    def show(text: str) -> bytes:
+        escaped = text.encode("cp1252").replace(b"\\", b"\\\\")
+        return b"(" + escaped.replace(b"(", b"\\(").replace(b")", b"\\)") + b") Tj "
+
+    label = b"0 0.11 0.369 rg /F1 9 Tf "
+    value = b"0 0.58 0.729 rg /F1 9 Tf "
+    space = b"0 g /F2 9 Tf "
+    content = b""
+    for row, (name, data) in enumerate(ENCADRE_LIGNES):
+        y = 680.2 - 12.7 * row
+        content += b"BT "
+        if row == 0:
+            content += b"0.4 g /F2 6 Tf 1 0 0 1 36 40 Tm " + show("Page 1/1 · facture fictive")
+        content += label + b"1 0 0 1 31.2 %.1f Tm " % y
+        if row == 3:
+            # Étiquette, espaces de même style, puis la valeur.
+            content += show(name + "   ")
+        elif row == 4:
+            # Étiquette, une espace dans une autre police, puis la valeur.
+            content += show(name + " ") + space + show(" ")
+        elif row == 0:
+            content += show(name + "   ") + space + b"1 0 0 1 119.3 %.1f Tm " % (y + 5.5) + show(" ")
+        else:
+            content += show(name + "   ") + space + b"1 0 0 1 119.3 %.1f Tm " % (y + 0.5) + show(" ")
+        content += value + b"1 0 0 1 127.4 %.1f Tm " % y + show(data) + b"ET\n"
+    pdf.add_blank_page(page_size=(595, 842))
+    page = pdf.pages[0]
+    page.obj.Resources = pikepdf.Dictionary(Font=pikepdf.Dictionary(**fonts))
+    page.obj.Contents = pdf.make_stream(content)
+    save(pdf, "encadre.pdf")
+
+
 def save(pdf: pikepdf.Pdf, name: str, **kwargs) -> None:
     pdf.save(OUT / name, static_id=True, deterministic_id=False, **kwargs)
 
@@ -376,6 +559,9 @@ def main() -> None:
     chiffre()
     pdf20()
     organisation()
+    edition()
+    police_cff()
+    encadre()
     signature_factice()
     corrompu()
     pas_un_pdf()

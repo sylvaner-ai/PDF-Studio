@@ -12,9 +12,11 @@ use std::sync::Arc;
 use pdf_core::{DocumentHandle, PdfError, Source, SourceData};
 use render::{Region, Rotation};
 
+mod content;
 mod qos;
 mod session;
 
+pub use content::{ContentEdits, ObjectEditItem, PageObjectItem, PageObjectKind, TextFont};
 pub use session::{EditSession, PageItem, PageKind};
 
 uniffi::setup_scaffolding!();
@@ -200,6 +202,48 @@ impl PdfDocument {
         height: u32,
     ) -> Result<RenderedPage, EngineError> {
         let content = self.handle.page_content(index)?;
+        let region = Region {
+            x,
+            y,
+            width,
+            height,
+        };
+        Ok(
+            render::render_region(&content, scale, Rotation::from_degrees(rotation), region)?
+                .into(),
+        )
+    }
+
+    /// Rend une page entière avec les modifications de son contenu `edits`.
+    pub fn render_edited_page(
+        &self,
+        index: u32,
+        edits: Arc<ContentEdits>,
+        scale: f32,
+        rotation: i32,
+    ) -> Result<RenderedPage, EngineError> {
+        let content = self
+            .handle
+            .edited_page_content(index, Arc::clone(&edits.edits))?;
+        Ok(render::render(&content, scale, Rotation::from_degrees(rotation))?.into())
+    }
+
+    /// Rend une zone d'une page modifiée (cf. [`PdfDocument::render_region`]).
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_edited_region(
+        &self,
+        index: u32,
+        edits: Arc<ContentEdits>,
+        scale: f32,
+        rotation: i32,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    ) -> Result<RenderedPage, EngineError> {
+        let content = self
+            .handle
+            .edited_page_content(index, Arc::clone(&edits.edits))?;
         let region = Region {
             x,
             y,

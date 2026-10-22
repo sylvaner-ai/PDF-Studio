@@ -13,8 +13,9 @@ locale, hors ligne, sans compte ni télémétrie.
 |---|---|---|
 | 1. Socle | moteur Rust, pont UniFFI, ouverture et affichage d'un PDF | terminé |
 | 2. Lecture complète | zoom, vignettes, recherche, signets, PDF chiffrés | terminé |
-| 3. Organisation des pages | §4.5 et enregistrement sécurisé | terminé (à valider) |
-| 4 à 9 | édition, OCR, structure, scans, design, durcissement | à faire |
+| 3. Organisation des pages | §4.5 et enregistrement sécurisé | terminé |
+| 4. Édition des PDF natifs | sélection, déplacement, suppression, texte modifiable | terminé (à valider) |
+| 5 à 9 | OCR, structure, scans, design, durcissement | à faire |
 
 ## Organiser les pages
 
@@ -32,6 +33,20 @@ locale, hors ligne, sans compte ni télémétrie.
   de l'original ; **Enregistrer sous** (⇧⌘S) écrit une copie. Les modifications non
   enregistrées sont proposées à la prochaine ouverture du document.
 - **Exporter**, menu Fichier : les pages en images (PNG ou JPEG) ou le texte en .txt.
+
+## Modifier le contenu des pages
+
+- **Mode Édition** (⌘3, ou le crayon de la barre d'outils) : un clic sélectionne un
+  bloc de texte, une image ou un tracé ; ⇧-clic en ajoute ; un rectangle tracé sur
+  la page en sélectionne plusieurs.
+- **Déplacer** en glissant, ou avec les flèches (1 pt, 10 pt avec ⇧) ; **supprimer**
+  avec ⌫.
+- **Modifier un texte** par double-clic ou Retour : Retour valide, ⇧Retour passe à
+  la ligne, Échap annule. Le texte garde sa police si elle contient tous les
+  caractères ; sinon la même police installée sur le Mac est intégrée, ou une
+  police standard la remplace (le bandeau du bas le signale).
+- Tout s'annule par ⌘Z, avec l'organisation des pages ; les limites sont décrites
+  dans [docs/LIMITES.md](docs/LIMITES.md).
 
 ## Prérequis
 

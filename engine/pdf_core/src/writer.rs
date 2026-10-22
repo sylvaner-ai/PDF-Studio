@@ -12,8 +12,11 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use edit::PageEdits;
 use mupdf::pdf::{Encryption, PdfDocument, PdfGraftMap, PdfObject, PdfWriteOptions};
-use mupdf::Size;
+use mupdf::{Buffer, Size};
+
+use crate::editing::{self, EmbeddedFonts, FontProvider, PageModel};
 
 use crate::error::{PdfError, Result};
 
@@ -70,6 +73,17 @@ pub enum OutputPage {
 /// Le résultat est relu avant d'être renvoyé : un fichier qui ne s'ouvre pas, ou
 /// pas avec le bon nombre de pages, n'est jamais livré.
 pub fn write_pdf(sources: &[SourceData], pages: &[OutputPage]) -> Result<Vec<u8>> {
+    write_edited_pdf(sources, pages, &[])
+}
+
+/// Comme [`write_pdf`], en appliquant au contenu de chaque page les
+/// modifications de `edits` (même position que dans `pages` ; une liste plus
+/// courte laisse les pages suivantes intactes).
+pub fn write_edited_pdf(
+    sources: &[SourceData],
+    pages: &[OutputPage],
+    edits: &[Option<Arc<PageEdits>>],
+) -> Result<Vec<u8>> {
     let base = sources
         .first()
         .ok_or_else(|| invalid("aucun document source"))?;
@@ -86,6 +100,7 @@ pub fn write_pdf(sources: &[SourceData], pages: &[OutputPage]) -> Result<Vec<u8>
     } else {
         rebuild(&mut doc, sources, pages, original_count)?;
     }
+    apply_edits(&mut doc, edits)?;
 
     let mut options = PdfWriteOptions::default();
     options
@@ -96,6 +111,29 @@ pub fn write_pdf(sources: &[SourceData], pages: &[OutputPage]) -> Result<Vec<u8>
     doc.write_to_with_options(&mut output, options)?;
     verify(&output, base.password.as_deref(), pages.len())?;
     Ok(output)
+}
+
+/// Remplace le contenu des pages modifiées. Chaque page est alors un objet
+/// distinct (les pages répétées ont été copiées) : son nouveau contenu ne
+/// s'applique qu'à elle, et les objets partagés (flux, ressources) restent
+/// intacts.
+fn apply_edits(doc: &mut PdfDocument, edits: &[Option<Arc<PageEdits>>]) -> Result<()> {
+    let mut fonts = FontProvider::default();
+    let mut embedded = EmbeddedFonts::new();
+    for (position, edits) in edits.iter().enumerate() {
+        let Some(edits) = edits.as_ref().filter(|edits| !edits.is_empty()) else {
+            continue;
+        };
+        let mut page = doc.find_page(position as i32)?;
+        let model = PageModel::load(&page)?;
+        let edited = editing::edit_page(doc, &page, &model, edits, &mut fonts, &mut embedded)?;
+        let stream = doc.add_stream(&Buffer::from_bytes(&edited.content)?, None, false)?;
+        page.dict_put("Contents", stream)?;
+        if let Some(resources) = edited.resources {
+            page.dict_put("Resources", resources)?;
+        }
+    }
+    Ok(())
 }
 
 /// Vrai si le document porte une signature numérique, qu'une modification
@@ -360,7 +398,7 @@ fn flatten_inherited(page: &PdfObject) -> Result<()> {
 /// renumérote les références à l'enregistrement et traiterait deux fois celles
 /// qu'il contient, qui viseraient alors un mauvais objet. C'est pourquoi
 /// `copy_dict`, qui partage les valeurs, ne suffit pas.
-fn detached_copy(object: &PdfObject) -> Result<PdfObject> {
+pub(crate) fn detached_copy(object: &PdfObject) -> Result<PdfObject> {
     // `copy_dict` résout l'objet indirect, `try_clone` copie récursivement.
     Ok(object.copy_dict()?.try_clone()?)
 }

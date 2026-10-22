@@ -14,6 +14,7 @@ final class CanvasController {
     @ObservationIgnored private weak var canvas: PageCanvasView?
     @ObservationIgnored private var matches: [Int: [SearchMatch]] = [:]
     @ObservationIgnored private var currentMatch: SearchHit?
+    @ObservationIgnored private var editing: PageEditing?
 
     init(pages: [DisplayPage]) {
         self.pages = pages
@@ -28,6 +29,7 @@ final class CanvasController {
         canvas.setDisplayMode(displayMode)
         canvas.start(at: currentPage)
         canvas.showMatches(matches, current: currentMatch)
+        canvas.setEditing(editing)
         canvas.onCurrentPageChange = { [weak self] page in
             self?.currentPage = page
         }
@@ -64,6 +66,13 @@ final class CanvasController {
         }
     }
 
+    /// Mode Édition : les objets des pages se sélectionnent et se modifient
+    /// dans le canevas ; `nil` revient à la lecture.
+    func setEditing(_ editing: PageEditing?) {
+        self.editing = editing
+        canvas?.setEditing(editing)
+    }
+
     func setDisplayMode(_ mode: DisplayMode) {
         displayMode = mode
         canvas?.setDisplayMode(mode)
@@ -78,6 +87,12 @@ final class CanvasController {
             return
         }
         canvas.go(to: page, top: top, animated: false)
+    }
+
+    /// Rend le clavier aux pages (après la fermeture de la recherche).
+    func focusPages() {
+        guard let canvas else { return }
+        canvas.window?.makeFirstResponder(canvas.pagesView)
     }
 
     func goToNextPage() { canvas?.goToNextPage() }

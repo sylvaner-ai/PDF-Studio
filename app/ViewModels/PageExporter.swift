@@ -105,7 +105,10 @@ enum PageExporter {
             return blank
         }
         let rotation = Int32(page.rotation(DisplayRotation()).degrees)
-        let rendered = try document.renderPage(index: UInt32(source.index), scale: Float(scale), rotation: rotation)
+        let index = UInt32(source.index)
+        let rendered = try sources.edits(for: page).map {
+            try document.renderEditedPage(index: index, edits: $0, scale: Float(scale), rotation: rotation)
+        } ?? document.renderPage(index: index, scale: Float(scale), rotation: rotation)
         guard let image = rendered.makeCGImage() else { throw CocoaError(.fileWriteUnknown) }
         return image
     }

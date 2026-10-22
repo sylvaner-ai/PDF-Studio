@@ -862,6 +862,8 @@ dependencies = [
 name = "pdf_core"
 version = "0.1.0"
 dependencies = [
+ "edit",
+ "font-kit",
  "mupdf",
  "thiserror",
  "unicode-normalization",

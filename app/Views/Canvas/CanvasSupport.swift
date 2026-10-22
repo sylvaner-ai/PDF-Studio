@@ -16,6 +16,8 @@ final class PagesDocumentView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        // Clic entre les pages : plus rien n'est sélectionné.
+        canvas?.editing?.clearSelection()
         super.mouseDown(with: event)
     }
 }

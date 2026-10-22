@@ -15,7 +15,7 @@ final class PageCanvasView: NSScrollView {
     private(set) var pages: [DisplayPage]
     let pagesView = PagesDocumentView()
     private var layout: PageLayout
-    private var rotation = DisplayRotation()
+    private(set) var rotation = DisplayRotation()
     private(set) var mode = DisplayMode.continuous
     private(set) var singlePage = 0
     private var fitMode: FitMode? = .automatic
@@ -28,10 +28,13 @@ final class PageCanvasView: NSScrollView {
     /// Page à montrer dès que le canevas aura sa taille.
     private var initialPage: Int?
 
-    private var pageViews: [Int: PageTileView] = [:]
+    private(set) var pageViews: [Int: PageTileView] = [:]
     private var reusableViews: [PageTileView] = []
     private var matches: [Int: [SearchMatch]] = [:]
     private var currentMatch: SearchHit?
+    /// Mode Édition : sélection et modification des objets des pages (cf.
+    /// ``setEditing(_:)``).
+    var editing: PageEditing?
 
     init(pages: [DisplayPage], renderer: PageRenderer) {
         self.pages = pages
@@ -154,6 +157,17 @@ extension PageCanvasView {
     /// si elle a disparu, sur celle qui prend sa place.
     func setPages(_ pages: [DisplayPage]) {
         guard pages != self.pages, !pages.isEmpty else { return }
+        if pages.count == self.pages.count, zip(pages, self.pages).allSatisfy({ $0.hasSameLayout(as: $1) }) {
+            // Seul le contenu de pages a changé (édition, annulation) : la
+            // disposition et la position de lecture restent, les pages modifiées
+            // sont rendues à nouveau.
+            self.pages = pages
+            for (index, view) in pageViews {
+                view.configure(position: index, page: pages[index], pageCount: pages.count, display: rotation)
+            }
+            refreshPages()
+            return
+        }
         let anchor = currentAnchor()
         let currentID = self.pages[safe: currentPage]?.id
         self.pages = pages
@@ -342,11 +356,14 @@ extension PageCanvasView {
     private func makePageView(_ index: Int) -> PageTileView {
         if let view = reusableViews.popLast() {
             view.configure(position: index, page: pages[index], pageCount: pages.count, display: rotation)
+            view.setEditing(editing)
             return view
         }
-        return PageTileView(
+        let view = PageTileView(
             position: index, page: pages[index], pageCount: pages.count, display: rotation, renderer: renderer
         )
+        view.setEditing(editing)
+        return view
     }
 
     private func refreshPages(_ views: [PageTileView]? = nil) {

@@ -22,6 +22,8 @@ final class SearchModel {
     private(set) var isSearching = false
     /// Incrémenté pour demander le focus du champ de recherche (⌘F).
     private(set) var focusRequest = 0
+    /// Le panneau de recherche est affiché (⌘F, menu Édition).
+    private(set) var isPresented = false
 
     @ObservationIgnored private var matchesByPage: [Int: [SearchMatch]] = [:]
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -52,8 +54,19 @@ final class SearchModel {
         return isSearching ? nil : String(localized: "Aucun résultat")
     }
 
+    /// Affiche le panneau de recherche et donne le focus à son champ.
     func requestFocus() {
+        isPresented = true
         focusRequest += 1
+    }
+
+    /// Ferme le panneau : les occurrences ne sont plus surlignées et le
+    /// clavier revient aux pages.
+    func dismiss() {
+        guard isPresented else { return }
+        isPresented = false
+        update(query: "")
+        canvas.focusPages()
     }
 
     /// Pages réorganisées : les positions changent, la recherche reprend.

@@ -19,7 +19,7 @@ struct ViewerCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .textEditing) {
-            // La recherche n'apparaît qu'en lecture.
+            // La recherche s'ouvre dans un panneau sur les pages (lecture ou édition).
             Button("Rechercher…") { search?.requestFocus() }
                 .keyboardShortcut("f")
                 .disabled(search == nil)
@@ -37,6 +37,9 @@ struct ViewerCommands: Commands {
                 .disabled(canvas == nil)
             Toggle("Organisation des pages", isOn: workspace(.organizing))
                 .keyboardShortcut("2")
+                .disabled(canvas == nil)
+            Toggle("Édition", isOn: workspace(.editing))
+                .keyboardShortcut("3")
                 .disabled(canvas == nil)
             Divider()
             Button("Taille réelle") { reading?.actualSize() }
@@ -96,11 +99,11 @@ struct ViewerCommands: Commands {
 
     /// Canevas du document actif s'il est affiché (et non la grille d'organisation).
     private var reading: CanvasController? {
-        model?.workspace == .reading ? canvas : nil
+        model?.workspace == .organizing ? nil : canvas
     }
 
     private var search: SearchModel? {
-        model?.workspace == .reading ? model?.search : nil
+        model?.workspace == .organizing ? nil : model?.search
     }
 
     private func workspace(_ workspace: Workspace) -> Binding<Bool> {

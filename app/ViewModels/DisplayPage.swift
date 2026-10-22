@@ -21,8 +21,17 @@ struct DisplayPage: Identifiable, Hashable, Sendable {
     /// Format de la page avant ces quarts de tour, en points (rotation propre du
     /// PDF comprise, comme la mesure le moteur).
     let baseSize: CGSize
+    /// État des modifications du contenu (0 : contenu d'origine) ; il change à
+    /// chaque modification, annulation comprise.
+    var editRevision: UInt64 = 0
 
     var isBlank: Bool { source == nil }
+
+    /// Vrai si `other` est la même page, au même format et dans le même sens :
+    /// seul son contenu peut différer.
+    func hasSameLayout(as other: DisplayPage) -> Bool {
+        id == other.id && source == other.source && quarterTurns == other.quarterTurns && baseSize == other.baseSize
+    }
 
     /// Rotation à appliquer à la page, rotation d'affichage comprise.
     func rotation(_ display: DisplayRotation) -> DisplayRotation {
@@ -41,6 +50,7 @@ extension DisplayPage {
     init(_ item: PageItem, sizes: [[CGSize]]) {
         id = item.id
         quarterTurns = Int(item.quarterTurns)
+        editRevision = item.editRevision
         switch item.kind {
         case let .source(document, index):
             source = Source(document: Int(document), index: Int(index))
@@ -58,9 +68,22 @@ extension DisplayPage {
 /// rendus.
 final class PageSources: Sendable {
     private let documents: OSAllocatedUnfairLock<[PdfDocument]>
+    /// Modifications du contenu des pages, par identifiant de page.
+    private let contentEdits = OSAllocatedUnfairLock(initialState: [UInt64: ContentEdits]())
 
     init(_ document: PdfDocument) {
         documents = OSAllocatedUnfairLock(initialState: [document])
+    }
+
+    /// Modifications du contenu de la page, à appliquer à son rendu.
+    func edits(for page: DisplayPage) -> ContentEdits? {
+        guard page.editRevision != 0 else { return nil }
+        return contentEdits.withLock { $0[page.id] }
+    }
+
+    /// Remplace les modifications du contenu des pages.
+    func setEdits(_ edits: [UInt64: ContentEdits]) {
+        contentEdits.withLock { $0 = edits }
     }
 
     func document(_ index: Int) -> PdfDocument? {
