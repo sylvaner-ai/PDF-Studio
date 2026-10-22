@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// Canevas AppKit des pages, intégré à SwiftUI.
+/// Canevas AppKit des pages, intégré à SwiftUI. Les pages lui parviennent par
+/// le ``CanvasController``, y compris après une réorganisation.
 struct PageCanvas: NSViewRepresentable {
-    let pageSizes: [CGSize]
     let renderer: PageRenderer
     let controller: CanvasController
 
     func makeNSView(context: Context) -> PageCanvasView {
-        let canvas = PageCanvasView(pageSizes: pageSizes, renderer: renderer)
+        let canvas = PageCanvasView(pages: controller.pages, renderer: renderer)
         controller.attach(canvas)
         return canvas
     }

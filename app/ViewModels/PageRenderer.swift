@@ -1,15 +1,18 @@
 import Foundation
 import os
 
-/// Rend les pages d'un document hors du fil principal et garde les images
-/// récentes en cache.
+/// Rend les pages hors du fil principal et garde les images récentes en cache.
 ///
 /// Au plus trois rendus s'exécutent en même temps. Les demandes en attente sont
 /// servies de la plus récente à la plus ancienne, pour que la page visible après
 /// un défilement rapide passe en premier ; une demande annulée entre-temps
 /// (page sortie de l'écran) est abandonnée sans être rendue.
+///
+/// Le cache est indexé par page source et non par position : déplacer une page
+/// ne demande pas de nouveau rendu. Une page vierge n'est jamais rendue (la vue
+/// la peint en blanc).
 final class PageRenderer: Sendable {
-    private let document: PdfDocument
+    private let sources: PageSources
     private let cache = ImageCache()
     private let limiter = RenderLimiter(maxConcurrent: 3)
     /// Largeurs déjà rendues pour chaque page et rotation, pour retrouver une
@@ -17,47 +20,47 @@ final class PageRenderer: Sendable {
     private let renderedWidths = OSAllocatedUnfairLock(initialState: [PageKey: Set<Int>]())
 
     private struct PageKey: Hashable {
-        let page: Int
+        let source: DisplayPage.Source
         let rotation: Int
     }
 
-    init(document: PdfDocument) {
-        self.document = document
+    init(sources: PageSources) {
+        self.sources = sources
     }
 
-    /// Image complète d'une page, de `pixelWidth` pixels de large une fois tournée.
+    /// Image complète d'une page, de `pixelWidth` pixels de large à l'écran.
     ///
-    /// - Parameter pageWidth: largeur de la page tournée, en points.
+    /// - Parameter display: rotation d'affichage ; celle de la page s'y ajoute.
     func image(
-        page: Int,
-        pixelWidth: Int,
-        pageWidth: CGFloat,
-        rotation: DisplayRotation = DisplayRotation()
+        of page: DisplayPage, pixelWidth: Int, display: DisplayRotation = DisplayRotation()
     ) async throws -> PageImage {
-        let key = Self.cacheKey(page: page, pixelWidth: pixelWidth, rotation: rotation)
+        let (source, document) = try resolve(page)
+        let rotation = page.rotation(display)
+        let key = Self.cacheKey(source: source, pixelWidth: pixelWidth, rotation: rotation)
         if let cached = cache.object(forKey: key) {
             return cached.image
         }
-        let scale = Float(CGFloat(pixelWidth) / pageWidth)
-        let image = try await limited { document in
-            try document.renderPage(index: UInt32(page), scale: scale, rotation: Int32(rotation.degrees))
+        let scale = Float(CGFloat(pixelWidth) / page.size(display).width)
+        let image = try await limited {
+            try document.renderPage(index: UInt32(source.index), scale: scale, rotation: Int32(rotation.degrees))
         }
         let cost = image.cgImage.bytesPerRow * image.cgImage.height
         cache.setObject(ImageBox(image), forKey: key, cost: cost)
         renderedWidths.withLock { widths in
-            _ = widths[PageKey(page: page, rotation: rotation.degrees), default: []].insert(pixelWidth)
+            _ = widths[PageKey(source: source, rotation: rotation.degrees), default: []].insert(pixelWidth)
         }
         return image
     }
 
     /// Image déjà en cache la plus proche de `pixelWidth` (la plus nette en
     /// dessous, sinon la plus petite au-dessus), sans rien rendre.
-    func cachedImage(page: Int, pixelWidth: Int, rotation: DisplayRotation) -> PageImage? {
-        let pageKey = PageKey(page: page, rotation: rotation.degrees)
-        let widths = renderedWidths.withLock { $0[pageKey] ?? [] }
+    func cachedImage(of page: DisplayPage, pixelWidth: Int, display: DisplayRotation) -> PageImage? {
+        guard let source = page.source else { return nil }
+        let rotation = page.rotation(display)
+        let widths = renderedWidths.withLock { $0[PageKey(source: source, rotation: rotation.degrees)] ?? [] }
         let ordered = widths.filter { $0 <= pixelWidth }.sorted(by: >) + widths.filter { $0 > pixelWidth }.sorted()
         for width in ordered {
-            if let cached = cache.object(forKey: Self.cacheKey(page: page, pixelWidth: width, rotation: rotation)) {
+            if let cached = cache.object(forKey: Self.cacheKey(source: source, pixelWidth: width, rotation: rotation)) {
                 return cached.image
             }
         }
@@ -66,10 +69,14 @@ final class PageRenderer: Sendable {
 
     /// Zone de l'image d'une page à l'échelle `scale` (pixels par point), pour
     /// les forts grossissements. Non mise en cache : la vue garde ses tuiles.
-    func region(page: Int, scale: CGFloat, rotation: DisplayRotation, pixels rect: CGRect) async throws -> PageImage {
-        try await limited { document in
+    func region(
+        of page: DisplayPage, scale: CGFloat, display: DisplayRotation, pixels rect: CGRect
+    ) async throws -> PageImage {
+        let (source, document) = try resolve(page)
+        let rotation = page.rotation(display)
+        return try await limited {
             try document.renderRegion(
-                index: UInt32(page),
+                index: UInt32(source.index),
                 scale: Float(scale),
                 rotation: Int32(rotation.degrees),
                 x: UInt32(rect.minX),
@@ -80,14 +87,20 @@ final class PageRenderer: Sendable {
         }
     }
 
+    private func resolve(_ page: DisplayPage) throws -> (DisplayPage.Source, PdfDocument) {
+        guard let source = page.source, let document = sources.document(source.document) else {
+            throw BlankPageError()
+        }
+        return (source, document)
+    }
+
     /// Exécute un rendu hors du fil principal, dans la limite des rendus simultanés.
-    private func limited(_ render: @escaping @Sendable (PdfDocument) throws -> RenderedPage) async throws -> PageImage {
+    private func limited(_ render: @escaping @Sendable () throws -> RenderedPage) async throws -> PageImage {
         await limiter.acquire()
         do {
             try Task.checkCancellation()
-            let document = self.document
             let image = try await Task.detached(priority: .userInitiated) {
-                guard let cgImage = try render(document).makeCGImage() else {
+                guard let cgImage = try render().makeCGImage() else {
                     throw ImageConversionError()
                 }
                 return PageImage(cgImage: cgImage)
@@ -100,10 +113,13 @@ final class PageRenderer: Sendable {
         }
     }
 
-    private static func cacheKey(page: Int, pixelWidth: Int, rotation: DisplayRotation) -> NSString {
-        "\(page)-\(pixelWidth)-\(rotation.degrees)" as NSString
+    private static func cacheKey(source: DisplayPage.Source, pixelWidth: Int, rotation: DisplayRotation) -> NSString {
+        "\(source.document)-\(source.index)-\(pixelWidth)-\(rotation.degrees)" as NSString
     }
 }
+
+/// Une page vierge n'a rien à rendre.
+struct BlankPageError: Error {}
 
 /// Les pixels rendus n'ont pas pu être convertis en image.
 struct ImageConversionError: Error {}

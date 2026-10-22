@@ -9,10 +9,13 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use pdf_core::{DocumentHandle, PdfError, Source};
+use pdf_core::{DocumentHandle, PdfError, Source, SourceData};
 use render::{Region, Rotation};
 
 mod qos;
+mod session;
+
+pub use session::{EditSession, PageItem, PageKind};
 
 uniffi::setup_scaffolding!();
 
@@ -56,7 +59,7 @@ impl From<PdfError> for EngineError {
 }
 
 /// Dimensions d'une page en points.
-#[derive(Debug, Clone, Copy, uniffi::Record)]
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
 pub struct PageSize {
     /// Largeur en points.
     pub width: f32,
@@ -141,6 +144,14 @@ impl PdfDocument {
         Ok(Arc::new(Self { handle }))
     }
 
+    /// Ouvre un PDF déjà en mémoire (pages glissées depuis une autre fenêtre).
+    #[uniffi::constructor]
+    pub fn from_data(data: Vec<u8>, password: Option<String>) -> Result<Arc<Self>, EngineError> {
+        qos::install();
+        let handle = DocumentHandle::open(Source::Bytes(data), password)?;
+        Ok(Arc::new(Self { handle }))
+    }
+
     /// Nombre de pages.
     pub fn page_count(&self) -> u32 {
         self.handle.page_count()
@@ -216,6 +227,11 @@ impl PdfDocument {
             .collect())
     }
 
+    /// Texte brut d'une page, dans l'ordre de lecture ; vide pour une page scannée.
+    pub fn plain_text(&self, index: u32) -> Result<String, EngineError> {
+        Ok(self.handle.plain_text(index)?)
+    }
+
     /// Cherche `query` dans une page, sans tenir compte de la casse, des accents
     /// ni des ligatures. L'application parcourt les pages une à une, ce qui lui
     /// permet d'afficher les résultats au fil de l'eau et d'interrompre la recherche.
@@ -237,6 +253,13 @@ impl PdfDocument {
                     .collect(),
             })
             .collect())
+    }
+}
+
+impl PdfDocument {
+    /// Octets lus à l'ouverture et mot de passe, d'où part toute écriture.
+    pub(crate) fn source_data(&self) -> SourceData {
+        self.handle.source_data().clone()
     }
 }
 

@@ -21,6 +21,12 @@ final class DocumentOpener {
     private var pending: [URL] = []
     /// Vrai pendant `flush()`, qui peut être rappelée par la fenêtre qu'elle ouvre.
     private var isFlushing = false
+    /// Documents dont des modifications ne sont pas enregistrées, et si elles
+    /// pourront être proposées à leur prochaine ouverture.
+    private var unsaved: [ObjectIdentifier: Bool] = [:]
+    /// Enregistrements en cours, et ce qui attend leur fin (quitter l'application).
+    private var savesInProgress = 0
+    private var afterSaves: [() -> Void] = []
 
     /// Fenêtre connue : son document (`nil` pour l'écran d'accueil), et de quoi
     /// lui en confier un ou la fermer.
@@ -59,6 +65,45 @@ final class DocumentOpener {
 
     func unregisterWindow(id: UUID) {
         windows[id] = nil
+    }
+
+    /// Vrai si une fenêtre affiche ce fichier.
+    func isShown(path: String) -> Bool {
+        windows.values.contains { $0.reference?.path == path }
+    }
+
+    /// Retient qu'un document a, ou n'a plus, des modifications non enregistrées.
+    func setUnsaved(_ isUnsaved: Bool, recoverable: Bool = true, for document: AnyObject) {
+        unsaved[ObjectIdentifier(document)] = isUnsaved ? recoverable : nil
+    }
+
+    var hasUnsavedChanges: Bool { !unsaved.isEmpty }
+
+    /// Vrai si des modifications non enregistrées ne pourront pas être retrouvées.
+    var hasUnrecoverableChanges: Bool { unsaved.values.contains(false) }
+
+    /// Un enregistrement commence : interrompu, il laisserait le fichier à moitié écrit.
+    func beginSave() {
+        savesInProgress += 1
+    }
+
+    func endSave() {
+        savesInProgress = max(savesInProgress - 1, 0)
+        guard savesInProgress == 0 else { return }
+        let actions = afterSaves
+        afterSaves = []
+        actions.forEach { $0() }
+    }
+
+    var isSaving: Bool { savesInProgress > 0 }
+
+    /// Exécute `action` une fois tous les enregistrements terminés.
+    func whenSavesFinish(_ action: @escaping () -> Void) {
+        if isSaving {
+            afterSaves.append(action)
+        } else {
+            action()
+        }
     }
 
     /// Ouvre les PDF parmi les fichiers donnés ; les autres sont ignorés.

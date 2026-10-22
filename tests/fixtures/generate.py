@@ -207,6 +207,130 @@ def scan_simule() -> None:
     c.save()
 
 
+ORGANISATION_PAGES = ["Alpha", "Bravo", "Charlie", "Delta", "Echo"]
+
+
+def organisation() -> None:
+    """Cinq pages (Alpha à Echo) réunissant ce que l'organiseur doit préserver.
+
+    Rotation de 90° pour Delta et Echo, numérotation logique, plan, liens internes
+    (action GoTo et destination directe), lien Web, note avec sa fenêtre, champs
+    de formulaire sur Alpha et Delta, métadonnées XMP et préférences d'affichage.
+    Les attributs hérités de l'arbre des pages sont construits par les tests
+    (pdf_core/tests/ecriture.rs) : qpdf les recopierait dans chaque page.
+    """
+    c = new_canvas("organisation.pdf", title="Organisation des pages")
+    for n, name in enumerate(ORGANISATION_PAGES, start=1):
+        c.setFont("Helvetica-Bold", 28)
+        c.drawString(2 * cm, A4[1] - 3 * cm, f"Feuille {name}")
+        c.setFont("Helvetica", 12)
+        c.drawString(2 * cm, A4[1] - 4.5 * cm, f"Page {n} sur {len(ORGANISATION_PAGES)}")
+        c.showPage()
+    c.save()
+
+    with pikepdf.open(OUT / "organisation.pdf", allow_overwriting_input=True) as pdf:
+        pages = [page.obj for page in pdf.pages]
+        for page in pages[3:]:
+            page.Rotate = 90
+
+        pdf.Root.PageLabels = pikepdf.Dictionary(Nums=pikepdf.Array([
+            0, pikepdf.Dictionary(S=pikepdf.Name.r),
+            2, pikepdf.Dictionary(S=pikepdf.Name.D),
+        ]))
+        pdf.Root.ViewerPreferences = pikepdf.Dictionary(DisplayDocTitle=True)
+        pdf.Root.Metadata = pdf.make_stream(
+            b'<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>'
+            b'<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF '
+            b'xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description '
+            b'xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title><rdf:Alt>'
+            b'<rdf:li xml:lang="x-default">Organisation des pages</rdf:li></rdf:Alt></dc:title>'
+            b'</rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end="w"?>',
+            Type=pikepdf.Name.Metadata, Subtype=pikepdf.Name.XML)
+
+        def fit(page):
+            return pikepdf.Array([page, pikepdf.Name.Fit])
+
+        def link(rect, **entries):
+            return pdf.make_indirect(pikepdf.Dictionary(
+                Type=pikepdf.Name.Annot, Subtype=pikepdf.Name.Link,
+                Rect=pikepdf.Array(rect), Border=pikepdf.Array([0, 0, 0]), **entries))
+
+        def field(page, name, rect):
+            return pdf.make_indirect(pikepdf.Dictionary(
+                Type=pikepdf.Name.Annot, Subtype=pikepdf.Name.Widget, FT=pikepdf.Name.Tx,
+                T=pikepdf.String(name), V=pikepdf.String(""), Rect=pikepdf.Array(rect),
+                F=4, P=page, DA=pikepdf.String("/Helv 12 Tf 0 g")))
+
+        # Alpha : liens vers Charlie (action GoTo) et vers Echo (destination), champ « nom ».
+        to_charlie = link([50, 600, 250, 620], A=pikepdf.Dictionary(S=pikepdf.Name.GoTo, D=fit(pages[2])))
+        to_echo = link([50, 560, 250, 580], Dest=fit(pages[4]))
+        name_field = field(pages[0], "nom", [50, 500, 300, 520])
+        pages[0].Annots = pikepdf.Array([to_charlie, to_echo, name_field])
+
+        # Bravo : lien Web et note avec sa fenêtre.
+        web = link([50, 600, 250, 620], A=pikepdf.Dictionary(
+            S=pikepdf.Name.URI, URI=pikepdf.String("https://example.org/")))
+        note = pdf.make_indirect(pikepdf.Dictionary(
+            Type=pikepdf.Name.Annot, Subtype=pikepdf.Name.Text, Rect=pikepdf.Array([400, 700, 420, 720]),
+            Contents=pikepdf.String("Note de relecture"), P=pages[1], Name=pikepdf.Name.Comment))
+        popup = pdf.make_indirect(pikepdf.Dictionary(
+            Type=pikepdf.Name.Annot, Subtype=pikepdf.Name.Popup, Rect=pikepdf.Array([420, 600, 560, 700]),
+            Parent=note, P=pages[1]))
+        note.Popup = popup
+        pages[1].Annots = pikepdf.Array([web, note, popup])
+
+        # Delta : champ « ville ».
+        city_field = field(pages[3], "ville", [50, 500, 300, 520])
+        pages[3].Annots = pikepdf.Array([city_field])
+        helvetica = pdf.make_indirect(pikepdf.Dictionary(
+            Type=pikepdf.Name.Font, Subtype=pikepdf.Name.Type1, BaseFont=pikepdf.Name.Helvetica,
+            Encoding=pikepdf.Name.WinAnsiEncoding))
+        pdf.Root.AcroForm = pikepdf.Dictionary(
+            Fields=pikepdf.Array([name_field, city_field]), NeedAppearances=True,
+            DR=pikepdf.Dictionary(Font=pikepdf.Dictionary(Helv=helvetica)),
+            DA=pikepdf.String("/Helv 12 Tf 0 g"))
+
+        # Plan : une entrée par page, Delta et Echo regroupées sous « Annexes ».
+        outlines = pdf.make_indirect(pikepdf.Dictionary(Type=pikepdf.Name.Outlines))
+        entries = [pdf.make_indirect(pikepdf.Dictionary(Title=pikepdf.String(name), Dest=fit(page)))
+                   for name, page in zip(ORGANISATION_PAGES, pages)]
+        annexes = pdf.make_indirect(pikepdf.Dictionary(Title=pikepdf.String("Annexes"), Count=2))
+        top = entries[:3] + [annexes]
+
+        def chain(parent, children):
+            for i, child in enumerate(children):
+                child.Parent = parent
+                if i > 0:
+                    child.Prev = children[i - 1]
+                if i + 1 < len(children):
+                    child.Next = children[i + 1]
+            parent.First = children[0]
+            parent.Last = children[-1]
+
+        chain(outlines, top)
+        chain(annexes, entries[3:])
+        outlines.Count = len(top) + 2
+        pdf.Root.Outlines = outlines
+        save(pdf, "organisation.pdf")
+
+
+def signature_factice() -> None:
+    """Formulaire portant un champ de signature rempli (signature factice, non
+    vérifiable) : sert à tester l'alerte avant modification d'un document signé."""
+    with pikepdf.open(OUT / "texte_simple.pdf") as pdf:
+        page = pdf.pages[0].obj
+        signature = pdf.make_indirect(pikepdf.Dictionary(
+            Type=pikepdf.Name.Sig, Filter=pikepdf.Name("/Adobe.PPKLite"),
+            SubFilter=pikepdf.Name("/adbe.pkcs7.detached"),
+            ByteRange=pikepdf.Array([0, 0, 0, 0]), Contents=pikepdf.String(b"\x00" * 16)))
+        widget = pdf.make_indirect(pikepdf.Dictionary(
+            Type=pikepdf.Name.Annot, Subtype=pikepdf.Name.Widget, FT=pikepdf.Name.Sig,
+            T=pikepdf.String("signature"), V=signature, Rect=pikepdf.Array([0, 0, 0, 0]), F=132, P=page))
+        page.Annots = pikepdf.Array([widget])
+        pdf.Root.AcroForm = pikepdf.Dictionary(Fields=pikepdf.Array([widget]), SigFlags=3)
+        save(pdf, "signature_factice.pdf")
+
+
 def save(pdf: pikepdf.Pdf, name: str, **kwargs) -> None:
     pdf.save(OUT / name, static_id=True, deterministic_id=False, **kwargs)
 
@@ -251,6 +375,8 @@ def main() -> None:
     scan_simule()
     chiffre()
     pdf20()
+    organisation()
+    signature_factice()
     corrompu()
     pas_un_pdf()
     for f in sorted(OUT.glob("*.pdf")):

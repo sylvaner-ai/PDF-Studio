@@ -56,7 +56,7 @@ targets:
         NSHumanReadableCopyright: Usage personnel.
         CFBundleDocumentTypes:
           - CFBundleTypeName: Document PDF
-            CFBundleTypeRole: Viewer
+            CFBundleTypeRole: Editor
             LSHandlerRank: Alternate
             LSItemContentTypes:
               - com.adobe.pdf
@@ -66,7 +66,9 @@ targets:
         # Bac à sable sans aucune autorisation réseau : l'application ne peut
         # émettre aucune connexion (cahier des charges, §6).
         com.apple.security.app-sandbox: true
-        com.apple.security.files.user-selected.read-only: true
+        # Lecture et écriture des seuls fichiers choisis par l'utilisateur
+        # (ouverture, glisser-déposer, Enregistrer sous).
+        com.apple.security.files.user-selected.read-write: true
         com.apple.security.files.bookmarks.app-scope: true
     settings:
       base:

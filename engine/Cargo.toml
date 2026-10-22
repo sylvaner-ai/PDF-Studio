@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "pdf_core",
+    "edit",
     "render",
     "ffi",
     "uniffi-bindgen",
@@ -16,6 +17,7 @@ publish = false
 
 [workspace.dependencies]
 pdf_core = { path = "pdf_core" }
+edit = { path = "edit" }
 render = { path = "render" }
 # MuPDF : rendu, extraction et écriture PDF (licence AGPL-3.0, cf. docs/DEPENDANCES.md).
 # Les formats non PDF (EPUB, XPS, HTML…) et le moteur JavaScript sont désactivés.

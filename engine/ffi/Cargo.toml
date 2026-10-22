@@ -12,6 +12,7 @@ publish.workspace = true
 crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
+edit.workspace = true
 pdf_core.workspace = true
 render.workspace = true
 thiserror.workspace = true

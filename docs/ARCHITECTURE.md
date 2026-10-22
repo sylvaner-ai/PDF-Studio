@@ -7,27 +7,34 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
 ```
 ┌──────────────────────── Application SwiftUI (app/) ──────────────────────────┐
 │ Views/        DocumentWindow, DocumentView (lecteur), SidebarView,           │
-│               SearchField ; Canvas/ : PageCanvasView (AppKit), PageTileView  │
-│ ViewModels/   DocumentViewModel, CanvasController, SearchModel, OutlineTree, │
-│               PageLayout (géométrie), PageRenderer (rendu et cache)          │
-│ App/          PDFStudioApp, ViewerCommands (menus), DocumentOpener,          │
-│               DocumentReference (signets de sécurité)                        │
+│               DocumentWindowBridge (fermeture), ExportOptions, SearchField ; │
+│               Canvas/ : PageCanvasView (AppKit), PageTileView ;              │
+│               Grid/ : PageGrid, PageGridCoordinator, PageGridItem (AppKit)   │
+│ ViewModels/   DocumentViewModel (+Saving, +Recovery, +Inserting,             │
+│               +Exporting), DisplayPage, CanvasController, SearchModel,       │
+│               OutlineTree, PageLayout, PageRenderer, FileSaver,              │
+│               RecoveryStore, PageExporter                                    │
+│ App/          PDFStudioApp, ViewerCommands et PageCommands (menus),          │
+│               DocumentOpener, DocumentReference (signets de sécurité)        │
 │ Bridge/       EngineBridge.swift + Generated/ (liaisons UniFFI générées)     │
 └───────────────────────────────┬──────────────────────────────────────────────┘
-                                │ UniFFI : PdfDocument, RenderedPage, OutlineItem,
-                                │          SearchMatch, PageRect, EngineError
+                                │ UniFFI : PdfDocument, EditSession, PageItem,
+                                │          RenderedPage, OutlineItem, SearchMatch,
+                                │          PageRect, EngineError
 ┌───────────────────────────────▼──────────── Moteur Rust (engine/) ───────────┐
 │ ffi/        interface pour Swift (seule couche contenant du code unsafe :    │
 │             macros UniFFI et deux appels système de qualité de service)      │
+│ edit/       liste des pages et historique d'annulation (patron Command)      │
 │ render/     rastérisation RGBA : page entière ou zone, rotation d'affichage  │
 │ pdf_core/   ouverture, pages, métadonnées, plan, texte et recherche ;        │
-│             fil dédié par document ; choix des polices standard              │
-│ (MuPDF)     analyse, rendu, extraction du texte et, plus tard, écriture      │
+│             écriture d'un PDF réorganisé ; fil dédié par document ;          │
+│             choix des polices standard                                       │
+│ (MuPDF)     analyse, rendu, extraction du texte, écriture                    │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Les crates `ocr`, `layout`, `fonts` et `edit` prévus par le cahier des charges
-seront créés aux jalons qui les utilisent (3 à 7).
+Les crates `ocr`, `layout` et `fonts` prévus par le cahier des charges seront
+créés aux jalons qui les utilisent (4 à 7) ; `edit` l'a été au jalon 3.
 
 ## Modèle d'exécution
 
@@ -95,6 +102,35 @@ seront créés aux jalons qui les utilisent (3 à 7).
   position verticale), forme simple à faire traverser le pont ; l'application
   reconstruit l'arbre (`OutlineTree`).
 
+## Organisation des pages
+
+- **Liste des pages.** Une `EditSession` (crate `ffi`) enveloppe l'`Organizer` du
+  crate `edit` : la liste des pages, chacune venue d'un document source (0 : le
+  document ouvert ; 1, 2… : les documents insérés) ou vierge, avec ses quarts de
+  tour. L'application en reçoit une copie (`PageItem`) après chaque opération et
+  la convertit en `DisplayPage`, avec le format de chaque page.
+- **Historique.** Chaque opération s'inscrit dans le gestionnaire d'annulation de
+  la fenêtre, qui appelle `undo` et `redo` du moteur (décision D11).
+- **Deux présentations.** Le canevas de lecture (⌘1) et la grille d'organisation
+  (⌘2, `NSCollectionView`) partagent la sélection, par identifiant de page, et le
+  cache des images, indexé par page source : déplacer une page ne demande aucun
+  nouveau rendu.
+- **Insertion.** Un document inséré est ouvert hors du fil principal et ajouté aux
+  sources de la session. Les pages glissées depuis une autre fenêtre sont exportées
+  par celle-ci en PDF, puis rouvertes en mémoire (`PdfDocument.fromData`).
+
+## Enregistrement, récupération et exportations
+
+- **Écriture.** `EditSession.export_pdf` produit les octets du nouveau PDF à partir
+  des octets lus à l'ouverture (décision D12) ; `FileSaver` les écrit après
+  confirmation et copie de sauvegarde, puis relit le résultat (D13).
+- **Récupération.** `RecoveryStore` retient, à chaque modification non enregistrée,
+  l'organisation des pages et des copies des documents dont elles viennent (D14).
+  Les copies orphelines sont supprimées au lancement.
+- **Exportations.** Extraction et scission passent par `export_pages` ; les images
+  sont rendues par le moteur et encodées par ImageIO ; le texte vient de
+  `plain_text`, page par page. Tout se fait hors du fil principal, pages figées.
+
 ## Pont Swift ↔ Rust : UniFFI
 
 Retenu de préférence à une FFI C écrite via `cbindgen` (cf. `DECISIONS.md`, D1) :
@@ -134,7 +170,10 @@ lancé depuis Xcode reste donc à jour.
 ## Tests
 
 - `make test-engine` : tests Rust (`cargo test`) sur `tests/fixtures/`.
-- `make test-app` : tests XCTest du pont, du rendu, de la recherche et de la
-  géométrie d'affichage, hébergés dans l'application.
-- `tests/fixtures/generate.py` régénère le jeu de PDF publics ;
+- `make test-app` : tests XCTest du pont, du rendu, de la recherche, de la
+  géométrie d'affichage, de l'organisation, de l'enregistrement, de la
+  récupération et des exportations, hébergés dans l'application.
+- `tests/fixtures/generate.py` régénère le jeu de PDF publics, dont
+  `organisation.pdf` (signets, liens, champs, note, numérotation et métadonnées à
+  préserver) et `signature_factice.pdf` (champ de signature) pour le jalon 3 ;
   `tests/fixtures/private/` reçoit les documents personnels, jamais versionnés.

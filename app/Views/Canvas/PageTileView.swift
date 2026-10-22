@@ -17,12 +17,16 @@ final class PageTileView: NSView {
     /// Pas d'arrondi de la largeur rendue, pour ne pas relancer un rendu à chaque pixel.
     private static let pixelStep = 32
 
+    /// Position de la page dans le document.
     private(set) var pageIndex: Int
     private var pageCount: Int
     private let renderer: PageRenderer
+    private var page: DisplayPage
+    private var display: DisplayRotation
     /// Taille de la page tournée, en points.
     private var pageSize: CGSize
-    private var rotation: DisplayRotation
+    /// Rotation de la page à l'écran, la sienne et celle de l'affichage.
+    private var rotation: DisplayRotation { page.rotation(display) }
 
     private let baseView = NSImageView()
     private let detailView = FlippedView()
@@ -39,11 +43,12 @@ final class PageTileView: NSView {
         let row: Int
     }
 
-    init(page: Int, pageCount: Int, pageSize: CGSize, rotation: DisplayRotation, renderer: PageRenderer) {
-        self.pageIndex = page
+    init(position: Int, page: DisplayPage, pageCount: Int, display: DisplayRotation, renderer: PageRenderer) {
+        self.pageIndex = position
+        self.page = page
         self.pageCount = pageCount
-        self.pageSize = pageSize
-        self.rotation = rotation
+        self.display = display
+        self.pageSize = page.size(display)
         self.renderer = renderer
         super.init(frame: .zero)
         wantsLayer = true
@@ -80,15 +85,18 @@ final class PageTileView: NSView {
     }
 
     /// Réaffecte la vue à une autre page (réutilisation lors du défilement).
-    func configure(page: Int, pageCount: Int, pageSize: CGSize, rotation: DisplayRotation) {
-        guard page != pageIndex || pageSize != self.pageSize || rotation != self.rotation else {
-            self.pageCount = pageCount
-            return
-        }
-        pageIndex = page
+    func configure(position: Int, page: DisplayPage, pageCount: Int, display: DisplayRotation) {
+        let moved = position != pageIndex || pageCount != self.pageCount
+        pageIndex = position
         self.pageCount = pageCount
-        self.pageSize = pageSize
-        self.rotation = rotation
+        if moved {
+            updateAccessibility()
+        }
+        guard page != self.page || display != self.display else { return }
+        self.page = page
+        self.display = display
+        pageSize = page.size(display)
+        setFrameSize(pageSize)
         baseTask?.cancel()
         basePixelWidth = 0
         baseView.image = nil
@@ -108,9 +116,10 @@ final class PageTileView: NSView {
     }
 
     /// Surligne les occurrences de la recherche (rectangles sur la page droite).
-    func showMatches(_ matches: [SearchMatch], current: Int?, unrotatedSize: CGSize) {
+    func showMatches(_ matches: [SearchMatch], current: Int?) {
+        let (rotation, size) = (self.rotation, page.baseSize)
         let convert = { (match: SearchMatch) in
-            match.rects.map { self.rotation.apply(to: $0.cgRect, pageSize: unrotatedSize) }
+            match.rects.map { rotation.apply(to: $0.cgRect, pageSize: size) }
         }
         highlightView.update(matches: matches.map(convert), current: current)
     }
@@ -125,22 +134,26 @@ final class PageTileView: NSView {
 
     private func updateBase(pixelsPerPoint: CGFloat) {
         let wanted = basePixelWidth(for: pixelsPerPoint)
-        guard wanted != basePixelWidth else { return }
+        guard wanted != basePixelWidth, !page.isBlank else { return }
         basePixelWidth = wanted
         baseTask?.cancel()
 
-        if let cached = renderer.cachedImage(page: pageIndex, pixelWidth: wanted, rotation: rotation) {
+        if let cached = renderer.cachedImage(of: page, pixelWidth: wanted, display: display) {
             setBase(cached)
             if cached.cgImage.width >= wanted - 1 { return }
         }
-        let (page, rotation, width) = (pageIndex, self.rotation, pageSize.width)
+        let (page, display) = (self.page, self.display)
         baseTask = Task { [weak self, renderer] in
-            guard let image = try? await renderer.image(
-                page: page, pixelWidth: wanted, pageWidth: width, rotation: rotation
-            ) else { return }
-            guard let self, !Task.isCancelled, self.pageIndex == page, self.basePixelWidth == wanted else { return }
+            guard let image = try? await renderer.image(of: page, pixelWidth: wanted, display: display) else { return }
+            guard let self, !Task.isCancelled, self.isShowing(page, display), self.basePixelWidth == wanted else {
+                return
+            }
             self.setBase(image)
         }
+    }
+
+    private func isShowing(_ page: DisplayPage, _ display: DisplayRotation) -> Bool {
+        self.page == page && self.display == display
     }
 
     private func basePixelWidth(for pixelsPerPoint: CGFloat) -> Int {
@@ -159,7 +172,7 @@ final class PageTileView: NSView {
 
     private func updateDetail(pixelsPerPoint scale: CGFloat, visibleRect: CGRect) {
         let longest = max(pageSize.width, pageSize.height)
-        let needsDetail = longest * scale > Self.maxBasePixels * 1.05 && !visibleRect.isEmpty
+        let needsDetail = longest * scale > Self.maxBasePixels * 1.05 && !visibleRect.isEmpty && !page.isBlank
         guard needsDetail else {
             clearDetail()
             return
@@ -204,10 +217,10 @@ final class PageTileView: NSView {
     }
 
     private func requestTile(_ key: TileKey, pixels: CGRect, scale: CGFloat) {
-        let (page, rotation) = (pageIndex, self.rotation)
+        let (page, display) = (self.page, self.display)
         detailTasks[key] = Task { [weak self, renderer] in
-            let image = try? await renderer.region(page: page, scale: scale, rotation: rotation, pixels: pixels)
-            guard let self, !Task.isCancelled, self.pageIndex == page, self.detailScale == scale else { return }
+            let image = try? await renderer.region(of: page, scale: scale, display: display, pixels: pixels)
+            guard let self, !Task.isCancelled, self.isShowing(page, display), self.detailScale == scale else { return }
             self.detailTasks[key] = nil
             guard let image else { return }
             let view = NSImageView(frame: CGRect(

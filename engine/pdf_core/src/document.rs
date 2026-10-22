@@ -19,11 +19,7 @@ pub struct Document {
 impl Document {
     /// Ouvre un fichier PDF en lecture seule.
     pub fn open_file(path: &Path, password: Option<&str>) -> Result<Self> {
-        let bytes = std::fs::read(path).map_err(|source| PdfError::Unreadable {
-            path: path.to_owned(),
-            source,
-        })?;
-        Self::from_bytes(&bytes, password)
+        Self::from_bytes(&read_file(path)?, password)
     }
 
     /// Ouvre un PDF à partir de son contenu binaire.
@@ -103,6 +99,15 @@ impl Document {
         Ok(PageText::from_text_page(&text))
     }
 
+    /// Texte brut d'une page, dans l'ordre de lecture établi par MuPDF ; les mots
+    /// coupés en fin de ligne sont recollés.
+    pub fn plain_text(&self, index: u32) -> Result<String> {
+        self.page_size(index)?;
+        let page = self.inner.load_page(index as i32)?;
+        let text = page.to_text_page(mupdf::TextPageFlags::DEHYPHENATE)?;
+        Ok(text.to_text()?)
+    }
+
     fn page_size(&self, index: u32) -> Result<PageSize> {
         self.page_sizes
             .get(index as usize)
@@ -112,6 +117,14 @@ impl Document {
                 count: self.page_count(),
             })
     }
+}
+
+/// Lit le contenu d'un fichier.
+pub(crate) fn read_file(path: &Path) -> Result<Vec<u8>> {
+    std::fs::read(path).map_err(|source| PdfError::Unreadable {
+        path: path.to_owned(),
+        source,
+    })
 }
 
 /// Mesure une page ; une page illisible reçoit le format A4 pour ne pas bloquer

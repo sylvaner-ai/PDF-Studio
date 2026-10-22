@@ -44,6 +44,13 @@ pub enum PdfError {
     #[error("Le document a été fermé.")]
     Closed,
 
+    /// Le PDF modifié n'a pas pu être produit ou n'a pas passé la relecture.
+    #[error("Le document n'a pas pu être enregistré.")]
+    WriteFailed {
+        /// Détail technique, destiné au journal et non à l'interface.
+        detail: String,
+    },
+
     /// Erreur interne du moteur de rendu.
     #[error("Une erreur inattendue s'est produite pendant le traitement du document.")]
     Engine {
@@ -56,7 +63,9 @@ impl PdfError {
     /// Détail technique éventuel, utile pour le diagnostic.
     pub fn detail(&self) -> Option<&str> {
         match self {
-            PdfError::InvalidDocument { detail } | PdfError::Engine { detail } => Some(detail),
+            PdfError::InvalidDocument { detail }
+            | PdfError::WriteFailed { detail }
+            | PdfError::Engine { detail } => Some(detail),
             _ => None,
         }
     }

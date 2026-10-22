@@ -77,6 +77,21 @@ fn recherche_insensible_aux_accents_et_a_la_casse() {
 }
 
 #[test]
+fn texte_brut_dans_l_ordre_de_lecture() {
+    let text = open("texte_simple.pdf").plain_text(0).unwrap();
+    let first = text.find("Helvetica 12 pt").expect("première ligne");
+    let title = text.find("Titre en bleu profond").expect("titre");
+    assert!(first < title);
+    // Les ligatures sont développées : le texte exporté se recherche normalement.
+    assert!(text.contains("ligatures fi fl ffi"), "{text}");
+    assert!(open("scan_simule.pdf")
+        .plain_text(0)
+        .unwrap()
+        .trim()
+        .is_empty());
+}
+
+#[test]
 fn page_scannee_sans_texte() {
     let text = open("scan_simule.pdf").page_text(0).unwrap();
     assert!(text.is_empty());

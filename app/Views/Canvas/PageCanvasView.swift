@@ -8,36 +8,35 @@ import AppKit
 /// défilement : un document de plusieurs centaines de pages reste léger.
 @MainActor
 final class PageCanvasView: NSScrollView {
-    /// Pas de défilement des flèches, en points.
-    private static let lineStep: CGFloat = 48
-
     var onCurrentPageChange: (@MainActor (Int) -> Void)?
     private(set) var currentPage = 0
 
     private let renderer: PageRenderer
-    private let pageSizes: [CGSize]
-    private let pagesView = PagesDocumentView()
+    private(set) var pages: [DisplayPage]
+    let pagesView = PagesDocumentView()
     private var layout: PageLayout
     private var rotation = DisplayRotation()
-    private var mode = DisplayMode.continuous
-    private var singlePage = 0
+    private(set) var mode = DisplayMode.continuous
+    private(set) var singlePage = 0
     private var fitMode: FitMode? = .automatic
     private var lastFitSize: CGSize = .zero
     private var isLiveMagnifying = false
     private var isFitting = false
     /// Page demandée explicitement (signet, vignette) : elle reste la page
     /// courante tant qu'elle est visible et que l'utilisateur n'a pas défilé.
-    private var navigationTarget: Int?
+    var navigationTarget: Int?
+    /// Page à montrer dès que le canevas aura sa taille.
+    private var initialPage: Int?
 
     private var pageViews: [Int: PageTileView] = [:]
     private var reusableViews: [PageTileView] = []
     private var matches: [Int: [SearchMatch]] = [:]
     private var currentMatch: SearchHit?
 
-    init(pageSizes: [CGSize], renderer: PageRenderer) {
-        self.pageSizes = pageSizes
+    init(pages: [DisplayPage], renderer: PageRenderer) {
+        self.pages = pages
         self.renderer = renderer
-        layout = PageLayout(pageSizes: pageSizes, rotation: DisplayRotation(), mode: .continuous)
+        layout = PageLayout(sizes: pages.map { $0.size(DisplayRotation()) }, mode: .continuous)
         super.init(frame: .zero)
 
         contentView = CenteringClipView()
@@ -151,6 +150,38 @@ extension PageCanvasView {
         restore(anchor)
     }
 
+    /// Remplace les pages après une réorganisation, en restant sur la page lue ou,
+    /// si elle a disparu, sur celle qui prend sa place.
+    func setPages(_ pages: [DisplayPage]) {
+        guard pages != self.pages, !pages.isEmpty else { return }
+        let anchor = currentAnchor()
+        let currentID = self.pages[safe: currentPage]?.id
+        self.pages = pages
+        let page = currentID.flatMap { id in pages.firstIndex { $0.id == id } } ?? min(anchor.page, pages.count - 1)
+        singlePage = page
+        matches = [:]
+        currentMatch = nil
+        navigationTarget = nil
+        rebuildLayout()
+        refit(force: true)
+        restore((page, anchor.offset))
+        if currentPage != page {
+            currentPage = page
+            onCurrentPageChange?(page)
+        }
+    }
+
+    /// Page à montrer à l'ouverture du canevas (retour de la grille d'organisation).
+    func start(at page: Int) {
+        guard page > 0, pages.indices.contains(page) else { return }
+        currentPage = page
+        singlePage = page
+        initialPage = page
+        if mode == .singlePage {
+            rebuildLayout()
+        }
+    }
+
     func setDisplayMode(_ mode: DisplayMode) {
         guard mode != self.mode else { return }
         let page = currentPage
@@ -164,7 +195,7 @@ extension PageCanvasView {
     /// Affiche une page, éventuellement à une position précise (en points depuis
     /// le haut de la page droite, comme les signets).
     func go(to page: Int, top: CGFloat? = nil, animated: Bool = false) {
-        guard pageSizes.indices.contains(page) else { return }
+        guard pages.indices.contains(page) else { return }
         if mode == .singlePage, page != singlePage {
             singlePage = page
             rebuildLayout()
@@ -172,7 +203,7 @@ extension PageCanvasView {
         }
         let frame = layout.frames[page]
         var y = frame.minY - PageLayout.spacing
-        if let top, let rotatedTop = rotation.applyTop(top, pageSize: pageSizes[page]) {
+        if let top, let rotatedTop = pages[page].rotation(rotation).applyTop(top, pageSize: pages[page].baseSize) {
             y = frame.minY + rotatedTop - PageLayout.spacing
         }
         navigationTarget = page
@@ -180,7 +211,7 @@ extension PageCanvasView {
         updateCurrentPage()
     }
 
-    func goToNextPage() { go(to: min(currentPage + 1, pageSizes.count - 1)) }
+    func goToNextPage() { go(to: min(currentPage + 1, pages.count - 1)) }
     func goToPreviousPage() { go(to: max(currentPage - 1, 0)) }
 
     /// Occurrences à surligner, page par page, et occurrence courante.
@@ -192,12 +223,13 @@ extension PageCanvasView {
 
     /// Fait défiler juste assez pour montrer une occurrence.
     func reveal(_ hit: SearchHit) {
-        guard let match = matches[hit.page]?[safe: hit.index], let first = match.rects.first else { return }
+        guard let match = matches[hit.page]?[safe: hit.index], let first = match.rects.first,
+              let page = pages[safe: hit.page] else { return }
         if mode == .singlePage, hit.page != singlePage {
             go(to: hit.page)
         }
         let frame = layout.frames[hit.page]
-        let target = rotation.apply(to: first.cgRect, pageSize: pageSizes[hit.page])
+        let target = page.rotation(rotation).apply(to: first.cgRect, pageSize: page.baseSize)
             .offsetBy(dx: frame.minX, dy: frame.minY)
         let visible = pagesView.visibleRect
         navigationTarget = hit.page
@@ -208,30 +240,6 @@ extension PageCanvasView {
         let x = visible.width < pagesView.bounds.width ? target.midX - visible.width / 2 : visible.minX
         scrollContent(to: CGPoint(x: x, y: target.midY - visible.height / 3), animated: true)
         updateCurrentPage()
-    }
-
-    /// Touches de lecture, reçues de la vue des pages.
-    func handleKey(_ event: NSEvent) -> Bool {
-        guard let key = ReadingKey(event) else { return false }
-        let visible = pagesView.visibleRect
-        let screen = visible.height - 4 * PageLayout.spacing
-        switch key {
-        case let .documentEdge(end):
-            go(to: end ? pageSizes.count - 1 : 0)
-        case let .screen(down):
-            scrollOrTurn(by: down ? screen : -screen)
-        case let .line(down):
-            scrollContent(by: CGVector(dx: 0, dy: down ? Self.lineStep : -Self.lineStep))
-        case let .side(right) where visible.width < pagesView.bounds.width - 1:
-            scrollContent(by: CGVector(dx: right ? Self.lineStep : -Self.lineStep, dy: 0))
-        case let .side(right):
-            if right {
-                goToNextPage()
-            } else {
-                goToPreviousPage()
-            }
-        }
-        return true
     }
 }
 
@@ -256,7 +264,7 @@ extension PageCanvasView {
     }
 
     private func applyFit() {
-        guard let fitMode, !isFitting, contentSize.width > 1, contentSize.height > 1, !pageSizes.isEmpty else {
+        guard let fitMode, !isFitting, contentSize.width > 1, contentSize.height > 1, !pages.isEmpty else {
             return
         }
         isFitting = true
@@ -266,7 +274,10 @@ extension PageCanvasView {
         let page = mode == .singlePage ? singlePage : currentPage
         let target = layout.fitMagnification(fitMode, viewport: contentSize, page: page)
         magnification = max(minMagnification, min(maxMagnification, target))
-        if fitMode == .page {
+        if let page = initialPage {
+            initialPage = nil
+            go(to: page)
+        } else if fitMode == .page {
             go(to: anchor.page)
         } else {
             restore(anchor)
@@ -290,7 +301,7 @@ extension PageCanvasView {
     }
 
     private func rebuildLayout() {
-        layout = PageLayout(pageSizes: pageSizes, rotation: rotation, mode: mode, visiblePage: singlePage)
+        layout = PageLayout(sizes: pages.map { $0.size(rotation) }, mode: mode, visiblePage: singlePage)
         pagesView.frame = CGRect(origin: .zero, size: layout.documentSize)
         for view in pageViews.values {
             view.cancelRendering()
@@ -299,28 +310,6 @@ extension PageCanvasView {
         pageViews.removeAll()
         reusableViews.removeAll()
         updateVisiblePages()
-    }
-
-    private func scrollContent(by offset: CGVector) {
-        navigationTarget = nil
-        let visible = pagesView.visibleRect
-        scrollContent(to: CGPoint(x: visible.minX + offset.dx, y: visible.minY + offset.dy), animated: false)
-    }
-
-    /// Défile d'un écran ; en mode page par page, passe à la page voisine au bord.
-    private func scrollOrTurn(by distance: CGFloat) {
-        let visible = pagesView.visibleRect
-        if mode == .singlePage {
-            if distance > 0, visible.maxY >= pagesView.bounds.maxY - 1, singlePage + 1 < pageSizes.count {
-                return go(to: singlePage + 1)
-            }
-            if distance < 0, visible.minY <= pagesView.bounds.minY + 1, singlePage > 0 {
-                go(to: singlePage - 1)
-                let bottom = pagesView.bounds.maxY - pagesView.visibleRect.height
-                return scrollContent(to: CGPoint(x: visible.minX, y: bottom), animated: false)
-            }
-        }
-        scrollContent(by: CGVector(dx: 0, dy: distance))
     }
 
     /// Crée les vues des pages proches de la zone visible et libère les autres.
@@ -351,13 +340,12 @@ extension PageCanvasView {
     }
 
     private func makePageView(_ index: Int) -> PageTileView {
-        let size = rotation.apply(to: pageSizes[index])
         if let view = reusableViews.popLast() {
-            view.configure(page: index, pageCount: pageSizes.count, pageSize: size, rotation: rotation)
+            view.configure(position: index, page: pages[index], pageCount: pages.count, display: rotation)
             return view
         }
         return PageTileView(
-            page: index, pageCount: pageSizes.count, pageSize: size, rotation: rotation, renderer: renderer
+            position: index, page: pages[index], pageCount: pages.count, display: rotation, renderer: renderer
         )
     }
 
@@ -375,7 +363,8 @@ extension PageCanvasView {
         let page: Int
         if mode == .singlePage {
             page = singlePage
-        } else if let target = navigationTarget, layout.frames[target].intersects(pagesView.visibleRect) {
+        } else if let target = navigationTarget,
+                  layout.frames[safe: target]?.intersects(pagesView.visibleRect) == true {
             page = target
         } else {
             page = layout.currentPage(in: pagesView.visibleRect) ?? currentPage
@@ -388,6 +377,6 @@ extension PageCanvasView {
     private func applyMatches(to view: PageTileView) {
         let page = view.pageIndex
         let current = currentMatch?.page == page ? currentMatch?.index : nil
-        view.showMatches(matches[page] ?? [], current: current, unrotatedSize: pageSizes[page])
+        view.showMatches(matches[page] ?? [], current: current)
     }
 }

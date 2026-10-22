@@ -411,6 +411,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "edit"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "either"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -890,6 +897,7 @@ dependencies = [
 name = "pdfstudio_ffi"
 version = "0.1.0"
 dependencies = [
+ "edit",
  "pdf_core",
  "render",
  "thiserror",

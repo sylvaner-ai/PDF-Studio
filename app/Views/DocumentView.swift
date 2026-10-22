@@ -3,9 +3,13 @@ import SwiftUI
 /// Affiche un document selon son état : ouverture, mot de passe, erreur ou pages.
 struct DocumentView: View {
     @State private var model: DocumentViewModel
+    @Environment(\.undoManager) private var undoManager
+    /// Le document a changé de fichier (« Enregistrer sous »).
+    private let onRelocate: (DocumentReference) -> Void
 
-    init(reference: DocumentReference) {
+    init(reference: DocumentReference, onRelocate: @escaping (DocumentReference) -> Void = { _ in }) {
         _model = State(initialValue: DocumentViewModel(reference: reference))
+        self.onRelocate = onRelocate
     }
 
     var body: some View {
@@ -15,6 +19,53 @@ struct DocumentView: View {
             .navigationTitle(model.title)
             .navigationSubtitle(subtitle)
             .focusedSceneValue(\.documentModel, model)
+            .background(DocumentWindowBridge(model: model, isModified: model.isModified))
+            .overlay(alignment: .bottom) {
+                if let activity = model.activity {
+                    ActivityBadge(text: activity)
+                }
+            }
+            .alert(
+                replaceTitle,
+                isPresented: Binding(
+                    get: { model.saving.prompt != nil },
+                    // Les boutons disent quoi faire ; ce retour ne fait que refermer l'alerte.
+                    set: { if !$0 { model.saving.prompt = nil } }
+                ),
+                presenting: model.saving.prompt,
+                actions: { _ in
+                    Button("Remplacer") { model.replaceOriginal() }
+                    Button("Enregistrer sous…") { model.saveAs() }
+                    Button("Annuler", role: .cancel) { model.cancelSave() }
+                },
+                message: { prompt in Text(replaceMessage(prompt)) }
+            )
+            .alert(
+                recoveryTitle,
+                // Les boutons répondent ; l'alerte ne se referme pas autrement.
+                isPresented: Binding(get: { model.recoveryOffer != nil }, set: { _ in }),
+                presenting: model.recoveryOffer,
+                actions: { _ in
+                    Button("Restaurer") { model.restoreRecovery() }
+                    Button("Ignorer") { model.declineRecovery() }
+                },
+                message: { record in Text(recoveryMessage(record)) }
+            )
+            .alert(
+                "L'opération n'a pas abouti.",
+                isPresented: Binding(
+                    get: { model.failureMessage != nil },
+                    set: { if !$0 { model.failureMessage = nil } }
+                ),
+                actions: {},
+                message: { Text(model.failureMessage ?? "") }
+            )
+            .onAppear {
+                model.undoManager = undoManager
+                model.onRelocate = onRelocate
+            }
+            .onChange(of: undoManager) { _, manager in model.undoManager = manager }
+            .onDisappear { model.close() }
             .task { await model.open() }
     }
 
@@ -41,17 +92,50 @@ struct DocumentView: View {
         }
     }
 
+    private var replaceTitle: String {
+        String(localized: "Remplacer « \(model.reference.displayName) » par la version modifiée ?")
+    }
+
+    private func replaceMessage(_ prompt: SavingState.Prompt) -> String {
+        var messages: [String] = []
+        if case .replace(signed: _, changedOnDisk: true) = prompt {
+            messages.append(String(localized: """
+                Une autre application a modifié ce fichier depuis son ouverture : \
+                ses modifications seront perdues.
+                """))
+        }
+        if case .replace(signed: true, changedOnDisk: _) = prompt {
+            messages.append(String(localized: "Ce document porte une signature numérique : elle ne sera plus valide."))
+        }
+        messages.append(String(localized: "Une copie de l'original est conservée dans les sauvegardes de PDF Studio."))
+        return messages.joined(separator: "\n\n")
+    }
+
+    private var recoveryTitle: String {
+        String(localized: "Restaurer les modifications non enregistrées de « \(model.reference.displayName) » ?")
+    }
+
+    private func recoveryMessage(_ record: RecoveryRecord) -> String {
+        let date = record.date.formatted(date: .long, time: .shortened)
+        let message = String(localized: "Elles datent du \(date). Si vous les ignorez, elles seront supprimées.")
+        guard model.recoveredFileChanged else { return message }
+        return message + "\n\n" + String(localized: "Le fichier a été modifié depuis par une autre application.")
+    }
+
     private var subtitle: String {
         guard model.phase == .ready else { return "" }
+        if model.workspace == .organizing, model.selection.count > 1 {
+            return String(localized: "\(model.selection.count) pages sélectionnées sur \(model.pageCount)")
+        }
         return model.pageCount == 1
             ? String(localized: "1 page")
             : String(localized: "Page \(model.canvas.currentPage + 1) sur \(model.pageCount)")
     }
 }
 
-/// Lecture d'un document : barre latérale, pages et recherche.
+/// Lecture d'un document : barre latérale, pages (ou grille d'organisation) et recherche.
 struct ReaderView: View {
-    let model: DocumentViewModel
+    @Bindable var model: DocumentViewModel
     let renderer: PageRenderer
 
     @State private var columnVisibility: NavigationSplitViewVisibility
@@ -68,12 +152,33 @@ struct ReaderView: View {
             SidebarView(model: model, renderer: renderer)
                 .navigationSplitViewColumnWidth(min: 140, ideal: 168, max: 260)
         } detail: {
-            PageCanvas(pageSizes: model.pageSizes, renderer: renderer, controller: model.canvas)
-                .accessibilityLabel(Text("Pages du document"))
+            switch model.workspace {
+            case .reading:
+                PageCanvas(renderer: renderer, controller: model.canvas)
+                    .accessibilityLabel(Text("Pages du document"))
+            case .organizing:
+                PageGrid(
+                    model: model,
+                    renderer: renderer,
+                    pages: model.pages,
+                    selection: model.selection,
+                    display: model.canvas.rotation,
+                    thumbnailWidth: model.gridThumbnailWidth
+                )
+            }
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                if let search = model.search {
+                Picker("Présentation", selection: $model.workspace) {
+                    Label("Lecture", systemImage: "doc.text").tag(Workspace.reading)
+                    Label("Organisation des pages", systemImage: "square.grid.2x2").tag(Workspace.organizing)
+                }
+                .pickerStyle(.segmented)
+                .labelStyle(.iconOnly)
+                .help(Text("Lecture (⌘1) ou organisation des pages (⌘2)"))
+            }
+            ToolbarItem(placement: .primaryAction) {
+                if model.workspace == .reading, let search = model.search {
                     SearchToolbarItem(search: search)
                 }
             }
@@ -102,6 +207,24 @@ struct SearchToolbarItem: View {
             )
             .frame(minWidth: 140, idealWidth: 200, maxWidth: 240)
         }
+    }
+}
+
+/// Exportation en cours, en bas de la fenêtre.
+struct ActivityBadge: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text(text)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.regularMaterial, in: Capsule())
+        .padding(.bottom, 16)
+        .accessibilityElement(children: .combine)
     }
 }
 
