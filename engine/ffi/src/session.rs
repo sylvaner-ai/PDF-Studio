@@ -477,10 +477,7 @@ impl EditSession {
 
     /// Document et indice de la page `page` (aucun document pour une page
     /// vierge), et les modifications de son contenu.
-    fn page_source(
-        &self,
-        page: u64,
-    ) -> Result<(Option<Arc<PdfDocument>>, u32, Option<Arc<PageEdits>>), EngineError> {
+    fn page_source(&self, page: u64) -> Result<PageSource, EngineError> {
         let state = self.lock();
         let entry = state
             .editor
@@ -542,6 +539,10 @@ impl EditSession {
         (snapshot, state.editor.revision())
     }
 }
+
+/// Document et indice d'une page (aucun document pour une page vierge), et
+/// les modifications de son contenu.
+type PageSource = (Option<Arc<PdfDocument>>, u32, Option<Arc<PageEdits>>);
 
 /// Pages d'une session figées à un instant donné.
 #[derive(uniffi::Object)]
