@@ -6,7 +6,8 @@
 //! un glyphe vide (comme la « GlyphLessFont » de Tesseract) : un code de deux
 //! octets par caractère, égal à son point de code Unicode, une chasse fixe de
 //! un demi-cadratin, et une table `ToUnicode` qui rend le texte aux lecteurs.
-//! Chaque mot est étiré horizontalement (`Tz`) pour couvrir sa largeur.
+//! Chaque mot est étiré horizontalement (`Tz`) pour couvrir sa largeur ; les
+//! mots d'une même ligne partagent une ligne de pied et une taille.
 
 use edit::{LayerWord, TextLayer};
 use mupdf::pdf::{PdfDocument, PdfObject};
@@ -25,84 +26,119 @@ const DESCENT: f32 = 0.2;
 
 /// Flux de contenu qui dessine `layer` en texte invisible avec la police de
 /// ressource `font`.
+///
+/// Comme dans les PDF de Tesseract, chaque ligne est un seul alignement : une
+/// matrice `Tm` au début de la ligne, une taille et une ligne de pied communes
+/// à tous ses mots, puis des déplacements `Td` le long de la ligne. Les
+/// lecteurs (Aperçu, Acrobat) y reconnaissent une ligne de texte et
+/// sélectionnent le texte ligne après ligne, et non mot par mot en colonnes.
 pub(crate) fn layer_content(layer: &TextLayer, font: &str) -> Vec<u8> {
     let mut out = format!("/{LAYER_TAG} BMC\nq\nBT\n3 Tr\n").into_bytes();
     let mut current_size = None;
-    for (index, word) in layer.words.iter().enumerate() {
-        let next = layer
-            .words
-            .get(index + 1)
-            .filter(|next| next.line == word.line);
-        write_word(&mut out, word, next, font, &mut current_size);
+    for line in layer.words.chunk_by(|a, b| a.line == b.line) {
+        write_line(&mut out, line, font, &mut current_size);
     }
     out.extend_from_slice(b"ET\nQ\nEMC\n");
     out
 }
 
-/// Écrit un mot, suivi d'une espace étirée jusqu'au mot suivant de la ligne
-/// s'il y en a un : les lecteurs y voient alors une séparation de mots.
-fn write_word(
-    out: &mut Vec<u8>,
-    word: &LayerWord,
-    next: Option<&LayerWord>,
-    font: &str,
-    current_size: &mut Option<f32>,
-) {
-    let codes: Vec<u16> = word
-        .text
-        .chars()
+/// Codes de deux octets du texte d'un mot (plan multilingue de base).
+fn codes(text: &str) -> Vec<u16> {
+    text.chars()
         .filter_map(|c| u16::try_from(u32::from(c)).ok())
         .filter(|&code| !(0xD800..0xE000).contains(&code))
+        .collect()
+}
+
+/// Écrit une ligne : chaque mot est suivi d'une espace étirée jusqu'au mot
+/// suivant, pour que les lecteurs y voient une séparation de mots.
+fn write_line(out: &mut Vec<u8>, line: &[LayerWord], font: &str, current_size: &mut Option<f32>) {
+    let words: Vec<&LayerWord> = line
+        .iter()
+        .filter(|word| !codes(&word.text).is_empty() && word_size(word).is_some())
         .collect();
-    if codes.is_empty() {
+    let (Some(first), Some(last)) = (words.first(), words.last()) else {
         return;
-    }
-    let (bx, by) = word.bottom_left();
-    let (rx, ry) = word.bottom_right();
-    let (tx, ty) = word.top_left();
-    let (ux, uy) = (rx - bx, ry - by);
-    let length = ux.hypot(uy);
-    let height = (tx - bx).hypot(ty - by);
-    if length < 0.01 || height < 0.01 {
-        return;
-    }
-    let (cos, sin) = (ux / length, uy / length);
-    // Largeur à couvrir : jusqu'au mot suivant si la ligne continue.
-    let mut codes = codes;
-    let mut width = length;
-    if let Some(next) = next {
-        let (nx, ny) = next.bottom_left();
-        let gap = (nx - bx) * cos + (ny - by) * sin;
-        if gap > length {
-            width = gap;
-            codes.push(u16::from(b' '));
-        }
-    }
-    let size = height;
-    let natural = codes.len() as f32 * GLYPH_WIDTH / 1000.0 * size;
-    let scale = 100.0 * width / natural;
-    // Ligne de pied : au-dessus du bas du mot, de la hauteur des jambages.
-    let (ox, oy) = (bx + (tx - bx) * DESCENT, by + (ty - by) * DESCENT);
+    };
+    // Direction de la ligne : du début du premier mot à la fin du dernier.
+    let (bx, by) = first.bottom_left();
+    let (ex, ey) = last.bottom_right();
+    let length = (ex - bx).hypot(ey - by);
+    let (cos, sin) = if length < 0.01 {
+        let (rx, ry) = first.bottom_right();
+        let own = (rx - bx).hypot(ry - by);
+        ((rx - bx) / own, (ry - by) / own)
+    } else {
+        ((ex - bx) / length, (ey - by) / length)
+    };
+    // Position d'un point le long de la ligne (x) et au-dessus de son
+    // départ (y).
+    let along = |(x, y): (f32, f32)| (x - bx) * cos + (y - by) * sin;
+    let above = |(x, y): (f32, f32)| (y - by) * cos - (x - bx) * sin;
+    // Taille et bas communs : les médianes des mots de la ligne.
+    let size = median(words.iter().filter_map(|word| word_size(word)).collect());
+    let bottom = median(words.iter().map(|word| above(word.bottom_left())).collect());
+    let lift = bottom + size * DESCENT;
+    let (ox, oy) = (bx - sin * lift, by + cos * lift);
 
     if *current_size != Some(size) {
         out.extend_from_slice(format!("/{font} {} Tf\n", number(size)).as_bytes());
         *current_size = Some(size);
     }
-    let matrix = format!(
-        "{} {} {} {} {} {} Tm\n{} Tz\n<",
-        number(cos),
-        number(sin),
-        number(-sin),
-        number(cos),
-        number(ox),
-        number(oy),
-        number(scale),
+    out.extend_from_slice(
+        format!(
+            "{} {} {} {} {} {} Tm\n",
+            number(cos),
+            number(sin),
+            number(-sin),
+            number(cos),
+            number(ox),
+            number(oy)
+        )
+        .as_bytes(),
     );
-    out.extend_from_slice(matrix.as_bytes());
-    for code in codes {
-        out.extend_from_slice(format!("{code:04X}").as_bytes());
+    let mut position = 0.0;
+    for (index, word) in words.iter().enumerate() {
+        let start = along(word.bottom_left());
+        let end = along(word.bottom_right());
+        let mut codes = codes(&word.text);
+        let mut width = end - start;
+        if let Some(next) = words.get(index + 1) {
+            let gap = along(next.bottom_left()) - start;
+            if gap > width {
+                width = gap;
+                codes.push(u16::from(b' '));
+            }
+        }
+        if width < 0.01 {
+            continue;
+        }
+        if index > 0 {
+            out.extend_from_slice(format!("{} 0 Td\n", number(start - position)).as_bytes());
+        }
+        position = start;
+        let natural = codes.len() as f32 * GLYPH_WIDTH / 1000.0 * size;
+        out.extend_from_slice(format!("{} Tz\n<", number(100.0 * width / natural)).as_bytes());
+        for code in codes {
+            out.extend_from_slice(format!("{code:04X}").as_bytes());
+        }
+        out.extend_from_slice(b"> Tj\n");
     }
-    out.extend_from_slice(b"> Tj\n");
+}
+
+/// Hauteur d'un mot, s'il a une emprise.
+fn word_size(word: &LayerWord) -> Option<f32> {
+    let (bx, by) = word.bottom_left();
+    let (rx, ry) = word.bottom_right();
+    let (tx, ty) = word.top_left();
+    let height = (tx - bx).hypot(ty - by);
+    ((rx - bx).hypot(ry - by) >= 0.01 && height >= 0.01).then_some(height)
+}
+
+/// Médiane d'une liste non vide.
+fn median(mut values: Vec<f32>) -> f32 {
+    values.sort_by(f32::total_cmp);
+    values[values.len() / 2]
 }
 
 /// Nombre écrit avec trois décimales au plus, sans zéros inutiles.
@@ -427,9 +463,27 @@ mod tests {
         // « Été » + espace jusqu'au mot suivant : 4 glyphes de 5 points,
         // étirés sur 50 points.
         assert!(content.contains("1 0 0 1 10 102 Tm\n250 Tz\n<00C9007400E90020> Tj"));
-        // Dernier mot de la ligne : sans espace.
-        assert!(content.contains("<0032003000320036> Tj"));
+        // Mot suivant : déplacé le long de la ligne, sans nouvelle matrice ;
+        // dernier mot de la ligne : sans espace.
+        assert!(content.contains("<00C9007400E90020> Tj\n50 0 Td\n200 Tz\n<0032003000320036> Tj\n"));
+        assert_eq!(content.matches(" Tm\n").count(), 2);
         assert!(content.ends_with("ET\nQ\nEMC\n"));
+    }
+
+    #[test]
+    fn ligne_commune_aux_mots() {
+        // Mots de hauteurs et de bas différents (jambages) : une seule ligne
+        // de pied et une seule taille, les médianes.
+        let mut low = word("joli", 60.0, 0);
+        low.quad = [60.0, 97.0, 100.0, 97.0, 100.0, 110.0, 60.0, 110.0];
+        let layer = TextLayer {
+            words: vec![word("Le", 10.0, 0), low, word("chat", 110.0, 0)],
+            engine: "test".into(),
+        };
+        let content = String::from_utf8(layer_content(&layer, "OCR1")).unwrap();
+        assert_eq!(content.matches(" Tf\n").count(), 1);
+        assert!(content.contains("/OCR1 10 Tf\n1 0 0 1 10 102 Tm\n"));
+        assert!(content.contains("50 0 Td\n"));
     }
 
     #[test]

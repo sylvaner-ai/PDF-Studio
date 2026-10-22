@@ -1,4 +1,5 @@
 import CoreGraphics
+import PDFKit
 import XCTest
 @testable import PDFStudio
 
@@ -36,6 +37,12 @@ final class RecognitionTests: XCTestCase {
         let reopened = try PdfDocument.fromData(data: exported.bytes, password: nil)
         XCTAssertFalse(try reopened.searchPage(index: 0, query: "efficacité").isEmpty)
         XCTAssertTrue(try EditSession(document: reopened).pagesToRecognize().isEmpty)
+        // PDFKit (Aperçu) lit la couche ligne par ligne, et non mot par mot en colonnes.
+        let pdfKitText = try XCTUnwrap(PDFDocument(data: exported.bytes)?.page(at: 0)?.string)
+        let lines = pdfKitText.split(whereSeparator: \.isNewline)
+        let readLines = Set(result.words.map(\.line)).count
+        XCTAssertLessThanOrEqual(lines.count, readLines + 2, "une ligne lue doit rester une ligne")
+        XCTAssertTrue(lines.contains { $0.split(separator: " ").count >= 5 })
 
         XCTAssertTrue(session.undo())
         XCTAssertTrue(try session.recognizedWords(page: pages[0]).isEmpty)
