@@ -134,6 +134,11 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   Command : chaque commande retient la liste avant et après). Le gestionnaire
   d'annulation de la fenêtre (`NSUndoManager`) pilote cet historique, d'où les
   menus « Annuler la rotation », « Rétablir le déplacement »…
+- **Révisions :** chaque étape de l'historique reçoit un numéro de révision qui
+  n'est jamais réutilisé. L'enregistrement retient la révision de l'état écrit,
+  lue en même temps que les pages exportées : une modification faite pendant
+  l'écriture laisse donc le document « modifié ». Une opération sans effet (un
+  déplacement à la même place) ne crée pas d'étape d'annulation.
 - **Alternatives :** modifier le PDF dans MuPDF à chaque opération ; tenir
   l'historique côté Swift.
 - **Raisons :** rien n'est écrit tant que l'utilisateur n'enregistre pas ;
@@ -146,10 +151,14 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   catalogue du document (métadonnées, formulaire, préférences d'affichage, plan).
   Toutes les pages sont retirées de l'arbre, puis les pages conservées y sont
   remises dans le nouvel ordre ; une page répétée est copiée en profondeur, les
-  pages d'autres documents arrivent par `insert_pdf`, les pages vierges sont
+  pages d'autres documents sont greffées avec une table de greffe par document
+  source (une ressource commune n'est copiée qu'une fois), les pages vierges sont
   créées. Les signets, liens et champs qui visaient une page supprimée sont
-  retirés. Une simple rotation, sans changement d'ordre, ne touche que l'attribut
-  `/Rotate`. Le PDF produit est relu par MuPDF avant d'être écrit.
+  retirés, et toute autre référence à une page supprimée ou à ses annotations est
+  effacée : leur contenu ne reste pas dans le fichier. La structure balisée
+  (`/StructTreeRoot`), qui renvoie au contenu des pages, est alors retirée. Une
+  simple rotation, sans changement d'ordre, ne touche que l'attribut `/Rotate`. Le
+  PDF produit est relu par MuPDF avant d'être écrit.
 - **Alternatives :** `pdf_rearrange_pages` de MuPDF, qui « recrée l'arbre des pages
   avec les pages listées, dans l'ordre » : il n'est pas exposé par le crate `mupdf`
   (il faudrait du code `unsafe` hors du crate `ffi`) et ne traite que les pages du
@@ -170,7 +179,11 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   puis le fichier est réécrit en place. Le contenu écrit est relu, et l'original
   est restauré en cas d'échec. ⇧⌘S écrit une copie, qui devient le fichier de la
   fenêtre. Un fichier remplacé par une exportation est, lui aussi, d'abord
-  sauvegardé.
+  sauvegardé, dans un dossier propre à cette exportation
+  (`Sauvegardes/Exportations`, 10 exportations au plus) pour ne pas évincer les
+  copies des documents. La confirmation signale aussi un fichier modifié par une
+  autre application depuis son ouverture. Quitter pendant un enregistrement
+  attend la fin de l'écriture.
 - **Alternative :** l'écriture atomique, par un fichier temporaire échangé avec
   l'original.
 - **Raisons :** la réécriture en place conserve l'emplacement du fichier, ses
@@ -216,3 +229,19 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   Annuler / Ne pas enregistrer » avant de fermer un document modifié.
 - **Raisons :** sous macOS 14, SwiftUI n'offre aucun moyen d'empêcher la fermeture
   d'une fenêtre.
+
+## D18 — Exportations : des pages désignées par leur identifiant (jalon 3)
+
+- **Retenu :** l'extraction, la scission et l'export en images désignent les pages
+  par leur identifiant tant que le panneau d'enregistrement est ouvert, puis les
+  figent à sa confirmation (`PageSnapshot` du moteur). Toutes les parties d'une
+  scission viennent du même instantané. Les pages glissées vers une autre fenêtre
+  et les insertions de documents sont repérées de la même façon : une insertion
+  se fait après la page qui la précédait au moment de la demande, et les
+  insertions se font une à une, dans l'ordre demandé.
+- **Alternative :** des panneaux modaux, qui bloqueraient la fenêtre du document.
+- **Raisons :** les panneaux de macOS ne bloquent pas la fenêtre ; une page
+  supprimée ou déplacée entre-temps ne doit pas faire exporter une autre page. Une
+  page extraite qui a disparu fait échouer l'extraction avec un message, plutôt que
+  de produire un fichier faux ; une page sélectionnée qui a disparu est simplement
+  laissée de côté par l'export en images et par la scission.

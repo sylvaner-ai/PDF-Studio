@@ -14,7 +14,8 @@ final class InsertionTests: XCTestCase {
         // Pages glissées depuis une autre fenêtre : exportées, puis rouvertes en mémoire.
         let other = EditSession(document: try open("signets"))
         try other.rotate(positions: [0], quarterTurns: 1)
-        let copied = try PdfDocument.fromData(data: try other.exportPages(positions: [0, 2]), password: nil)
+        let ids = other.pages().map(\.id)
+        let copied = try PdfDocument.fromData(data: try other.exportPages(ids: [ids[0], ids[2]]), password: nil)
         XCTAssertEqual(copied.pageCount(), 2)
 
         let source = session.addSource(document: copied)
@@ -26,7 +27,7 @@ final class InsertionTests: XCTestCase {
         // La copie de récupération d'une source reprend ses octets.
         XCTAssertFalse(try session.sourceBytes(source: source).isEmpty)
 
-        let saved = try PdfDocument.fromData(data: try session.exportPdf(), password: nil)
+        let saved = try PdfDocument.fromData(data: try session.exportPdf().bytes, password: nil)
         XCTAssertEqual(saved.pageCount(), 8)
         XCTAssertTrue(session.undo())
         XCTAssertEqual(session.pages().count, 7)

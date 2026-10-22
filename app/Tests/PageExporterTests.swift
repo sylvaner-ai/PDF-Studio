@@ -33,6 +33,9 @@ final class PageExporterTests: XCTestCase {
         XCTAssertEqual(PageExporter.scale(forDPI: 144, pageSize: portrait), 2)
         let poster = CGSize(width: 5000, height: 7000)
         XCTAssertEqual(PageExporter.scale(forDPI: 300, pageSize: poster) * 7000, PageExporter.maxPixels, accuracy: 0.5)
+        // L'image réduite enregistre sa résolution réelle : 10 000 px pour 7 000 pt.
+        XCTAssertEqual(PageExporter.resolution(forDPI: 300, pageSize: poster), 103)
+        XCTAssertEqual(PageExporter.resolution(forDPI: 150, pageSize: portrait), 150)
     }
 
     func testEncodeUneImageAvecSaResolution() throws {

@@ -41,9 +41,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Prévient avant de quitter si des modifications ne sont pas enregistrées :
-    /// elles sont retenues et seront proposées à la prochaine ouverture.
+    /// elles sont retenues et seront proposées à la prochaine ouverture. Un
+    /// enregistrement en cours est mené à son terme avant de quitter.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard DocumentOpener.shared.hasUnsavedChanges else { return .terminateNow }
+        guard !DocumentOpener.shared.hasUnsavedChanges || confirmQuit() else { return .terminateCancel }
+        guard DocumentOpener.shared.isSaving else { return .terminateNow }
+        DocumentOpener.shared.whenSavesFinish { NSApp.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
+    }
+
+    private func confirmQuit() -> Bool {
         let alert = NSAlert()
         alert.messageText = String(localized: "Des documents ont des modifications non enregistrées.")
         alert.addButton(withTitle: String(localized: "Annuler"))
@@ -58,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
             alert.addButton(withTitle: String(localized: "Quitter"))
         }
-        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
+        return alert.runModal() == .alertSecondButtonReturn
     }
 }
 

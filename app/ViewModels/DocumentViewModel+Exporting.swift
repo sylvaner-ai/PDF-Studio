@@ -5,17 +5,27 @@ import UniformTypeIdentifiers
 
 /// Les pages sortent du document sans le modifier : extraction des pages
 /// sélectionnées dans un nouveau PDF, scission en plusieurs PDF, images des
-/// pages (PNG ou JPEG) et texte natif (.txt). Le travail se fait hors du fil
-/// principal ; un fichier remplacé est d'abord sauvegardé (cf. ``FileSaver``).
+/// pages (PNG ou JPEG) et texte natif (.txt). Les pages sont désignées par leur
+/// identifiant tant que le panneau est ouvert, puis figées à sa confirmation :
+/// le travail, hors du fil principal, ne voit pas les modifications faites
+/// ensuite. Un fichier remplacé est d'abord sauvegardé (cf. ``FileSaver``) ; le
+/// fichier d'un document ouvert ne l'est jamais.
 extension DocumentViewModel {
     /// Nom du document sans extension, pour nommer les fichiers produits.
     var baseName: String {
         (reference.displayName as NSString).deletingPathExtension
     }
 
+    /// Pages choisies explicitement : la sélection de la grille, ou plusieurs
+    /// vignettes en lecture (où la sélection d'une seule suit la page lue).
+    var chosenPages: Set<UInt64> {
+        workspace == .organizing || selection.count > 1 ? selection : []
+    }
+
     /// Enregistre les pages désignées dans un nouveau document.
     func extractPages(_ positions: [Int]) {
-        guard canEdit, !positions.isEmpty, let session else { return }
+        guard canEdit, !positions.isEmpty else { return }
+        let ids = positions.compactMap { pages[safe: $0]?.id }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.pdf]
         panel.nameFieldStringValue = "\(baseName) (extrait).pdf"
@@ -23,13 +33,13 @@ extension DocumentViewModel {
         panel.message = positions.count == 1
             ? String(localized: "La page sera enregistrée dans un nouveau document.")
             : String(localized: "Les \(positions.count) pages seront enregistrées dans un nouveau document.")
-        let pages = positions.map { UInt32($0) }
         panel.begin { [weak self] response in
             let url = response == .OK ? panel.url : nil
             Task { @MainActor in
-                guard let self, let url else { return }
+                guard let self, let url, let session = self.session, self.canExport(to: [url]) else { return }
+                let backups = self.backups(replacing: [url])
                 await self.run(String(localized: "Extraction…")) {
-                    try FileSaver.write(try session.exportPages(positions: pages), to: url)
+                    try FileSaver.export(try session.exportPages(ids: ids), to: url, backups: backups)
                 }
             }
         }
@@ -38,8 +48,8 @@ extension DocumentViewModel {
     /// Scinde le document en plusieurs PDF, rangés dans un dossier choisi.
     func split() {
         guard canEdit, pages.count > 1 else { return }
-        let cuts = positions(of: selection)
-        let options = SplitOptions(canCutAtSelection: cuts.contains { $0 > 0 })
+        let cutPages = chosenPages
+        let options = SplitOptions(canCutAtSelection: positions(of: cutPages).contains { $0 > 0 })
         let panel = folderPanel(
             message: String(localized: "Choisissez le dossier où enregistrer les parties du document."),
             prompt: String(localized: "Scinder")
@@ -49,8 +59,9 @@ extension DocumentViewModel {
             let folder = response == .OK ? panel.url : nil
             Task { @MainActor in
                 guard let self, let folder else { return }
-                let parts = PageExporter.parts(pageCount: self.pages.count, rule: options.rule(cuts: cuts))
-                await self.writeParts(parts, to: folder)
+                let rule = options.rule(cuts: self.positions(of: cutPages))
+                let parts = PageExporter.parts(pageCount: self.pages.count, rule: rule)
+                await self.writeParts(parts.map { $0.map { self.pages[$0].id } }, to: folder)
             }
         }
     }
@@ -58,8 +69,8 @@ extension DocumentViewModel {
     /// Enregistre des pages en images PNG ou JPEG, dans un dossier choisi.
     func exportImages() {
         guard canEdit else { return }
-        let selected = positions(of: selection)
-        let options = ImageExportOptions(hasSelection: !selected.isEmpty && selected.count < pages.count)
+        let chosen = chosenPages
+        let options = ImageExportOptions(hasSelection: !chosen.isEmpty && chosen.count < pages.count)
         let panel = folderPanel(
             message: String(localized: "Choisissez le dossier où enregistrer les images des pages."),
             prompt: String(localized: "Exporter")
@@ -69,8 +80,9 @@ extension DocumentViewModel {
             let folder = response == .OK ? panel.url : nil
             Task { @MainActor in
                 guard let self, let folder else { return }
-                let positions = options.selectedOnly ? selected : Array(self.pages.indices)
-                await self.writeImages(of: positions, format: options.imageFormat, dpi: options.dpi, to: folder)
+                let positions = options.selectedOnly ? self.positions(of: chosen) : Array(self.pages.indices)
+                let pages = positions.map { (number: $0 + 1, page: self.pages[$0]) }
+                await self.writeImages(of: pages, format: options.imageFormat, dpi: options.dpi, to: folder)
             }
         }
     }
@@ -93,44 +105,53 @@ extension DocumentViewModel {
 
     // MARK: Écriture
 
-    private func writeParts(_ parts: [[Int]], to folder: URL) async {
+    /// Écrit chaque partie (des identifiants de pages) dans son fichier.
+    private func writeParts(_ parts: [[UInt64]], to folder: URL) async {
         guard parts.count > 1, let session else {
             failureMessage = String(
                 localized: "Ce découpage ne donne qu'une partie : le document n'a pas été scindé."
             )
             return
         }
+        // Toutes les parties sont découpées dans le même état des pages.
+        let snapshot = session.snapshot()
         let names = PageExporter.numberedNames(base: baseName, numbers: Array(1...parts.count), extension: "pdf")
         let urls = names.map { folder.appendingPathComponent($0) }
-        guard confirmReplacing(urls) else { return }
-        let positions = parts.map { $0.map { UInt32($0) } }
+        guard canExport(to: urls), confirmReplacing(urls) else { return }
+        let backups = backups(replacing: urls)
         await run(String(localized: "Scission…")) {
-            for (part, url) in zip(positions, urls) {
-                try FileSaver.write(try session.exportPages(positions: part), to: url)
+            for (part, url) in zip(parts, urls) {
+                try FileSaver.export(try snapshot.exportPages(ids: part), to: url, backups: backups)
             }
         }
     }
 
+    /// Écrit l'image de chaque page, nommée d'après son numéro.
     private func writeImages(
-        of positions: [Int], format: PageExporter.ImageFormat, dpi: Int, to folder: URL
+        of pages: [(number: Int, page: DisplayPage)], format: PageExporter.ImageFormat, dpi: Int, to folder: URL
     ) async {
-        guard !positions.isEmpty, let sources else { return }
+        guard !pages.isEmpty, let sources else { return }
         let names = PageExporter.numberedNames(
-            base: baseName, numbers: positions.map { $0 + 1 }, extension: format.fileExtension
+            base: baseName, numbers: pages.map { $0.number }, extension: format.fileExtension
         )
         let urls = names.map { folder.appendingPathComponent($0) }
-        guard confirmReplacing(urls) else { return }
-        let pages = positions.map { self.pages[$0] }
+        guard canExport(to: urls), confirmReplacing(urls) else { return }
+        let backups = backups(replacing: urls)
+        let images = pages.map { $0.page }
         await run(String(localized: "Exportation des images…")) {
-            for (page, url) in zip(pages, urls) {
+            for (page, url) in zip(images, urls) {
                 let image = try PageExporter.image(of: page, dpi: dpi, sources: sources)
-                try FileSaver.write(try PageExporter.encode(image, as: format, dpi: dpi), to: url)
+                // Une très grande page est réduite : sa résolution réelle est enregistrée.
+                let resolution = PageExporter.resolution(forDPI: dpi, pageSize: page.size(DisplayRotation()))
+                let data = try PageExporter.encode(image, as: format, dpi: resolution)
+                try FileSaver.export(data, to: url, backups: backups)
             }
         }
     }
 
     private func writeText(to url: URL) async {
-        guard let sources else { return }
+        guard let sources, canExport(to: [url]) else { return }
+        let backups = backups(replacing: [url])
         let pages = self.pages
         await run(String(localized: "Exportation du texte…")) {
             let texts = try pages.map { page -> String in
@@ -141,12 +162,13 @@ extension DocumentViewModel {
                 throw PageExporter.ExportError.noText
             }
             // Un saut de page sépare les pages, comme le fait pdftotext.
-            try FileSaver.write(Data(texts.joined(separator: "\u{0C}").utf8), to: url)
+            try FileSaver.export(Data(texts.joined(separator: "\u{0C}").utf8), to: url, backups: backups)
         }
     }
 
     /// Exécute une exportation hors du fil principal, en l'indiquant dans la fenêtre.
     private func run(_ label: String, _ work: @escaping @Sendable () throws -> Void) async {
+        guard activity == nil else { return }
         activity = label
         let result = await Task.detached(priority: .userInitiated) { Result { try work() } }.value
         activity = nil
@@ -159,6 +181,24 @@ extension DocumentViewModel {
             logger.error("Exportation impossible : \(error.localizedDescription, privacy: .public)")
             failureMessage = String(localized: "L'exportation n'a pas abouti. \(error.localizedDescription)")
         }
+    }
+
+    /// À la confirmation d'un panneau : aucune autre opération n'est en cours, et
+    /// aucun fichier visé n'est celui d'un document ouvert, qui serait remplacé
+    /// sous sa fenêtre.
+    private func canExport(to urls: [URL]) -> Bool {
+        guard !isClosed else { return false }
+        guard canEdit else {
+            failureMessage = String(localized: "Une autre opération est en cours. Réessayez une fois terminée.")
+            return false
+        }
+        guard !urls.contains(where: { DocumentOpener.shared.isShown(path: $0.standardizedFileURL.path) }) else {
+            failureMessage = String(localized: """
+                Ce fichier est ouvert dans une fenêtre de PDF Studio. Choisissez un autre nom ou un autre dossier.
+                """)
+            return false
+        }
+        return true
     }
 
     /// Demande avant de remplacer des fichiers existants (ils sont d'abord sauvegardés).
@@ -175,6 +215,14 @@ extension DocumentViewModel {
         alert.addButton(withTitle: String(localized: "Remplacer"))
         alert.addButton(withTitle: String(localized: "Annuler"))
         return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    /// Dossier où conserver les fichiers que l'exportation va remplacer ; `nil`
+    /// s'il n'y en a pas (ou s'il n'a pas pu être créé : ils iront dans le
+    /// dossier commun des exportations).
+    private func backups(replacing urls: [URL]) -> URL? {
+        guard urls.contains(where: { FileManager.default.fileExists(atPath: $0.path) }) else { return nil }
+        return try? FileSaver.exportBackupDirectory(named: baseName)
     }
 
     private func folderPanel(message: String, prompt: String) -> NSOpenPanel {

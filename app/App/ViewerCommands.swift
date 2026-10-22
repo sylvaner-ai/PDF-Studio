@@ -19,15 +19,16 @@ struct ViewerCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .textEditing) {
-            Button("Rechercher…") { model?.search?.requestFocus() }
+            // La recherche n'apparaît qu'en lecture.
+            Button("Rechercher…") { search?.requestFocus() }
                 .keyboardShortcut("f")
-                .disabled(model?.search == nil)
-            Button("Occurrence suivante") { model?.search?.next() }
+                .disabled(search == nil)
+            Button("Occurrence suivante") { search?.next() }
                 .keyboardShortcut("g")
-                .disabled(model?.search?.hasHits != true)
-            Button("Occurrence précédente") { model?.search?.previous() }
+                .disabled(search?.hasHits != true)
+            Button("Occurrence précédente") { search?.previous() }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
-                .disabled(model?.search?.hasHits != true)
+                .disabled(search?.hasHits != true)
         }
 
         CommandGroup(before: .sidebar) {
@@ -96,6 +97,10 @@ struct ViewerCommands: Commands {
     /// Canevas du document actif s'il est affiché (et non la grille d'organisation).
     private var reading: CanvasController? {
         model?.workspace == .reading ? canvas : nil
+    }
+
+    private var search: SearchModel? {
+        model?.workspace == .reading ? model?.search : nil
     }
 
     private func workspace(_ workspace: Workspace) -> Binding<Bool> {

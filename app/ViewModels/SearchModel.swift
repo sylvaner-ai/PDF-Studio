@@ -11,8 +11,8 @@ struct SearchHit: Equatable, Hashable, Sendable {
 ///
 /// Les résultats s'affichent dès qu'une page en contient ; une nouvelle saisie
 /// interrompt la recherche en cours, de même qu'une réorganisation des pages,
-/// après laquelle la recherche reprend. La première occurrence montrée est la
-/// première à partir de la page lue.
+/// après laquelle la recherche reprend sans déplacer la lecture. La première
+/// occurrence montrée est la première à partir de la page lue.
 @MainActor
 @Observable
 final class SearchModel {
@@ -26,6 +26,11 @@ final class SearchModel {
     @ObservationIgnored private var matchesByPage: [Int: [SearchMatch]] = [:]
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var startPage = 0
+    /// Faux quand la recherche reprend après une réorganisation : les résultats
+    /// s'affichent sans faire défiler les pages.
+    @ObservationIgnored private var revealsFirstHit = true
+    /// Occurrence montrée avant une réorganisation (identifiant de la page, rang).
+    @ObservationIgnored private var resumedHit: (page: UInt64, index: Int)?
     @ObservationIgnored private let sources: PageSources
     @ObservationIgnored private var pages: [DisplayPage]
     @ObservationIgnored private let canvas: CanvasController
@@ -54,15 +59,26 @@ final class SearchModel {
     /// Pages réorganisées : les positions changent, la recherche reprend.
     func setPages(_ pages: [DisplayPage]) {
         guard pages != self.pages else { return }
+        resumedHit = currentHit.flatMap { hit in
+            self.pages[safe: hits[hit].page].map { (page: $0.id, index: hits[hit].index) }
+        }
         self.pages = pages
         let query = self.query
         self.query = ""
-        update(query: query)
+        update(query: query, reveal: false)
     }
 
     func update(query: String) {
+        update(query: query, reveal: true)
+    }
+
+    private func update(query: String, reveal: Bool) {
         guard query != self.query else { return }
         self.query = query
+        revealsFirstHit = reveal
+        if reveal {
+            resumedHit = nil
+        }
         task?.cancel()
         hits = []
         currentHit = nil
@@ -96,7 +112,7 @@ final class SearchModel {
             guard let self, !Task.isCancelled else { return }
             self.isSearching = false
             if self.currentHit == nil, !self.hits.isEmpty {
-                self.select(0)
+                self.select(0, reveal: self.revealsFirstHit)
             }
         }
     }
@@ -115,16 +131,23 @@ final class SearchModel {
         matchesByPage[page] = matches
         let first = hits.count
         hits += matches.indices.map { SearchHit(page: page, index: $0) }
-        if currentHit == nil, page >= startPage {
-            select(first)
+        if currentHit == nil, let resumed = resumedHit {
+            // Après une réorganisation : l'occurrence qui était montrée, là où elle est.
+            if pages[safe: page]?.id == resumed.page, matches.indices.contains(resumed.index) {
+                currentHit = first + resumed.index
+                resumedHit = nil
+            }
+            publish(reveal: false)
+        } else if currentHit == nil, page >= startPage {
+            select(first, reveal: revealsFirstHit)
         } else {
             publish(reveal: false)
         }
     }
 
-    private func select(_ index: Int) {
+    private func select(_ index: Int, reveal: Bool = true) {
         currentHit = index
-        publish(reveal: true)
+        publish(reveal: reveal)
     }
 
     private func publish(reveal: Bool) {

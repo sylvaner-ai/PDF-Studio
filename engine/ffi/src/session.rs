@@ -67,6 +67,15 @@ impl From<EditError> for EngineError {
     }
 }
 
+/// PDF produit pour l'enregistrement, avec la révision des pages qu'il contient.
+#[derive(uniffi::Record)]
+pub struct ExportedPdf {
+    /// Octets du PDF, relus et vérifiés.
+    pub bytes: Vec<u8>,
+    /// Révision des pages écrites, à passer à [`EditSession::mark_saved`].
+    pub revision: u64,
+}
+
 /// Un document source et son nombre de pages.
 struct Source {
     data: SourceData,
@@ -245,33 +254,58 @@ impl EditSession {
         self.lock().organizer.is_modified()
     }
 
-    /// Retient l'état courant comme enregistré.
-    pub fn mark_saved(&self) {
-        self.lock().organizer.mark_saved();
+    /// Révision des pages : elle change à chaque modification et se retrouve
+    /// en annulant ou en rétablissant.
+    pub fn revision(&self) -> u64 {
+        self.lock().organizer.revision()
     }
 
-    /// Octets du PDF formé de toutes les pages, relus et vérifiés.
-    pub fn export_pdf(&self) -> Result<Vec<u8>, EngineError> {
-        let (sources, pages) = self.snapshot(None)?;
-        Ok(pdf_core::write_pdf(&sources, &pages)?)
+    /// Retient comme enregistrée la révision écrite ([`ExportedPdf::revision`]) ;
+    /// une modification faite pendant l'écriture laisse le document modifié.
+    pub fn mark_saved(&self, revision: u64) {
+        self.lock().organizer.mark_saved(revision);
     }
 
-    /// Octets d'un PDF formé des seules pages désignées, dans leur ordre
-    /// (extraction, scission).
-    pub fn export_pages(&self, positions: Vec<u32>) -> Result<Vec<u8>, EngineError> {
-        let (sources, pages) = self.snapshot(Some(&positions))?;
-        Ok(pdf_core::write_pdf(&sources, &pages)?)
+    /// Oublie l'état enregistré : le document reste modifié jusqu'au prochain
+    /// enregistrement, même en annulant toutes les modifications.
+    pub fn forget_saved(&self) {
+        self.lock().organizer.forget_saved();
+    }
+
+    /// PDF formé de toutes les pages, relu et vérifié, et la révision écrite.
+    pub fn export_pdf(&self) -> Result<ExportedPdf, EngineError> {
+        let (snapshot, revision) = self.freeze();
+        let pages: Vec<OutputPage> = snapshot.pages.iter().map(|&(_, page)| page).collect();
+        Ok(ExportedPdf {
+            bytes: pdf_core::write_pdf(&snapshot.sources, &pages)?,
+            revision,
+        })
+    }
+
+    /// Octets d'un PDF formé des seules pages désignées par leur identifiant,
+    /// dans cet ordre (extraction). Une page qui n'existe plus est une erreur :
+    /// les pages ont changé depuis qu'on les a désignées.
+    pub fn export_pages(&self, ids: Vec<u64>) -> Result<Vec<u8>, EngineError> {
+        self.freeze().0.export_pages(ids)
+    }
+
+    /// Pages dans leur état actuel, pour en exporter plusieurs parties (scission)
+    /// sans voir les modifications faites pendant l'écriture.
+    pub fn snapshot(&self) -> Arc<PageSnapshot> {
+        Arc::new(self.freeze().0)
     }
 
     /// Octets d'un document source tel qu'il a été ouvert (0 : le document,
     /// avant tout enregistrement), pour en conserver une copie de récupération.
     pub fn source_bytes(&self, source: u32) -> Result<Vec<u8>, EngineError> {
-        let state = self.lock();
-        let source = state
+        // La copie, longue pour un gros document, se fait hors du verrou.
+        let data = self
+            .lock()
             .sources
             .get(source as usize)
+            .map(|source| source.data.clone())
             .ok_or_else(|| invalid("document source inexistant"))?;
-        Ok(source.data.bytes().to_vec())
+        Ok(data.bytes().to_vec())
     }
 
     /// Vrai si le document ouvert porte une signature numérique, qu'un
@@ -291,41 +325,28 @@ impl EditSession {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Sources et pages à écrire, copiées pour libérer le verrou pendant
+    /// Sources, pages et révision, copiées pour libérer le verrou pendant
     /// l'écriture (les octets des sources sont partagés, non dupliqués).
-    fn snapshot(
-        &self,
-        positions: Option<&[u32]>,
-    ) -> Result<(Vec<SourceData>, Vec<OutputPage>), EngineError> {
+    fn freeze(&self) -> (PageSnapshot, u64) {
         let state = self.lock();
-        let entries = state.organizer.pages();
-        let selected: Vec<&PageEntry> = match positions {
-            None => entries.iter().collect(),
-            Some(positions) => positions
-                .iter()
-                .map(|&position| {
-                    entries
-                        .get(position as usize)
-                        .ok_or_else(|| invalid("page inexistante"))
-                })
-                .collect::<Result<_, _>>()?,
-        };
-        if selected.is_empty() {
-            return Err(EditError::EmptySelection.into());
-        }
-        let pages = selected
-            .into_iter()
-            .map(|entry| match entry.origin {
-                PageOrigin::Source { source, index } => OutputPage::Source {
-                    source: source as usize,
-                    index,
-                    quarter_turns: entry.quarter_turns,
-                },
-                PageOrigin::Blank { width, height } => OutputPage::Blank {
-                    width,
-                    height,
-                    quarter_turns: entry.quarter_turns,
-                },
+        let pages = state
+            .organizer
+            .pages()
+            .iter()
+            .map(|entry| {
+                let page = match entry.origin {
+                    PageOrigin::Source { source, index } => OutputPage::Source {
+                        source: source as usize,
+                        index,
+                        quarter_turns: entry.quarter_turns,
+                    },
+                    PageOrigin::Blank { width, height } => OutputPage::Blank {
+                        width,
+                        height,
+                        quarter_turns: entry.quarter_turns,
+                    },
+                };
+                (entry.id, page)
             })
             .collect();
         let sources = state
@@ -333,7 +354,38 @@ impl EditSession {
             .iter()
             .map(|source| source.data.clone())
             .collect();
-        Ok((sources, pages))
+        let snapshot = PageSnapshot { sources, pages };
+        (snapshot, state.organizer.revision())
+    }
+}
+
+/// Pages d'une session figées à un instant donné.
+#[derive(uniffi::Object)]
+pub struct PageSnapshot {
+    sources: Vec<SourceData>,
+    /// Identifiant et contenu de chaque page, dans l'ordre.
+    pages: Vec<(u64, OutputPage)>,
+}
+
+#[uniffi::export]
+impl PageSnapshot {
+    /// Octets d'un PDF formé des pages désignées par leur identifiant, dans cet
+    /// ordre ; une page absente de l'instantané est une erreur.
+    pub fn export_pages(&self, ids: Vec<u64>) -> Result<Vec<u8>, EngineError> {
+        if ids.is_empty() {
+            return Err(EditError::EmptySelection.into());
+        }
+        let pages = ids
+            .iter()
+            .map(|&id| {
+                self.pages
+                    .iter()
+                    .find(|&&(page, _)| page == id)
+                    .map(|&(_, page)| page)
+                    .ok_or_else(changed)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(pdf_core::write_pdf(&self.sources, &pages)?)
     }
 }
 
@@ -341,6 +393,14 @@ fn invalid(detail: &str) -> EngineError {
     EngineError::Failed {
         message: "Cette opération est impossible sur ce document.".to_owned(),
         detail: detail.to_owned(),
+    }
+}
+
+/// Les pages désignées ont changé (supprimées ou annulées) avant d'être lues.
+fn changed() -> EngineError {
+    EngineError::Failed {
+        message: "Les pages ont changé pendant l'opération : recommencez-la.".to_owned(),
+        detail: "page inexistante".to_owned(),
     }
 }
 
@@ -387,16 +447,31 @@ mod tests {
         assert_eq!(session.undo_name().as_deref(), Some("la suppression"));
         assert!(session.is_modified());
 
-        let bytes = session.export_pdf().unwrap();
-        let doc = pdf_core::Document::from_bytes(&bytes, None).unwrap();
+        let exported = session.export_pdf().unwrap();
+        let doc = pdf_core::Document::from_bytes(&exported.bytes, None).unwrap();
         assert_eq!(doc.page_count(), 5);
-        let extract = session.export_pages(vec![4, 1]).unwrap();
+        let ids: Vec<u64> = session.pages().iter().map(|page| page.id).collect();
+        let extract = session.export_pages(vec![ids[4], ids[1]]).unwrap();
         assert_eq!(
             pdf_core::Document::from_bytes(&extract, None)
                 .unwrap()
                 .page_count(),
             2
         );
+        assert!(session.export_pages(vec![9999]).is_err());
+
+        // Un instantané ignore les modifications faites ensuite.
+        let snapshot = session.snapshot();
+        session.delete(vec![4]).unwrap();
+        let part = snapshot.export_pages(vec![ids[4], ids[0]]).unwrap();
+        assert_eq!(
+            pdf_core::Document::from_bytes(&part, None)
+                .unwrap()
+                .page_count(),
+            2
+        );
+        assert!(session.export_pages(vec![ids[4]]).is_err());
+        assert!(session.undo());
 
         // Les octets d'ouverture restent ceux du fichier, quelles que soient les modifications.
         let path =
@@ -407,12 +482,18 @@ mod tests {
         );
         assert!(session.source_bytes(1).is_err());
 
-        session.mark_saved();
+        session.mark_saved(exported.revision);
         assert!(!session.is_modified());
         assert!(session.undo());
         assert!(session.is_modified());
         assert!(session.redo());
         assert!(!session.is_modified());
+
+        // Une rotation faite pendant l'écriture n'est pas dans le fichier.
+        let exported = session.export_pdf().unwrap();
+        session.rotate(vec![0], 1).unwrap();
+        session.mark_saved(exported.revision);
+        assert!(session.is_modified());
     }
 
     #[test]
@@ -435,7 +516,7 @@ mod tests {
         assert!(session.insert_pages(0, other, vec![6]).is_err());
         assert!(session.insert_pages(0, 7, vec![0]).is_err());
 
-        let bytes = session.export_pdf().unwrap();
+        let bytes = session.export_pdf().unwrap().bytes;
         let doc = pdf_core::Document::from_bytes(&bytes, None).unwrap();
         assert_eq!(doc.page_count(), 8);
     }
@@ -473,6 +554,12 @@ mod tests {
         };
         assert!(session.restore(vec![missing]).is_err());
         assert_eq!(session.pages().len(), 6);
+
+        // Restaurées sur une version antérieure du fichier, les pages ne
+        // redeviennent pas « enregistrées » en annulant la restauration.
+        session.forget_saved();
+        assert!(session.undo());
+        assert!(session.is_modified());
     }
 
     #[test]

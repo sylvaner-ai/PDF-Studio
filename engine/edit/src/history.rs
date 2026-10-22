@@ -16,11 +16,18 @@ pub trait Command<T>: Send {
 
 /// Historique des modifications d'une cible `T`.
 pub struct History<T> {
-    done: Vec<Box<dyn Command<T>>>,
-    undone: Vec<Box<dyn Command<T>>>,
-    /// Nombre de modifications appliquées lors du dernier enregistrement ;
-    /// `None` quand cet état ne peut plus être retrouvé.
-    saved: Option<usize>,
+    done: Vec<Step<T>>,
+    undone: Vec<Step<T>>,
+    next_revision: u64,
+    /// Révision enregistrée en dernier ; `None` quand aucun état connu ne
+    /// correspond au fichier.
+    saved: Option<u64>,
+}
+
+/// Une modification et la révision qu'elle produit.
+struct Step<T> {
+    revision: u64,
+    command: Box<dyn Command<T>>,
 }
 
 impl<T> Default for History<T> {
@@ -28,13 +35,14 @@ impl<T> Default for History<T> {
         Self {
             done: Vec::new(),
             undone: Vec::new(),
+            next_revision: 1,
             saved: Some(0),
         }
     }
 }
 
 impl<T> History<T> {
-    /// Historique vide ; l'état initial est considéré comme enregistré.
+    /// Historique vide ; l'état initial (révision 0) est considéré comme enregistré.
     pub fn new() -> Self {
         Self::default()
     }
@@ -42,53 +50,67 @@ impl<T> History<T> {
     /// Applique une modification et la retient. Les actions annulées ne peuvent
     /// plus être rétablies ensuite.
     pub fn execute(&mut self, target: &mut T, mut command: Box<dyn Command<T>>) {
-        if self.saved.is_some_and(|saved| saved > self.done.len()) {
-            // L'état enregistré se trouvait parmi les actions annulées, qui disparaissent.
-            self.saved = None;
-        }
         command.apply(target);
-        self.done.push(command);
+        self.done.push(Step {
+            revision: self.next_revision,
+            command,
+        });
+        self.next_revision += 1;
+        // Si l'état enregistré s'y trouvait, il ne sera plus jamais retrouvé : sa
+        // révision n'est pas réattribuée.
         self.undone.clear();
     }
 
     /// Défait la dernière modification ; renvoie `false` s'il n'y en a pas.
     pub fn undo(&mut self, target: &mut T) -> bool {
-        let Some(mut command) = self.done.pop() else {
+        let Some(mut step) = self.done.pop() else {
             return false;
         };
-        command.revert(target);
-        self.undone.push(command);
+        step.command.revert(target);
+        self.undone.push(step);
         true
     }
 
     /// Rétablit la dernière modification annulée ; renvoie `false` s'il n'y en a pas.
     pub fn redo(&mut self, target: &mut T) -> bool {
-        let Some(mut command) = self.undone.pop() else {
+        let Some(mut step) = self.undone.pop() else {
             return false;
         };
-        command.apply(target);
-        self.done.push(command);
+        step.command.apply(target);
+        self.done.push(step);
         true
     }
 
     /// Nom de l'action que [`History::undo`] déferait.
     pub fn undo_name(&self) -> Option<&str> {
-        self.done.last().map(|command| command.name())
+        self.done.last().map(|step| step.command.name())
     }
 
     /// Nom de l'action que [`History::redo`] rétablirait.
     pub fn redo_name(&self) -> Option<&str> {
-        self.undone.last().map(|command| command.name())
+        self.undone.last().map(|step| step.command.name())
+    }
+
+    /// Révision de l'état courant : chaque modification en crée une nouvelle,
+    /// qu'annuler puis rétablir retrouve.
+    pub fn revision(&self) -> u64 {
+        self.done.last().map_or(0, |step| step.revision)
     }
 
     /// Vrai si l'état courant diffère du dernier état enregistré.
     pub fn is_modified(&self) -> bool {
-        self.saved != Some(self.done.len())
+        self.saved != Some(self.revision())
     }
 
-    /// Retient l'état courant comme enregistré.
-    pub fn mark_saved(&mut self) {
-        self.saved = Some(self.done.len());
+    /// Retient la révision `revision` comme enregistrée : celle de l'état écrit,
+    /// qui n'est plus forcément l'état courant si l'on a modifié entre-temps.
+    pub fn mark_saved(&mut self, revision: u64) {
+        self.saved = Some(revision);
+    }
+
+    /// Oublie l'état enregistré : aucun état connu ne correspond plus au fichier.
+    pub fn forget_saved(&mut self) {
+        self.saved = None;
     }
 }
 
@@ -143,7 +165,7 @@ mod tests {
         assert!(!history.is_modified());
         history.execute(&mut value, Box::new(Add(1)));
         assert!(history.is_modified());
-        history.mark_saved();
+        history.mark_saved(history.revision());
         assert!(!history.is_modified());
         history.undo(&mut value);
         assert!(history.is_modified());
@@ -153,6 +175,24 @@ mod tests {
         // Annuler puis modifier autrement rend l'état enregistré inaccessible.
         history.undo(&mut value);
         history.execute(&mut value, Box::new(Add(5)));
+        history.undo(&mut value);
+        assert!(history.is_modified());
+    }
+
+    #[test]
+    fn retient_la_revision_ecrite() {
+        let (mut value, mut history) = (0, History::new());
+        history.execute(&mut value, Box::new(Add(1)));
+        let written = history.revision();
+        // Une modification faite pendant l'écriture n'est pas dans le fichier.
+        history.execute(&mut value, Box::new(Add(2)));
+        history.mark_saved(written);
+        assert!(history.is_modified());
+        history.undo(&mut value);
+        assert!(!history.is_modified());
+
+        history.forget_saved();
+        assert!(history.is_modified());
         history.undo(&mut value);
         assert!(history.is_modified());
     }

@@ -146,12 +146,12 @@ struct PageActions: View {
 
     var body: some View {
         Button("Faire pivoter à gauche") { model.rotate(positions, clockwise: false) }
-            .disabled(positions.isEmpty)
+            .disabled(!canEditPages)
         Button("Faire pivoter à droite") { model.rotate(positions, clockwise: true) }
-            .disabled(positions.isEmpty)
+            .disabled(!canEditPages)
         Divider()
         Button("Dupliquer") { model.duplicate(positions) }
-            .disabled(positions.isEmpty)
+            .disabled(!canEditPages)
         Button("Supprimer") { model.delete(positions) }
             .disabled(!model.canDelete(positions))
         Divider()
@@ -163,7 +163,11 @@ struct PageActions: View {
         .disabled(!model.canEdit)
         Divider()
         Button("Extraire les pages…") { model.extractPages(positions) }
-            .disabled(!model.canEdit || positions.isEmpty)
+            .disabled(!canEditPages)
+    }
+
+    private var canEditPages: Bool {
+        model.canEdit && !positions.isEmpty
     }
 }
 

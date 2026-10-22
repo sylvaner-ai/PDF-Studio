@@ -5,16 +5,14 @@
 //! préférences d'affichage…) est conservé tel quel et seules ses pages sont
 //! réagencées. Les signets, liens et champs de formulaire qui visaient une page
 //! supprimée sont retirés ; ceux des pages conservées continuent de fonctionner,
-//! même après un déplacement, puisque la page reste le même objet PDF.
+//! même après un déplacement, puisque la page reste le même objet PDF. Plus rien
+//! ne renvoie à une page supprimée : elle disparaît du fichier avec son contenu.
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use mupdf::pdf::{
-    Encryption, InsertPdfOptions, InsertPosition, PageSelection, PdfDocument, PdfObject,
-    PdfWriteOptions,
-};
+use mupdf::pdf::{Encryption, PdfDocument, PdfGraftMap, PdfObject, PdfWriteOptions};
 use mupdf::Size;
 
 use crate::error::{PdfError, Result};
@@ -81,7 +79,7 @@ pub fn write_pdf(sources: &[SourceData], pages: &[OutputPage]) -> Result<Vec<u8>
     let mut doc = open(base)?;
     let original_count = doc.page_count()?.max(0) as usize;
 
-    if is_same_order(pages, original_count) {
+    if is_same_order(pages, original_count) && !has_shared_pages(&doc, original_count)? {
         for (position, page) in pages.iter().enumerate() {
             rotate(&doc, position, page_turns(page))?;
         }
@@ -182,14 +180,29 @@ fn is_same_order(pages: &[OutputPage], original_count: usize) -> bool {
         })
 }
 
+/// Vrai si un même objet page figure plusieurs fois dans l'arbre des pages :
+/// pivoter l'une de ses occurrences pivoterait aussi les autres.
+fn has_shared_pages(doc: &PdfDocument, count: usize) -> Result<bool> {
+    let mut seen = HashSet::new();
+    for index in 0..count {
+        let page = doc.find_page(index as i32)?;
+        if page.is_indirect()? && !seen.insert(page.as_indirect()?) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Ajoute des quarts de tour à la rotation de la page `position`.
 fn rotate(doc: &PdfDocument, position: usize, quarter_turns: u8) -> Result<()> {
     if quarter_turns % 4 == 0 {
         return Ok(());
     }
     let mut page = doc.load_pdf_page(position as i32)?;
-    let rotation = page.rotation()?;
-    page.set_rotation((rotation + 90 * i32::from(quarter_turns)).rem_euclid(360))?;
+    // Comme MuPDF à l'affichage, une rotation qui n'est pas un multiple de 90°
+    // est arrondie au plus proche.
+    let rotation = (page.rotation()?.rem_euclid(360) + 45) / 90 * 90;
+    page.set_rotation((rotation + 90 * i32::from(quarter_turns)) % 360)?;
     Ok(())
 }
 
@@ -214,34 +227,37 @@ fn rebuild(
     // pages ; la retirer d'abord évite aussi à MuPDF de l'ajuster à chaque page.
     doc.catalog()?.dict_delete("PageLabels")?;
 
-    // Arbre des pages vidé ; les objets des pages restent disponibles.
-    if original_count > 0 {
-        doc.delete_pages(PageSelection::All)?;
-    }
+    // Arbre des pages vidé ; les objets des pages restent disponibles, et les
+    // nœuds intermédiaires, devenus inaccessibles, disparaîtront à l'écriture.
+    // Les attributs hérités de la racine, déjà recopiés dans les pages d'origine,
+    // ne doivent pas s'appliquer aux pages insérées.
     let mut tree = doc
         .catalog()?
         .get_dict("Pages")?
         .ok_or_else(|| invalid("arbre des pages absent"))?;
+    for key in ["MediaBox", "CropBox", "Rotate", "Resources"] {
+        tree.dict_delete(key)?;
+    }
     tree.dict_put("Kids", doc.new_array()?)?;
     tree.dict_put("Count", PdfObject::new_int(0)?)?;
 
-    let mut others: HashMap<usize, PdfDocument> = HashMap::new();
-    let mut used = vec![false; original_count];
+    let mut others: HashMap<usize, (PdfDocument, PdfGraftMap)> = HashMap::new();
+    let mut used = HashSet::new();
     for (position, page) in pages.iter().enumerate() {
         let at = position as i32;
         match *page {
             OutputPage::Source {
                 source: 0, index, ..
             } => {
-                let index = index as usize;
                 let original = originals
-                    .get(index)
+                    .get(index as usize)
                     .ok_or_else(|| invalid("page source inexistante"))?;
-                let object = if used[index] {
-                    duplicate_page(doc, original)?
-                } else {
-                    used[index] = true;
+                // Un objet ne figure qu'une fois dans l'arbre, même s'il y était
+                // deux fois dans le fichier : les occurrences suivantes sont copiées.
+                let object = if used.insert(original.as_indirect()?) {
                     original.try_clone()?
+                } else {
+                    duplicate_page(doc, original)?
                 };
                 doc.insert_page(at, &object)?;
             }
@@ -249,48 +265,76 @@ fn rebuild(
                 let data = sources
                     .get(source)
                     .ok_or_else(|| invalid("document source inconnu"))?;
-                let other = match others.entry(source) {
+                let (other, map) = match others.entry(source) {
                     Entry::Occupied(entry) => entry.into_mut(),
-                    Entry::Vacant(entry) => entry.insert(open(data)?),
+                    Entry::Vacant(entry) => entry.insert((open(data)?, doc.new_graft_map()?)),
                 };
                 if index >= other.page_count()?.max(0) as u32 {
                     return Err(invalid("page source inexistante"));
                 }
-                doc.insert_pdf(
-                    other,
-                    InsertPdfOptions {
-                        source_pages: PageSelection::Pages(vec![index as usize]),
-                        target: InsertPosition::Append,
-                        ..InsertPdfOptions::default()
-                    },
-                )?;
-                copy_annotations(doc, other, index, position)?;
+                graft_page(doc, map, other, index, at)?;
+                copy_annotations(doc, map, other, index, position)?;
             }
             OutputPage::Blank { width, height, .. } => {
                 doc.new_page_at(at, Size { width, height })?;
             }
         }
+    }
+    // Une fois toutes les pages en place : une page répétée a été copiée avant
+    // que la rotation de sa première occurrence ne s'applique.
+    for (position, page) in pages.iter().enumerate() {
         rotate(doc, position, page_turns(page))?;
     }
-
-    let mut catalog = doc.catalog()?;
 
     let mut retained = HashSet::new();
     for position in 0..pages.len() {
         retained.insert(doc.find_page(position as i32)?.as_indirect()?);
     }
+    let kept_annotations = prune_links_and_list_annotations(doc, pages.len(), &retained)?;
+    // Ce qui disparaît avec les pages supprimées : elles-mêmes et leurs annotations.
+    let mut removed = HashSet::new();
+    for page in &originals {
+        let number = page.as_indirect()?;
+        if retained.contains(&number) || !removed.insert(number) {
+            continue;
+        }
+        if let Some(annots) = page.get_dict("Annots")? {
+            for annot in items(&annots)? {
+                if annot.is_indirect()? && !kept_annotations.contains(&annot.as_indirect()?) {
+                    removed.insert(annot.as_indirect()?);
+                }
+            }
+        }
+    }
+
+    let mut catalog = doc.catalog()?;
     if let Some(mut outlines) = catalog.get_dict("Outlines")? {
         let (kept, _) = prune_outline(&mut outlines, &retained, 0)?;
         if kept == 0 {
             catalog.dict_delete("Outlines")?;
         }
     }
-    let widgets = prune_links_and_list_widgets(doc, pages.len(), &retained)?;
     if let Some(form) = catalog.get_dict("AcroForm")? {
         if let Some(mut fields) = form.get_dict("Fields")? {
-            prune_fields(&mut fields, &widgets, 0)?;
+            prune_fields(&mut fields, &mut removed, 0)?;
+        }
+        if let Some(mut order) = form.get_dict("CO")? {
+            remove_items(&mut order, &removed)?;
         }
     }
+    if removed.is_empty() {
+        return Ok(());
+    }
+    if let Some(action) = catalog.get_dict("OpenAction")? {
+        if opens_removed_page(&action, &removed)? {
+            catalog.dict_delete("OpenAction")?;
+        }
+    }
+    // La structure balisée (accessibilité) décrit aussi les pages supprimées et
+    // renvoie à leur contenu : elle est retirée.
+    catalog.dict_delete("StructTreeRoot")?;
+    catalog.dict_delete("MarkInfo")?;
+    forget_references(doc, &removed)?;
     Ok(())
 }
 
@@ -352,11 +396,46 @@ fn duplicate_page(doc: &mut PdfDocument, original: &PdfObject) -> Result<PdfObje
     Ok(copy)
 }
 
+/// Insère à la position `at` la page `index` d'un autre document, comme
+/// `pdf_graft_page`. Le contenu et les ressources passent par `map`, qui ne copie
+/// qu'une fois un objet partagé par plusieurs pages (police, image, logo).
+fn graft_page(
+    doc: &mut PdfDocument,
+    map: &mut PdfGraftMap,
+    other: &PdfDocument,
+    index: u32,
+    at: i32,
+) -> Result<()> {
+    let source = other.find_page(index as i32)?;
+    let mut page = doc.new_dict()?;
+    page.dict_put("Type", PdfObject::new_name("Page")?)?;
+    // Aucune de ces clés ne renvoie à une autre page.
+    for key in [
+        "Contents",
+        "Resources",
+        "MediaBox",
+        "CropBox",
+        "BleedBox",
+        "TrimBox",
+        "ArtBox",
+        "Rotate",
+        "UserUnit",
+    ] {
+        if let Some(value) = source.get_dict_inheritable(key)? {
+            page.dict_put(key, map.graft_object(&value)?)?;
+        }
+    }
+    let page = doc.add_object(&page)?;
+    doc.insert_page(at, &page)?;
+    Ok(())
+}
+
 /// Recopie les annotations d'une page venue d'un autre document. Les champs de
 /// formulaire et les liens internes à ce document, qui n'auraient plus de sens,
 /// ne sont pas repris.
 fn copy_annotations(
     doc: &mut PdfDocument,
+    map: &mut PdfGraftMap,
     other: &PdfDocument,
     index: u32,
     position: usize,
@@ -382,7 +461,7 @@ fn copy_annotations(
         for key in ["P", "Popup", "IRT", "Parent", "StructParent"] {
             dict.dict_delete(key)?;
         }
-        let mut grafted = doc.add_object(&doc.graft_object(&dict)?)?;
+        let mut grafted = doc.add_object(&map.graft_object(&dict)?)?;
         grafted.dict_put("P", target.try_clone()?)?;
         copied.array_push(grafted)?;
     }
@@ -512,14 +591,14 @@ fn has_action(item: &PdfObject) -> Result<bool> {
     Ok(item.get_dict("Dest")?.is_some() || item.get_dict("A")?.is_some())
 }
 
-/// Retire les liens qui menaient à une page supprimée et renvoie les champs de
-/// formulaire (annotations « Widget ») des pages conservées.
-fn prune_links_and_list_widgets(
+/// Retire les liens qui menaient à une page supprimée et renvoie les annotations
+/// des pages conservées.
+fn prune_links_and_list_annotations(
     doc: &PdfDocument,
     count: usize,
     retained: &HashSet<i32>,
 ) -> Result<HashSet<i32>> {
-    let mut widgets = HashSet::new();
+    let mut kept = HashSet::new();
     for position in 0..count {
         let Some(mut annots) = doc.find_page(position as i32)?.get_dict("Annots")? else {
             continue;
@@ -528,50 +607,152 @@ fn prune_links_and_list_widgets(
             let Some(annot) = annots.get_array(index as i32)? else {
                 continue;
             };
-            match name_of(&annot, "Subtype")?.as_deref() {
-                Some("Link") if target_of(&annot, retained)? == Target::Removed => {
-                    annots.array_delete(index as i32)?;
-                }
-                Some("Widget") if annot.is_indirect()? => {
-                    widgets.insert(annot.as_indirect()?);
-                }
-                _ => {}
+            if name_of(&annot, "Subtype")?.as_deref() == Some("Link")
+                && target_of(&annot, retained)? == Target::Removed
+            {
+                annots.array_delete(index as i32)?;
+            } else if annot.is_indirect()? {
+                kept.insert(annot.as_indirect()?);
             }
         }
     }
-    Ok(widgets)
+    Ok(kept)
 }
 
-/// Retire du formulaire les champs dont aucune annotation ne reste sur une page
-/// conservée. Renvoie le nombre de champs gardés.
-fn prune_fields(fields: &mut PdfObject, widgets: &HashSet<i32>, depth: usize) -> Result<usize> {
+/// Retire du formulaire les champs dont toutes les annotations étaient sur des
+/// pages supprimées, et les ajoute à `removed` ; un champ sans annotation reste.
+fn prune_fields(fields: &mut PdfObject, removed: &mut HashSet<i32>, depth: usize) -> Result<()> {
     if depth > 32 {
-        return fields.len().map_err(Into::into);
+        return Ok(());
     }
     for index in (0..fields.len()?).rev() {
         let Some(field) = fields.get_array(index as i32)? else {
             continue;
         };
-        let keep = match field.get_dict("Kids")? {
-            Some(mut kids) if kids.is_array()? => prune_fields(&mut kids, widgets, depth + 1)? > 0,
-            _ => !field.is_indirect()? || widgets.contains(&field.as_indirect()?),
+        let number = if field.is_indirect()? {
+            Some(field.as_indirect()?)
+        } else {
+            None
         };
-        if !keep {
+        let remove = if number.is_some_and(|number| removed.contains(&number)) {
+            true
+        } else {
+            match field.get_dict("Kids")? {
+                Some(mut kids) if kids.is_array()? && kids.len()? > 0 => {
+                    prune_fields(&mut kids, removed, depth + 1)?;
+                    kids.len()? == 0
+                }
+                _ => false,
+            }
+        };
+        if remove {
             fields.array_delete(index as i32)?;
+            removed.extend(number);
         }
     }
-    fields.len().map_err(Into::into)
+    Ok(())
 }
 
-/// Éléments d'un tableau PDF ; un objet qui n'est pas un tableau n'en a aucun.
-fn items(array: &PdfObject) -> Result<Vec<PdfObject>> {
+/// Retire d'un tableau les références aux objets `removed`.
+fn remove_items(array: &mut PdfObject, removed: &HashSet<i32>) -> Result<()> {
     if !array.is_array()? {
-        return Ok(Vec::new());
+        return Ok(());
     }
-    array
-        .array_iter()?
-        .map(|item| item.map_err(Into::into))
-        .collect()
+    for index in (0..array.len()? as i32).rev() {
+        if let Some(item) = array.get_array(index)? {
+            if item.is_indirect()? && removed.contains(&item.as_indirect()?) {
+                array.array_delete(index)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Vrai si l'action d'ouverture du document mène à une page supprimée.
+fn opens_removed_page(action: &PdfObject, removed: &HashSet<i32>) -> Result<bool> {
+    let destination = if action.is_array()? {
+        Some(action.try_clone()?)
+    } else if name_of(action, "S")?.as_deref() == Some("GoTo") {
+        action.get_dict("D")?
+    } else {
+        None
+    };
+    let page = match destination {
+        Some(destination) if destination.is_array()? => destination.get_array(0)?,
+        _ => None,
+    };
+    match page {
+        Some(page) if page.is_indirect()? => Ok(removed.contains(&page.as_indirect()?)),
+        _ => Ok(false),
+    }
+}
+
+/// Efface toute référence aux objets `removed` (pages supprimées, leurs
+/// annotations et leurs champs) : n'étant plus accessibles, ils disparaissent à
+/// l'écriture avec leur contenu, leurs images et leurs polices. Une destination
+/// nommée ou un fil d'article qui y menait ne mène plus nulle part.
+fn forget_references(doc: &PdfDocument, removed: &HashSet<i32>) -> Result<()> {
+    for number in 1..doc.count_objects()? as i32 {
+        if removed.contains(&number) {
+            continue;
+        }
+        // Un objet libre ou illisible est ignoré ; MuPDF l'écarte à l'écriture.
+        let Ok(Some(mut object)) = doc.new_indirect(number, 0).and_then(|r| r.resolve()) else {
+            continue;
+        };
+        forget_in(&mut object, removed, 0)?;
+    }
+    Ok(())
+}
+
+fn forget_in(object: &mut PdfObject, removed: &HashSet<i32>, depth: usize) -> Result<()> {
+    if depth > 32 {
+        return Ok(());
+    }
+    if object.is_array()? {
+        for index in 0..object.len()? as i32 {
+            let Some(mut item) = object.get_array(index)? else {
+                continue;
+            };
+            if !item.is_indirect()? {
+                forget_in(&mut item, removed, depth + 1)?;
+            } else if removed.contains(&item.as_indirect()?) {
+                // Une valeur nulle garde la place des éléments suivants (destinations).
+                object.array_put(index, PdfObject::new_null())?;
+            }
+        }
+    } else if object.is_dict()? {
+        for index in (0..object.dict_len()? as i32).rev() {
+            let Some(mut value) = object.get_dict_val(index)? else {
+                continue;
+            };
+            if !value.is_indirect()? {
+                forget_in(&mut value, removed, depth + 1)?;
+            } else if removed.contains(&value.as_indirect()?) {
+                if let Some(key) = object.get_dict_key(index)? {
+                    object.dict_delete(key)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Dictionnaires d'un tableau PDF (annotations, champs) ; un élément nul ou une
+/// référence vers un objet disparu sont ignorés, comme le fait MuPDF.
+fn items(array: &PdfObject) -> Result<Vec<PdfObject>> {
+    let mut items = Vec::new();
+    if !array.is_array()? {
+        return Ok(items);
+    }
+    for index in 0..array.len()? as i32 {
+        if let Some(item) = array.get_array(index)? {
+            if item.is_dict()? {
+                items.push(item);
+            }
+        }
+    }
+    Ok(items)
 }
 
 fn name_of(object: &PdfObject, key: &str) -> Result<Option<String>> {

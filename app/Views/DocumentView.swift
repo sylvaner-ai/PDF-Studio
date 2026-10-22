@@ -97,10 +97,18 @@ struct DocumentView: View {
     }
 
     private func replaceMessage(_ prompt: SavingState.Prompt) -> String {
-        let backup = String(localized: "Une copie de l'original est conservée dans les sauvegardes de PDF Studio.")
-        guard case .replace(signed: true) = prompt else { return backup }
-        let signature = String(localized: "Ce document porte une signature numérique : elle ne sera plus valide.")
-        return signature + "\n\n" + backup
+        var messages: [String] = []
+        if case .replace(signed: _, changedOnDisk: true) = prompt {
+            messages.append(String(localized: """
+                Une autre application a modifié ce fichier depuis son ouverture : \
+                ses modifications seront perdues.
+                """))
+        }
+        if case .replace(signed: true, changedOnDisk: _) = prompt {
+            messages.append(String(localized: "Ce document porte une signature numérique : elle ne sera plus valide."))
+        }
+        messages.append(String(localized: "Une copie de l'original est conservée dans les sauvegardes de PDF Studio."))
+        return messages.joined(separator: "\n\n")
     }
 
     private var recoveryTitle: String {

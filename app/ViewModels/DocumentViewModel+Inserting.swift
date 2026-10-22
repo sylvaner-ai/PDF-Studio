@@ -7,10 +7,25 @@ import UniformTypeIdentifiers
 /// déposé dans la grille) et de pages glissées depuis la grille d'une autre
 /// fenêtre. Chaque document inséré devient une source de la session, dont une
 /// copie est conservée pour la récupération ; l'insertion s'annule par ⌘Z.
+///
+/// Ouvrir un document prend du temps : l'endroit de l'insertion est retenu par
+/// la page qui la précède, qui peut entre-temps avoir changé de position. Les
+/// insertions se font une à une, dans l'ordre où elles ont été demandées.
 extension DocumentViewModel {
     /// Position d'insertion : après la dernière page visée, sinon à la fin.
     var insertionPoint: Int {
         targetPositions.last.map { $0 + 1 } ?? pages.count
+    }
+
+    /// Page après laquelle insérer devant `position` ; `nil` : en tête.
+    private func anchor(before position: Int) -> UInt64? {
+        position > 0 ? pages[safe: min(position, pages.count) - 1]?.id : nil
+    }
+
+    /// Position qui suit la page `anchor` ; à la fin si elle a été supprimée.
+    private func position(after anchor: UInt64?) -> Int {
+        guard let anchor else { return 0 }
+        return pages.firstIndex { $0.id == anchor }.map { $0 + 1 } ?? pages.count
     }
 
     /// Insère une page vierge du format de la page qui la précède.
@@ -31,7 +46,7 @@ extension DocumentViewModel {
     /// aussi ainsi que l'on fusionne des documents.
     func chooseDocumentToInsert(before position: Int? = nil) {
         guard canEdit else { return }
-        let position = position ?? insertionPoint
+        let anchor = anchor(before: position ?? insertionPoint)
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.pdf]
         panel.allowsMultipleSelection = true
@@ -45,35 +60,39 @@ extension DocumentViewModel {
                 let sorted = urls.sorted {
                     $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
                 }
-                await self?.insertDocuments(sorted, before: position)
+                await self?.insertDocuments(sorted, after: anchor)
             }
         }
     }
 
     /// Insère les pages de plusieurs PDF, dans l'ordre donné, avant `position`.
     func insertDocuments(_ urls: [URL], before position: Int) async {
+        await insertDocuments(urls, after: anchor(before: position))
+    }
+
+    private func insertDocuments(_ urls: [URL], after anchor: UInt64?) async {
         // Chaque document s'insère devant le suivant : ils gardent leur ordre.
         for url in urls.reversed() {
-            await insertDocument(at: url, before: position)
+            await insertDocument(at: url, after: anchor)
         }
     }
 
-    /// Insère toutes les pages d'un fichier PDF avant la position `position` ;
-    /// demande son mot de passe s'il est protégé.
-    func insertDocument(at url: URL, before position: Int, password: String? = nil) async {
+    /// Insère toutes les pages d'un fichier PDF après la page `anchor` ; demande
+    /// son mot de passe s'il est protégé.
+    private func insertDocument(at url: URL, after anchor: UInt64?, password: String? = nil) async {
         guard canEdit else { return }
         let opened = await Task.detached(priority: .userInitiated) {
             Result { try PdfDocument.open(path: url.path, password: password) }
         }.value
         switch opened {
         case let .success(document):
-            await insert(document, before: position, protected: password != nil)
+            await insert(document, after: anchor, protected: password != nil)
         case let .failure(error as EngineError):
             switch error {
             case .PasswordRequired, .WrongPassword:
                 let wrongAttempt = password != nil
                 guard let password = askPassword(for: url.lastPathComponent, wrongAttempt: wrongAttempt) else { return }
-                await insertDocument(at: url, before: position, password: password)
+                await insertDocument(at: url, after: anchor, password: password)
             case .Failed:
                 report(error)
             }
@@ -87,26 +106,48 @@ extension DocumentViewModel {
     /// telles qu'elles y apparaissent, avant la position `position`.
     func insertPages(_ ids: [UInt64], from origin: DocumentViewModel, before position: Int) async {
         guard canEdit, let session = origin.session else { return }
-        let positions = origin.positions(of: Set(ids)).map { UInt32($0) }
-        guard !positions.isEmpty else { return }
+        let anchor = anchor(before: position)
+        // Dans l'ordre du document d'origine.
+        let ordered = origin.positions(of: Set(ids)).map { origin.pages[$0].id }
+        guard !ordered.isEmpty else { return }
         // Les pages d'un document protégé le restent : le même mot de passe les ouvre.
         let password = origin.recovery.password
         let copied = await Task.detached(priority: .userInitiated) {
-            Result { try PdfDocument.fromData(data: session.exportPages(positions: positions), password: password) }
+            Result { try PdfDocument.fromData(data: session.exportPages(ids: ordered), password: password) }
         }.value
         switch copied {
         case let .success(document):
-            await insert(document, before: position, protected: password != nil)
+            await insert(document, after: anchor, protected: password != nil)
         case let .failure(error):
             report(error)
         }
     }
 
-    /// Insère toutes les pages d'un document ouvert avant la position `position`.
-    private func insert(_ document: PdfDocument, before position: Int, protected: Bool) async {
+    /// Insère toutes les pages d'un document ouvert après la page `anchor`, une
+    /// fois terminées les insertions demandées avant : les sources et leurs
+    /// copies de récupération se suivent ainsi dans le même ordre.
+    private func insert(_ document: PdfDocument, after anchor: UInt64?, protected: Bool) async {
+        let previous = insertionTask
+        let task = Task { @MainActor in
+            await previous?.value
+            await self.insertNow(document, after: anchor, protected: protected)
+        }
+        insertionTask = task
+        await task.value
+    }
+
+    private func insertNow(_ document: PdfDocument, after anchor: UInt64?, protected: Bool) async {
         guard canEdit, let source = addSource(document) else { return }
         await retainCopy(ofSource: source, protected: protected)
-        let insertion = UInt32(min(position, pages.count))
+        guard canEdit else {
+            if !isClosed {
+                failureMessage = String(
+                    localized: "Les pages n'ont pas été insérées : une autre opération était en cours."
+                )
+            }
+            return
+        }
+        let insertion = UInt32(position(after: anchor))
         let indices = Array(0..<document.pageCount())
         var inserted: [UInt32] = []
         perform { inserted = try $0.insertPages(at: insertion, source: source, indices: indices) }

@@ -4,8 +4,9 @@ import UniformTypeIdentifiers
 /// Confirmation et progression d'un enregistrement.
 struct SavingState {
     enum Prompt: Equatable {
-        /// Remplacer le fichier d'origine, en prévenant si une signature sera invalidée.
-        case replace(signed: Bool)
+        /// Remplacer le fichier d'origine, en prévenant si une signature sera
+        /// invalidée ou si une autre application a modifié le fichier entre-temps.
+        case replace(signed: Bool, changedOnDisk: Bool)
     }
 
     /// Confirmation demandée avant d'écrire sur le disque.
@@ -35,7 +36,23 @@ extension DocumentViewModel {
         }
         guard canSave else { return }
         saving.completion = completion
-        saving.prompt = .replace(signed: isSigned)
+        saving.prompt = .replace(signed: isSigned, changedOnDisk: fileChangedOnDisk)
+    }
+
+    /// Vrai si le fichier a changé sur le disque depuis l'ouverture ou le dernier
+    /// enregistrement : une autre application l'a modifié.
+    private var fileChangedOnDisk: Bool {
+        guard let stamp = recovery.stamp,
+              let current = try? reference.withAccess({ try FileStamp(of: $0) }) else { return false }
+        return current != stamp
+    }
+
+    /// Empreinte actuelle du fichier du document, lue hors du fil principal.
+    private func currentStamp() async -> FileStamp? {
+        let reference = reference
+        return await Task.detached(priority: .utility) {
+            try? reference.withAccess { try FileStamp(of: $0) }
+        }.value
     }
 
     func cancelSave() {
@@ -99,33 +116,44 @@ extension DocumentViewModel {
 
     /// Produit le PDF hors du fil principal et le confie à `store`, qui renvoie le
     /// nouveau fichier du document s'il change ; retient ensuite l'état enregistré.
+    /// Quitter l'application attend la fin de l'écriture (cf. ``DocumentOpener``).
     private func write(_ store: @escaping @Sendable (Data) throws -> DocumentReference?) {
-        guard let session else { return }
+        guard let session, !saving.inProgress else { return }
         saving.inProgress = true
+        DocumentOpener.shared.beginSave()
         let original = reference
         Task {
+            defer { DocumentOpener.shared.endSave() }
             await prepareRecoveryBase()
             let result = await Task.detached(priority: .userInitiated) {
-                Result { () -> (DocumentReference?, FileStamp?) in
-                    let relocated = try store(try session.exportPdf())
+                Result { () -> (DocumentReference?, FileStamp?, UInt64) in
+                    let exported = try session.exportPdf()
+                    let relocated = try store(exported.bytes)
                     let stamp = try? (relocated ?? original).withAccess { try FileStamp(of: $0) }
-                    return (relocated, stamp)
+                    return (relocated, stamp, exported.revision)
                 }
             }.value
             saving.inProgress = false
             switch result {
-            case let .success((relocated, stamp)):
+            case let .success((relocated, stamp, revision)):
                 if let relocated {
                     relocate(to: relocated)
                 }
-                session.markSaved()
-                setModified(false)
+                // Une modification faite pendant l'écriture reste à enregistrer.
+                session.markSaved(revision: revision)
+                setModified(session.isModified())
                 didSave(stamp: stamp, previousPath: original.path)
                 let completion = saving.completion
                 saving.completion = nil
                 completion?()
             case let .failure(error):
                 saving.completion = nil
+                // Un original restauré après un échec porte une nouvelle date : les
+                // modifications retenues doivent rester rattachées au fichier.
+                if let stamp = await currentStamp() {
+                    recovery.stamp = stamp
+                }
+                updateRecovery()
                 reportSaveFailure(error)
             }
         }

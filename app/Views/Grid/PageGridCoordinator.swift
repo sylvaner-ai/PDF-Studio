@@ -20,8 +20,11 @@ final class PageGridCoordinator: NSObject, NSCollectionViewDelegate {
     private var positions: [UInt64: Int] = [:]
     private var display = DisplayRotation()
     private var itemSize = NSSize.zero
-    /// Positions des pages en cours de glissement.
-    private var dragged: IndexSet?
+    /// Pages en cours de glissement, par identifiant : une insertion terminée
+    /// pendant le glissement peut changer leur position.
+    private var dragged: Set<UInt64>?
+    /// Une sélection reste à montrer.
+    private(set) var revealsSelection = false
 
     init(model: DocumentViewModel, renderer: PageRenderer) {
         self.model = model
@@ -87,9 +90,19 @@ final class PageGridCoordinator: NSObject, NSCollectionViewDelegate {
         let wanted = Set(selection.compactMap { positions[$0].map { IndexPath(item: $0, section: 0) } })
         if wanted != collectionView.selectionIndexPaths {
             collectionView.selectionIndexPaths = wanted
-            if let first = wanted.min() {
-                collectionView.scrollToItems(at: [first], scrollPosition: .nearestHorizontalEdge)
-            }
+            revealsSelection = true
+        }
+        revealSelectionIfPossible()
+    }
+
+    /// Fait défiler jusqu'à la première page sélectionnée. À l'ouverture de la
+    /// grille, SwiftUI la met à jour avant de lui donner sa taille : le défilement
+    /// attend alors sa mise en page (``PageGridCollectionView``).
+    func revealSelectionIfPossible() {
+        guard revealsSelection, collectionView.window != nil, !collectionView.visibleRect.isEmpty else { return }
+        revealsSelection = false
+        if let first = collectionView.selectionIndexPaths.min() {
+            collectionView.scrollToItems(at: [first], scrollPosition: .nearestHorizontalEdge)
         }
     }
 
@@ -219,7 +232,7 @@ extension PageGridCoordinator {
         _ collectionView: NSCollectionView, draggingSession session: NSDraggingSession,
         willBeginAt screenPoint: NSPoint, forItemsAt indexPaths: Set<IndexPath>
     ) {
-        dragged = IndexSet(indexPaths.map(\.item))
+        dragged = Set(indexPaths.compactMap { pages[safe: $0.item]?.id })
     }
 
     func collectionView(
@@ -257,7 +270,9 @@ extension PageGridCoordinator {
         guard let model else { return false }
         let position = indexPath.item
         if let dragged, draggingInfo.draggingSource as? NSCollectionView === collectionView {
-            model.move(dragged, before: position)
+            let positions = model.positions(of: dragged)
+            guard positions.count == dragged.count else { return false }
+            model.move(IndexSet(positions), before: position)
             return true
         }
         let pages = draggedPages(draggingInfo)

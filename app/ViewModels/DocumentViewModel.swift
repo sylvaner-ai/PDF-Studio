@@ -59,6 +59,10 @@ final class DocumentViewModel {
     @ObservationIgnored private(set) var session: EditSession?
     @ObservationIgnored private(set) var sources: PageSources?
     @ObservationIgnored var recovery = RecoveryContext()
+    /// Vrai une fois la fenêtre fermée : ce qui se termine ensuite ne modifie plus rien.
+    @ObservationIgnored private(set) var isClosed = false
+    /// Dernière insertion demandée ; la suivante attend sa fin.
+    @ObservationIgnored var insertionTask: Task<Void, Never>?
     @ObservationIgnored private var declaredTitle: String?
     /// Format des pages de chaque document source, en points.
     @ObservationIgnored private var sourceSizes: [[CGSize]] = []
@@ -91,6 +95,7 @@ final class DocumentViewModel {
                 }
             }
         }.value
+        guard !isClosed else { return }
 
         switch result {
         case let .success((document, stamp)):
@@ -120,6 +125,8 @@ final class DocumentViewModel {
         undoManager?.removeAllActions(withTarget: self)
         DocumentOpener.shared.setUnsaved(false, for: self)
         endRecovery()
+        isClosed = true
+        recovery.isActive = false
     }
 
     func show(_ document: PdfDocument) {
@@ -194,13 +201,15 @@ extension DocumentViewModel {
 // MARK: - Organisation des pages
 
 extension DocumentViewModel {
-    /// Pages visées par les commandes : la sélection des vignettes, sinon la page lue.
+    /// Pages visées par les commandes. Dans la grille : la sélection. En lecture :
+    /// plusieurs vignettes sélectionnées, sinon la page lue (la sélection ne la
+    /// suit pas quand la barre latérale montre les signets).
     var targetPositions: [Int] {
         let selected = positions(of: selection)
-        if selected.isEmpty, pages.indices.contains(canvas.currentPage) {
-            return [canvas.currentPage]
+        if workspace == .organizing || selected.count > 1 {
+            return selected
         }
-        return selected
+        return pages.indices.contains(canvas.currentPage) ? [canvas.currentPage] : selected
     }
 
     /// Positions des pages désignées par leur identifiant, dans l'ordre du document.
@@ -209,8 +218,10 @@ extension DocumentViewModel {
     }
 
     /// Les pages restent figées tant que des modifications retrouvées attendent une
-    /// réponse, ou pendant une exportation.
-    var canEdit: Bool { phase == .ready && session != nil && recoveryOffer == nil && activity == nil }
+    /// réponse, pendant une exportation, et une fois la fenêtre fermée.
+    var canEdit: Bool {
+        phase == .ready && session != nil && recoveryOffer == nil && activity == nil && !isClosed
+    }
 
     /// Un document garde au moins une page.
     func canDelete(_ positions: [Int]) -> Bool {
@@ -245,14 +256,18 @@ extension DocumentViewModel {
     /// renvoie `false` si elle a échoué.
     @discardableResult
     func perform(_ edit: (EditSession) throws -> Void) -> Bool {
-        guard let session else { return false }
+        guard canEdit, let session else { return false }
+        let revision = session.revision()
         do {
             try edit(session)
         } catch {
             report(error)
             return false
         }
-        registerUndo()
+        // Une opération sans effet (page déposée à sa place) n'est pas à annuler.
+        if session.revision() != revision {
+            registerUndo()
+        }
         reloadPages()
         return true
     }
@@ -291,6 +306,7 @@ extension DocumentViewModel {
     }
 
     func setModified(_ modified: Bool) {
+        guard !isClosed else { return }
         isModified = modified
         DocumentOpener.shared.setUnsaved(modified, recoverable: isRecoverable, for: self)
     }

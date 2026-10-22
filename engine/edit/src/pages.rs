@@ -227,9 +227,22 @@ impl Organizer {
         self.history.is_modified()
     }
 
-    /// Retient l'état courant comme enregistré.
-    pub fn mark_saved(&mut self) {
-        self.history.mark_saved();
+    /// Révision des pages : elle change à chaque modification et se retrouve
+    /// en annulant ou en rétablissant.
+    pub fn revision(&self) -> u64 {
+        self.history.revision()
+    }
+
+    /// Retient la révision `revision`, celle des pages écrites, comme enregistrée.
+    pub fn mark_saved(&mut self, revision: u64) {
+        self.history.mark_saved(revision);
+    }
+
+    /// Oublie l'état enregistré, par exemple quand les pages reposent sur une
+    /// version antérieure du fichier : le document reste modifié jusqu'au
+    /// prochain enregistrement.
+    pub fn forget_saved(&mut self) {
+        self.history.forget_saved();
     }
 
     fn new_entry(&mut self, origin: PageOrigin, quarter_turns: u8) -> PageEntry {

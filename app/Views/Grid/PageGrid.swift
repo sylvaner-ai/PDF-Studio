@@ -70,6 +70,14 @@ final class PageGridCollectionView: NSCollectionView {
         Task { @MainActor in window.makeFirstResponder(self) }
     }
 
+    override func layout() {
+        super.layout()
+        // La grille a sa taille : la sélection peut être montrée, hors de la mise en page.
+        if let coordinator, coordinator.revealsSelection {
+            Task { @MainActor in coordinator.revealSelectionIfPossible() }
+        }
+    }
+
     override func keyDown(with event: NSEvent) {
         switch event.specialKey {
         case .delete?, .deleteForward?:

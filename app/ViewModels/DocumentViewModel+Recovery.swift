@@ -84,7 +84,10 @@ extension DocumentViewModel {
             try? store.makeCopy(session.sourceBytes(source: 0), of: .base)
         }.value
         if let base {
+            // Retenu avant que le fichier ne soit touché : si l'écriture échoue en
+            // chemin, les modifications restent rattachées à cette copie.
             recovery.basePath = base
+            updateRecovery()
         } else {
             logger.error("Copie d'ouverture impossible : les modifications ne seront plus retenues")
             disableRecovery()
@@ -150,6 +153,8 @@ extension DocumentViewModel {
                 return (base, others)
             }
         }.value
+        // Fenêtre fermée entre-temps : les modifications restent proposées.
+        guard !isClosed else { return }
         guard case let .success((base, others)) = opened else {
             if case let .failure(error) = opened {
                 logger.error("Restauration impossible : \(error.localizedDescription, privacy: .public)")
@@ -161,6 +166,9 @@ extension DocumentViewModel {
         if let base {
             show(base)
             recovery.basePath = record.basePath
+            // Les pages reposent sur une version antérieure du fichier : même en
+            // annulant la restauration, elles diffèrent du fichier enregistré.
+            session?.forgetSaved()
         } else {
             phase = .ready
         }

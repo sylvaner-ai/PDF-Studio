@@ -140,6 +140,8 @@ final class EngineBridgeTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(20))
         } while search.isSearching && Date() < again
         XCTAssertEqual(search.hits, [SearchHit(page: 50, index: 0)])
+        // L'occurrence montrée avant la réorganisation reste la courante.
+        XCTAssertEqual(search.status, "1 sur 1")
     }
 
     func testOrganiseLesPagesEtExporte() throws {
@@ -163,7 +165,8 @@ final class EngineBridgeTests: XCTestCase {
 
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("organise-\(UUID()).pdf")
         defer { try? FileManager.default.removeItem(at: url) }
-        try session.exportPdf().write(to: url)
+        let exported = try session.exportPdf()
+        try exported.bytes.write(to: url)
         let written = try PdfDocument.open(path: url.path, password: nil)
         XCTAssertEqual(written.pageCount(), 5)
         XCTAssertFalse(try written.plainText(index: 0).isEmpty)
@@ -171,6 +174,12 @@ final class EngineBridgeTests: XCTestCase {
         XCTAssertTrue(session.undo())
         XCTAssertEqual(session.redoName(), "la suppression")
         XCTAssertFalse(try session.hasSignature())
+
+        // Seule la révision écrite est enregistrée ; annuler y revient.
+        session.markSaved(revision: exported.revision)
+        XCTAssertTrue(session.isModified())
+        XCTAssertTrue(session.redo())
+        XCTAssertFalse(session.isModified())
     }
 }
 
@@ -213,10 +222,39 @@ final class FileSaverTests: XCTestCase {
         try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent("document.pdf")
         try Data("0".utf8).write(to: url)
+        // Un dossier rangé parmi les sauvegardes n'est jamais supprimé.
+        let exports = backups.appendingPathComponent("Exportations")
+        try FileManager.default.createDirectory(at: exports, withIntermediateDirectories: true)
         for version in 1...(FileSaver.maxBackups + 3) {
             try FileSaver.replace(url, with: Data("\(version)".utf8), backups: backups)
         }
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: backups.path).count, FileSaver.maxBackups)
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: backups.path).count, FileSaver.maxBackups + 1
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: exports.path))
+    }
+
+    func testRangeChaqueExportationDansSonDossier() throws {
+        let exports = directory.appendingPathComponent("exportations")
+        try FileManager.default.createDirectory(at: exports, withIntermediateDirectories: true)
+        let images = (1...(FileSaver.maxBackups + 5)).map { directory.appendingPathComponent("page \($0).png") }
+        for url in images {
+            try Data("ancienne".utf8).write(to: url)
+        }
+        // Tous les fichiers remplacés par une exportation sont gardés, ensemble.
+        let backups = try FileSaver.exportBackupDirectory(named: "document", in: exports)
+        for url in images {
+            try FileSaver.export(Data("nouvelle".utf8), to: url, backups: backups)
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: backups.path).count, images.count)
+        XCTAssertEqual(try Data(contentsOf: images[0]), Data("nouvelle".utf8))
+        // Seuls les dossiers des dernières exportations restent.
+        for _ in 1...FileSaver.maxExportBackups {
+            _ = try FileSaver.exportBackupDirectory(named: "document", in: exports)
+        }
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: exports.path).count, FileSaver.maxExportBackups
+        )
     }
 }
 

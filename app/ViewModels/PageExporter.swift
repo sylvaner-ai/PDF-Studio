@@ -70,6 +70,11 @@ enum PageExporter {
         return min(scale, maxPixels / longest)
     }
 
+    /// Résolution réelle, en ppp, une fois appliquée la limite de ``maxPixels``.
+    static func resolution(forDPI dpi: Int, pageSize: CGSize) -> Int {
+        Int((72 * scale(forDPI: dpi, pageSize: pageSize)).rounded())
+    }
+
     /// Image encodée en PNG ou en JPEG, avec sa résolution.
     static func encode(_ image: CGImage, as format: ImageFormat, dpi: Int) throws -> Data {
         let data = NSMutableData()

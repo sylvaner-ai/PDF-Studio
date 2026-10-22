@@ -68,7 +68,10 @@ l'*inpainting* des scans (jalon 7).
 - **Numérotation des pages** (« i, ii, 1, 2… », `/PageLabels`) : elle est abandonnée
   dès que l'ordre des pages change, plutôt que de devenir fausse.
 - **Destinations nommées :** une destination nommée qui visait une page supprimée
-  reste dans le fichier ; elle ne mène plus nulle part.
+  reste dans le fichier, sans la page ; elle ne mène plus nulle part.
+- **Balisage d'accessibilité :** supprimer des pages retire la structure balisée
+  du document (`/StructTreeRoot`), qui renvoie au contenu des pages ; les lecteurs
+  d'écran lisent alors le document sans ses balises.
 - **Signature numérique :** tout enregistrement la rend invalide (PDF Studio prévient
   avant). Signer de nouveau relève d'un autre logiciel.
 - **Récupération :** seule l'organisation des pages est retenue. Si le fichier est
@@ -80,6 +83,9 @@ l'*inpainting* des scans (jalon 7).
 - **Glisser-déposer :** les pages se copient d'une fenêtre à l'autre depuis la grille
   d'organisation seulement, pas depuis la barre latérale ; on ne peut pas encore
   les déposer dans le Finder pour créer un fichier.
+- **Retour de la grille :** la lecture reprend sur la page lue, mais avec
+  l'ajustement automatique et en haut de la page ; le zoom choisi et la position
+  dans la page ne sont pas conservés.
 - **Fusion :** il n'y a pas de commande dédiée. On ouvre le premier document, on y
   insère les autres (⌥⌘I, plusieurs à la fois, ou par dépôt sur la grille), puis on
   choisit Enregistrer sous.
