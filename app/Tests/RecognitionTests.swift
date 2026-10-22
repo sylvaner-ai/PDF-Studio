@@ -13,7 +13,7 @@ final class RecognitionTests: XCTestCase {
         let session = EditSession(document: try PdfDocument.open(path: fixture("scan_simule"), password: nil))
         let pages = try session.pagesToRecognize()
         XCTAssertEqual(pages, session.pages().map(\.id), "page en image, sans texte")
-        XCTAssertTrue(try session.searchPage(page: pages[0], query: "Evreux").isEmpty)
+        XCTAssertTrue(try session.searchPage(page: pages[0], query: "efficacite").isEmpty)
 
         let result = try session.recognizePage(
             page: pages[0], recognizer: VisionTextRecognizer(), settings: defaultRecognitionSettings()
@@ -28,7 +28,7 @@ final class RecognitionTests: XCTestCase {
         XCTAssertNotEqual(session.pages()[0].textLayerRevision, 0)
         XCTAssertTrue(try session.pagesToRecognize().isEmpty)
         // Recherche sans tenir compte des accents ni de la casse, avant l'enregistrement.
-        XCTAssertFalse(try session.searchPage(page: pages[0], query: "EVREUX").isEmpty)
+        XCTAssertFalse(try session.searchPage(page: pages[0], query: "EFFICACITE").isEmpty)
         XCTAssertFalse(try session.recognizedWords(page: pages[0]).isEmpty)
 
         // La couche de texte est enregistrée dans le PDF, invisible et cherchable.
@@ -39,7 +39,7 @@ final class RecognitionTests: XCTestCase {
 
         XCTAssertTrue(session.undo())
         XCTAssertTrue(try session.recognizedWords(page: pages[0]).isEmpty)
-        XCTAssertTrue(try session.searchPage(page: pages[0], query: "Evreux").isEmpty)
+        XCTAssertTrue(try session.searchPage(page: pages[0], query: "efficacite").isEmpty)
     }
 
     func testVisionLitUneLettreEnFrancais() throws {
