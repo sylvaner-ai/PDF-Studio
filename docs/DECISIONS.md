@@ -404,8 +404,8 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   bloc marqué `/PDFStudioOCR BMC … EMC`. Chaque mot est écrit en rendu invisible
   (`3 Tr`) dans une police Type0 (Identity-H) construite par le code : un
   TrueType minimal dont tous les caractères renvoient à un même glyphe de
-  largeur fixe, un rectangle de la hauteur du cadratin, jamais peint, avec une table ToUnicode identité. Comme chez Tesseract, chaque
-  ligne reçoit une seule matrice (position et angle de la ligne), une taille et
+  largeur fixe (un rectangle de la hauteur du cadratin, jamais peint), avec
+  une table ToUnicode identité. Comme chez Tesseract, chaque ligne reçoit une seule matrice (position et angle de la ligne), une taille et
   une ligne de pied communes (médianes de ses mots) ; les mots suivants sont
   placés par des déplacements `Td` le long de la ligne. `Tz` étire chaque mot
   exactement sur sa largeur ; une espace étirée le relie au mot suivant, pour
