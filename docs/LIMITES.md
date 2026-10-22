@@ -33,7 +33,9 @@ l'*inpainting* des scans (jalon 7).
   mise en page est exacte, mais leur dessin n'est pas celui des polices de macOS.
   Nimbus Mono (Courier) en particulier paraît plus gras que le Courier du Mac.
 - **Recherche dans les scans :** une page sans couche de texte ne donne aucun
-  résultat. La recherche dans les scans viendra avec l'OCR (jalon 5).
+  résultat. La recherche dans les scans viendra avec l'OCR (jalon 5). *Résolu au
+  jalon 5 : le texte des pages reconnues est cherché, avant comme après
+  l'enregistrement.*
 - **Mots coupés en fin de ligne :** « effica-⏎cité » est retrouvé par
   « efficacité », mais un mot composé coupé sur son trait d'union
   (« porte-⏎monnaie ») devient « portemonnaie » : il faut alors chercher
@@ -136,3 +138,36 @@ l'*inpainting* des scans (jalon 7).
   glisser, seul le contour des objets suit le pointeur.
 - **Historique :** chaque appui sur une flèche compte pour une modification à
   annuler.
+
+## Jalon 5
+
+- **Mesures de Vision :** le moteur de l'application est Vision, qui ne
+  fonctionne que sous macOS ; ses mesures (taux de caractères corrects, temps
+  par page) sont faites sur le Mac et consignées dans `OCR_BENCHMARK.md`.
+- **Confiance perdue à l'enregistrement :** la couche de texte enregistrée ne
+  garde pas la confiance des mots. Après réouverture, les mots douteux ne sont
+  plus signalés, et la couche n'est pas modifiable en mode Édition (le texte
+  invisible n'est pas un objet de la page).
+- **Nouvelle reconnaissance d'une page déjà enregistrée avec sa couche :** le
+  texte invisible compte comme un texte de la page ; les mots relus qui le
+  recouvrent sont écartés, la page n'est donc pas relue. Il n'existe pas encore
+  de commande pour retirer une couche enregistrée.
+- **Arrêt :** la page en cours de lecture va jusqu'au bout (quelques secondes au
+  plus) ; les pages restent figées jusque-là.
+- **Image non redressée :** l'inclinaison est corrigée pour la lecture
+  seulement ; l'image de la page reste inclinée, et les mots invisibles suivent
+  ses lignes. Une page couchée ou retournée est remise à l'endroit par sa
+  rotation, pas par une nouvelle image.
+- **Langues :** français et anglais seulement ; une autre langue en alphabet
+  latin est lue, mais sans correction linguistique adaptée.
+- **Confiance de Vision :** Vision ne donne qu'une confiance par ligne ; celle
+  des mots en est déduite (D30). Un mot faux sur une ligne sûre peut ne pas être
+  signalé.
+- **Tableaux et colonnes :** l'ordre de lecture est celui que donne le moteur ;
+  la recherche d'une expression à cheval sur deux cellules ou deux colonnes peut
+  échouer.
+- **Écriture manuscrite :** non mesurée ; Vision en lit une partie, sans
+  garantie.
+- **Banc d'essai :** les mesures à texte de référence portent sur des scans
+  simulés (pages rendues puis dégradées comme par un scanner) ; les vrais scans
+  sont mesurés sans référence (nombre de mots, confiance, temps).
