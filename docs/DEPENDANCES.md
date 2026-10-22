@@ -47,7 +47,7 @@ soit une licence commerciale d'Artifex, soit le passage à PDFium (BSD).
 ## Polices embarquées
 
 Aucune à ce jour. La couche de texte invisible des pages reconnues (jalon 5)
-utilise une police sans dessin, « GlyphLessFont », construite par le code du
+utilise une police jamais peinte, « GlyphLessFont », construite par le code du
 moteur (`pdf_core/src/textlayer.rs`) : elle ne reprend aucune police existante.
 Le jeu de test OCR intègre DejaVu Sans (licence Bitstream Vera, libre) dans
 `tests/fixtures/ocr/petits_caracteres.pdf`. Les polices libres (OFL) prévues pour l'appariement de polices

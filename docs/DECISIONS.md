@@ -397,21 +397,24 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   confirmation par le moteur. Réglages par défaut à confirmer par les mesures de
   Vision.
 
-## D28 — Couche de texte invisible : police Type0 sans dessin (jalon 5)
+## D28 — Couche de texte invisible : police Type0 jamais peinte (jalon 5)
 
 - **Retenu :** à l'enregistrement, les mots reconnus sont ajoutés au flux de
   contenu de la page, après le contenu d'origine (entouré de `q … Q`), dans un
   bloc marqué `/PDFStudioOCR BMC … EMC`. Chaque mot est écrit en rendu invisible
   (`3 Tr`) dans une police Type0 (Identity-H) construite par le code : un
-  TrueType minimal dont tous les caractères renvoient à un glyphe vide de
-  largeur fixe, avec une table ToUnicode identité. Comme chez Tesseract, chaque
+  TrueType minimal dont tous les caractères renvoient à un même glyphe de
+  largeur fixe, un rectangle de la hauteur du cadratin, jamais peint, avec une table ToUnicode identité. Comme chez Tesseract, chaque
   ligne reçoit une seule matrice (position et angle de la ligne), une taille et
   une ligne de pied communes (médianes de ses mots) ; les mots suivants sont
   placés par des déplacements `Td` le long de la ligne. `Tz` étire chaque mot
   exactement sur sa largeur ; une espace étirée le relie au mot suivant, pour
   que la copie et la recherche voient des espaces. Une première version plaçait
   chaque mot par sa propre matrice et à sa propre hauteur : Aperçu ne regroupait
-  pas les mots en lignes et sélectionnait le texte en colonnes.
+  pas les mots en lignes et sélectionnait le texte en colonnes. Le défaut
+  tenait surtout au glyphe, d'abord vide : PDFKit mesure les caractères par
+  leur dessin, et donnait à chacun une hauteur nulle (mots non regroupés en
+  lignes, sélection impossible).
 - **Alternatives :** une police standard (Helvetica) en rendu invisible :
   limitée à l'encodage WinAnsi, avec des chasses variables qui ne coïncident
   pas avec l'image ; ou ajouter la couche dans un objet de formulaire séparé.

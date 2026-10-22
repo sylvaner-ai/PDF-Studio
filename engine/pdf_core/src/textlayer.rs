@@ -3,7 +3,7 @@
 //! Chaque mot reconnu est écrit en mode de rendu 3 (ni rempli ni tracé), à
 //! l'emplacement exact du mot dans l'image : la page est cherchable et son
 //! texte sélectionnable, sans que son aspect change. La police est réduite à
-//! un glyphe vide (comme la « GlyphLessFont » de Tesseract) : un code de deux
+//! un glyphe jamais peint (comme la « GlyphLessFont » de Tesseract) : un code de deux
 //! octets par caractère, égal à son point de code Unicode, une chasse fixe de
 //! un demi-cadratin, et une table `ToUnicode` qui rend le texte aux lecteurs.
 //! Chaque mot est étiré horizontalement (`Tz`) pour couvrir sa largeur ; les
@@ -239,10 +239,10 @@ fn identity_to_unicode() -> Vec<u8> {
     out.into_bytes()
 }
 
-// MARK: - Programme TrueType à un glyphe vide
+// MARK: - Programme TrueType à un glyphe jamais peint
 
-/// Police TrueType minimale : deux glyphes vides (`.notdef` et le glyphe
-/// unique de la couche), d'un demi-cadratin de chasse, cadratin de 1 000
+/// Police TrueType minimale : deux glyphes (`.notdef`, vide, et le glyphe
+/// unique de la couche, un rectangle), d'un demi-cadratin de chasse, cadratin de 1 000
 /// unités, hauteur 800 au-dessus de la ligne de pied et 200 au-dessous.
 pub(crate) fn glyphless_truetype() -> Vec<u8> {
     let mut tables: Vec<([u8; 4], Vec<u8>)> = Vec::new();
@@ -287,7 +287,24 @@ pub(crate) fn glyphless_truetype() -> Vec<u8> {
     }
     tables.push((*b"cmap", cmap.0));
 
-    tables.push((*b"glyf", Vec::new()));
+    // Glyphe 1 : un rectangle de la taille du cadratin. Il n'est jamais
+    // peint (rendu 3), mais PDFKit (Aperçu) mesure les caractères par leur
+    // dessin : un glyphe vide leur donne une hauteur nulle, et les mots ne
+    // sont alors ni regroupés en lignes ni sélectionnables.
+    let mut glyf = Writer::default();
+    glyf.i16(1); // numberOfContours
+    for v in [0, -200, 500, 800] {
+        glyf.i16(v); // xMin, yMin, xMax, yMax
+    }
+    glyf.u16(3); // endPtsOfContours
+    glyf.u16(0); // instructionLength
+    glyf.bytes(&[1; 4]); // points sur la courbe, coordonnées sur 16 bits
+    for v in [0, 0, 500, 0, -200, 1000, 0, -1000] {
+        glyf.i16(v); // x puis y, en écarts au point précédent
+    }
+    glyf.bytes(&[0; 2]); // alignement sur 4 octets
+    let glyph_length = glyf.0.len() as u16;
+    tables.push((*b"glyf", glyf.0));
 
     let mut head = Writer::default();
     head.u32(0x0001_0000);
@@ -326,17 +343,18 @@ pub(crate) fn glyphless_truetype() -> Vec<u8> {
     }
     tables.push((*b"hmtx", hmtx.0));
 
+    // Décalages courts (divisés par deux) : .notdef vide, puis le rectangle.
     let mut loca = Writer::default();
-    for _ in 0..3 {
-        loca.u16(0);
+    for v in [0, 0, glyph_length / 2] {
+        loca.u16(v);
     }
     tables.push((*b"loca", loca.0));
 
     let mut maxp = Writer::default();
     maxp.u32(0x0001_0000);
     maxp.u16(2); // numGlyphs
-    for v in [0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0] {
-        maxp.u16(v);
+    for v in [4, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0] {
+        maxp.u16(v); // maxPoints, maxContours…
     }
     tables.push((*b"maxp", maxp.0));
 
