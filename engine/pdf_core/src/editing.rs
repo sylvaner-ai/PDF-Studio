@@ -117,6 +117,79 @@ impl PageModel {
         }
     }
 
+    /// Structure du texte de la page, pour diagnostiquer le découpage en blocs
+    /// sur un document privé sans en dévoiler le contenu : lettres remplacées
+    /// par « x » ou « X », chiffres par « 9 », positions et styles en clair.
+    pub fn text_structure(&self) -> String {
+        use std::fmt::Write;
+        let mask = |text: &str| -> String {
+            text.chars()
+                .map(|c| match c {
+                    c if c.is_uppercase() => 'X',
+                    c if c.is_alphabetic() => 'x',
+                    c if c.is_numeric() => '9',
+                    c => c,
+                })
+                .collect()
+        };
+        let mut out = String::new();
+        for object in &self.objects {
+            let Some(block) = &object.text else {
+                continue;
+            };
+            let b = object.bbox;
+            let _ =
+                writeln!(
+                out,
+                "bloc {} [{:.1} {:.1} {:.1} {:.1}] {:?} interligne {:.2} corps {:.2} modifiable {}",
+                object.id, b.x0, b.y0, b.x1, b.y1, block.alignment, block.leading, block.size,
+                object.editable
+            );
+            for line in &block.lines {
+                let first = &self.run.glyphs[line.glyphs[0]];
+                let state = &self.run.states[first.state];
+                let font = state.font.as_ref().map_or("?", |f| f.base_name.as_str());
+                let color = state
+                    .fill
+                    .color
+                    .as_ref()
+                    .map(|c| String::from_utf8_lossy(c).into_owned())
+                    .unwrap_or_default();
+                let objects: HashSet<usize> = line
+                    .glyphs
+                    .iter()
+                    .map(|&g| self.run.glyphs[g].text_object)
+                    .collect();
+                let styles: HashSet<usize> = line
+                    .glyphs
+                    .iter()
+                    .map(|&g| self.run.glyphs[g].state)
+                    .collect();
+                let _ = writeln!(
+                    out,
+                    "  ligne ({:.1}, {:.1}) → ({:.1}, {:.1}) corps {:.2} police {} couleur [{}] \
+                     objets BT {:?} états {} « {} »",
+                    line.start.x,
+                    line.start.y,
+                    line.end.x,
+                    line.end.y,
+                    line.size,
+                    font,
+                    color.trim(),
+                    objects,
+                    styles.len(),
+                    mask(&line.text)
+                );
+            }
+            let _ = writeln!(
+                out,
+                "  texte « {} »",
+                mask(&block.text).replace('\n', " ⏎ ")
+            );
+        }
+        out
+    }
+
     /// État graphique et métriques de la police du premier glyphe d'un bloc.
     fn first_state(&self, object: &PageObject) -> Option<&GraphicsState> {
         let block = object.text.as_ref()?;

@@ -145,6 +145,11 @@ impl Document {
         Ok(model)
     }
 
+    /// Structure masquée du texte de la page (cf. [`PageModel::text_structure`]).
+    pub fn text_structure(&mut self, index: u32) -> Result<String> {
+        Ok(self.page_model(index)?.text_structure())
+    }
+
     /// Objets de la page, modifications `edits` comprises.
     pub fn page_objects(
         &mut self,
