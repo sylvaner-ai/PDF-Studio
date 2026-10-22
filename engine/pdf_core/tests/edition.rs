@@ -294,8 +294,9 @@ fn lit_l_encodage_propre_d_une_police_cff() {
 }
 
 /// Encadré d'étiquettes et de valeurs (en-tête de facture) : les étiquettes
-/// forment un bloc, les valeurs alignées à leur droite un autre, et modifier
-/// une valeur laisse chaque ligne à sa place.
+/// forment un bloc, les valeurs, d'un autre style, un second bloc, même quand
+/// une étiquette et sa valeur se suivent dans la même ligne de texte ; modifier
+/// les valeurs laisse chaque ligne à sa place.
 #[test]
 fn encadre_etiquettes_et_valeurs() {
     let bytes = std::fs::read(
@@ -310,21 +311,24 @@ fn encadre_etiquettes_et_valeurs() {
             .cloned()
             .unwrap()
     };
+    // Pied de page, étiquettes, valeurs : aucune ligne faite d'espaces.
+    assert_eq!(found.len(), 3, "{:?}", text_of(&found));
     let labels = block(&found, "Date de facture");
-    let label_text = labels.text.as_deref().unwrap();
-    assert_eq!(label_text.lines().count(), 7, "{label_text:?}");
-    assert!(label_text.starts_with("Date de facture\nN° de facture\nRemise à zéro\n"));
-    assert!(!label_text.contains("02/04/2026"));
-    let values = block(&found, "02/04/2026");
     assert_eq!(
-        values.text.as_deref(),
-        Some("02/04/2026\n12345678901234\n01/01/2026")
+        labels.text.as_deref(),
+        Some(
+            "Date de facture\nN° de facture\nRemise à zéro\nFin d'engagement\n\
+             N° de compte client\nN° de ligne\nRéférence"
+        )
     );
+    let values = block(&found, "02/04/2026");
+    let old = "02/04/2026\n12345678901234\n01/01/2026\nSans engagement\n87654321\n\
+               01 23 45 67 89\nXX-1234-5678";
+    assert_eq!(values.text.as_deref(), Some(old));
     assert!(values.editable);
-    let lower = block(&found, "01 23 45 67 89");
-    assert_eq!(lower.text.as_deref(), Some("01 23 45 67 89\nXX-1234-5678"));
+    assert_eq!(values.font_name.as_deref(), Some("Helvetica-Bold"));
 
-    let new = "02/04/2026\n98765432109876\n01/01/2026";
+    let new = old.replace("12345678901234", "98765432109876");
     let written = write_edited_pdf(
         &[SourceData::new(bytes.clone(), None)],
         &[OutputPage::Source {
@@ -334,13 +338,13 @@ fn encadre_etiquettes_et_valeurs() {
         }],
         &[Some(edits(vec![(
             values.id,
-            replaced(new, FontChoice::Original),
+            replaced(&new, FontChoice::Original),
         )]))],
     )
     .unwrap();
     let after = objects(&written, 0);
     let edited = block(&after, "98765432109876");
-    assert_eq!(edited.text.as_deref(), Some(new));
+    assert_eq!(edited.text.as_deref(), Some(new.as_str()));
     // Mêmes lignes de base, au même bord gauche (127,4 pt), sans débordement.
     assert!(!edited.overflow);
     assert!(

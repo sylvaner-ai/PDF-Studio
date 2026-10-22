@@ -1,16 +1,16 @@
 //! Objets éditables d'une page : blocs de texte, images, tracés, formulaires et
 //! dégradés, dans l'ordre d'empilement.
 //!
-//! Les glyphes sont réunis en lignes (même ligne de base, sans grand écart),
-//! puis les lignes en blocs (même corps, interligne régulier, lignes qui se
-//! chevauchent horizontalement) : un paragraphe forme un bloc, que l'on peut
-//! modifier d'un seul tenant. Les tracés qui se touchent et se suivent dans le
+//! Les glyphes sont réunis en lignes (même ligne de base, sans grand écart ni
+//! changement de style à distance), puis les lignes en blocs (même style,
+//! interligne régulier, lignes alignées) : un paragraphe forme un bloc, que
+//! l'on peut modifier d'un seul tenant. Les tracés qui se touchent et se suivent dans le
 //! flux forment un seul objet (un logo, la grille d'un tableau).
 
 use std::ops::Range;
 
 use super::geometry::{Point, Rect};
-use super::interp::{Interpretation, ShowItem, UnitKind};
+use super::interp::{Glyph, Interpretation, ShowItem, UnitKind};
 use super::lexer::Operation;
 
 /// Nature d'un objet.
@@ -56,6 +56,10 @@ pub struct TextLine {
     pub left: Point,
     /// Fin du dernier glyphe qui n'est pas une espace (`end` à défaut).
     pub right: Point,
+    /// Glyphe qui porte le style dominant de la ligne (police, corps et
+    /// couleur du plus grand nombre de glyphes autres que des espaces) ; le
+    /// premier glyphe si la ligne n'a que des espaces.
+    pub style: usize,
     /// Corps du texte dans l'espace de la page.
     pub size: f64,
     /// Direction de la ligne de base (vecteur unitaire).
@@ -235,7 +239,22 @@ pub fn lines(run: &Interpretation) -> Vec<TextLine> {
             let reference = line.size.max(size).max(1e-6);
             let gap = line.along(glyph.origin) - line.along(previous.end);
             let shift = (line.across(glyph.baseline) - line.across(previous.baseline)).abs();
+            // Un changement de style après un écart plus large qu'une espace
+            // (une étiquette suivie de sa valeur) commence une autre ligne ;
+            // un mot en gras dans une phrase reste dans sa ligne.
+            let restyled = is_ink(glyph)
+                && line
+                    .glyphs
+                    .iter()
+                    .rev()
+                    .find(|&&g| is_ink(&run.glyphs[g]))
+                    .is_some_and(|&ink| {
+                        !same_style(run, ink, index)
+                            && line.along(glyph.origin) - line.along(run.glyphs[ink].end)
+                                > reference
+                    });
             if same_direction
+                && !restyled
                 && shift <= 0.3 * reference
                 && gap <= 1.5 * reference
                 && gap >= -0.5 * reference
@@ -261,6 +280,7 @@ pub fn lines(run: &Interpretation) -> Vec<TextLine> {
             end: glyph.end,
             left: glyph.baseline,
             right: glyph.end,
+            style: index,
             size,
             direction,
             text: glyph.text.clone(),
@@ -269,16 +289,51 @@ pub fn lines(run: &Interpretation) -> Vec<TextLine> {
     }
     lines.extend(current);
     for line in &mut lines {
-        let mut ink =
-            line.glyphs.iter().map(|&g| &run.glyphs[g]).filter(|glyph| {
-                !glyph.text.chars().all(char::is_whitespace) || glyph.text.is_empty()
-            });
-        if let Some(first) = ink.next() {
-            line.left = first.baseline;
-            line.right = ink.next_back().unwrap_or(first).end;
+        let ink: Vec<usize> = line
+            .glyphs
+            .iter()
+            .copied()
+            .filter(|&g| is_ink(&run.glyphs[g]))
+            .collect();
+        if let (Some(&first), Some(&last)) = (ink.first(), ink.last()) {
+            line.left = run.glyphs[first].baseline;
+            line.right = run.glyphs[last].end;
+            // Le premier glyphe du style le plus représenté.
+            let count = |g: usize| ink.iter().filter(|&&o| same_style(run, g, o)).count();
+            let mut best = (first, 0);
+            for &g in &ink {
+                if best.1 > 0 && same_style(run, best.0, g) {
+                    continue;
+                }
+                let n = count(g);
+                if n > best.1 {
+                    best = (g, n);
+                }
+            }
+            line.style = best.0;
         }
     }
     lines
+}
+
+/// Vrai si le glyphe se voit : autre chose qu'une espace (un glyphe sans
+/// texte connu compte comme visible).
+fn is_ink(glyph: &Glyph) -> bool {
+    glyph.text.is_empty() || !glyph.text.chars().all(char::is_whitespace)
+}
+
+/// Vrai si deux glyphes ont la même police, le même corps et la même couleur
+/// de remplissage.
+fn same_style(run: &Interpretation, a: usize, b: usize) -> bool {
+    let (ga, gb) = (&run.glyphs[a], &run.glyphs[b]);
+    let (sa, sb) = (&run.states[ga.state], &run.states[gb.state]);
+    let font = match (&sa.font, &sb.font) {
+        (Some(x), Some(y)) => x.base_name == y.base_name,
+        (None, None) => sa.font_name == sb.font_name,
+        _ => false,
+    };
+    let (za, zb) = (ga.trm.vertical_scale(), gb.trm.vertical_scale());
+    font && (za - zb).abs() <= 0.05 * za.max(zb) && sa.fill == sb.fill
 }
 
 /// Nombre de blocs récents auxquels une ligne peut encore se joindre (texte
@@ -291,11 +346,15 @@ const OPEN_BLOCKS: usize = 8;
 /// celui dont elle est le mieux alignée ; à égalité, le plus récent.
 pub fn blocks(run: &Interpretation) -> Vec<TextBlock> {
     let mut groups: Vec<Vec<TextLine>> = Vec::new();
-    for line in lines(run) {
+    // Une ligne faite d'espaces ne dessine rien : elle ne forme pas de bloc.
+    let visible = lines(run)
+        .into_iter()
+        .filter(|line| line.glyphs.iter().any(|&g| is_ink(&run.glyphs[g])));
+    for line in visible {
         let open = groups.len().saturating_sub(OPEN_BLOCKS);
         let mut best: Option<(usize, f64)> = None;
         for index in (open..groups.len()).rev() {
-            if let Some(score) = joins(&groups[index], &line) {
+            if let Some(score) = joins(run, &groups[index], &line) {
                 if best.is_none_or(|(_, top)| score < top) {
                     best = Some((index, score));
                 }
@@ -315,13 +374,14 @@ pub fn blocks(run: &Interpretation) -> Vec<TextBlock> {
 /// Si `line` peut continuer le bloc formé par `group`, écart entre leurs bords
 /// alignés (plus il est faible, mieux la ligne s'y rattache).
 ///
-/// La ligne doit être de même direction et de corps voisin, sous la dernière
-/// ligne à un interligne cohérent, et alignée sur elle : même bord gauche,
+/// La ligne doit être de même direction et de même style dominant (police,
+/// corps, couleur), sous la dernière ligne à un interligne cohérent, et
+/// alignée sur elle : même bord gauche,
 /// même bord droit ou même centre. Une ligne isolée accepte aussi une suivante
 /// qui commence un peu plus à gauche (alinéa) ou un peu plus à droite (retrait
 /// d'une liste). Deux colonnes voisines, une étiquette et sa valeur par
 /// exemple, restent ainsi des blocs distincts.
-fn joins(group: &[TextLine], line: &TextLine) -> Option<f64> {
+fn joins(run: &Interpretation, group: &[TextLine], line: &TextLine) -> Option<f64> {
     let first = &group[0];
     let last = &group[group.len() - 1];
     let (u, v) = (first.direction, line.direction);
@@ -329,8 +389,7 @@ fn joins(group: &[TextLine], line: &TextLine) -> Option<f64> {
         return None;
     }
     let size = first.size.max(1e-6);
-    let ratio = line.size / size;
-    if !(0.8..=1.25).contains(&ratio) {
+    if !same_style(run, last.style, line.style) {
         return None;
     }
     // Distance entre lignes de base : la nouvelle ligne est sous la précédente.
@@ -790,6 +849,25 @@ mod tests {
             .collect();
         // Lignes courtes : les retours à la ligne sont gardés.
         assert_eq!(texts, ["gauche un\ngauche deux", "droite un\ndroite deux"]);
+    }
+
+    #[test]
+    fn blocs_homogenes_par_style() {
+        let (_, objects) = objects(
+            b"BT /F1 10 Tf 50 500 Td (Nom) Tj 1 0 0 rg 30 0 Td (Dupont) Tj ET \
+              BT 0 g /F1 10 Tf 50 300 Td (un mot ) Tj 1 0 0 rg (rouge) Tj 0 g ( ici) Tj ET \
+              BT /F1 10 Tf 12 TL 50 200 Td (aaa) Tj T* 1 0 0 rg (bbb) Tj ET \
+              BT 0 g /F1 10 Tf 50 100 Td (    ) Tj ET",
+        );
+        let texts: Vec<&str> = objects
+            .iter()
+            .map(|o| o.text.as_ref().unwrap().text.as_str())
+            .collect();
+        // Étiquette et valeur d'un autre style, séparées par un écart : deux
+        // blocs ; un mot coloré dans une phrase y reste ; deux lignes de
+        // couleurs différentes ne se joignent pas ; une ligne d'espaces ne
+        // forme pas de bloc.
+        assert_eq!(texts, ["Nom", "Dupont", "un mot rouge ici", "aaa", "bbb"]);
     }
 
     #[test]

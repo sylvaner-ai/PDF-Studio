@@ -99,7 +99,7 @@ pub fn rewrite(
                 }
                 match new_text {
                     Some(new_text) => {
-                        let first = &run.glyphs[block.lines[0].glyphs[0]];
+                        let first = &run.glyphs[block.lines[0].style];
                         let snippet = replaced_text(run, new_text, change.offset, |state| {
                             insertion_ctm(run, first.text_object, state)
                         });

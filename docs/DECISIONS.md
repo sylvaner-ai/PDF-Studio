@@ -324,18 +324,25 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   épurée, comme le demande le cahier des charges.
 
 
-## D25 — Blocs de texte : lignes alignées, listes modifiées ligne à ligne (jalon 4)
+## D25 — Blocs de texte homogènes : même style, lignes alignées (jalon 4)
 
-- **Retenu :** une ligne ne rejoint un bloc que si elle est alignée sur sa
-  dernière ligne (même bord gauche, même bord droit ou même centre, les espaces
-  de tête et de queue ne comptant pas), sous elle à un interligne cohérent ; une
-  ligne isolée accepte aussi un alinéa ou un retrait de liste. Parmi les blocs
-  possibles, la ligne va à celui dont elle est le mieux alignée. Un bloc dont
-  moins de la moitié des lignes sont pleines, ou plus étroit que douze
+- **Retenu :** un bloc ne réunit que des lignes de même style dominant (même
+  police, même corps, même couleur), alignées sur la ligne précédente (même bord
+  gauche, même bord droit ou même centre, les espaces ne comptant pas) et
+  espacées d'un interligne régulier ; une ligne isolée accepte aussi un alinéa ou
+  un retrait de liste. Parmi les blocs possibles, la ligne va à celui dont elle
+  est le mieux alignée. Une ligne de texte est coupée en deux quand le style
+  change après un écart plus large qu'un cadratin (une étiquette suivie de sa
+  valeur) ; un mot en gras ou en couleur au fil d'une phrase reste dans son
+  paragraphe. Une ligne faite seulement d'espaces ne forme pas de bloc. Un bloc
+  dont moins de la moitié des lignes sont pleines, ou plus étroit que douze
   cadratins, est une liste : chaque ligne garde son retour à la ligne et, à la
   modification, sa place d'origine au lieu d'être remise en page.
-- **Alternative :** le chevauchement horizontal des lignes, retenu jusque-là.
-- **Raisons :** dans un encadré d'étiquettes et de valeurs (en-tête de facture),
-  le chevauchement mêlait les deux colonnes, et modifier une valeur bouleversait
-  toute la mise en page (constat de Sylvain du 22 octobre 2026). Une colonne de
-  tableau n'est plus prise pour un paragraphe.
+- **Alternative :** le chevauchement horizontal des lignes, retenu jusque-là ;
+  ou couper à chaque changement de style, ce qui morcellerait les paragraphes
+  qui contiennent un mot en gras.
+- **Raisons :** demande de Sylvain du 22 octobre 2026 : des blocs homogènes en
+  police, couleur et taille. Dans un encadré d'étiquettes et de valeurs
+  (en-tête de facture), les étiquettes forment un bloc et les valeurs un autre ;
+  modifier une valeur ne bouleverse plus la mise en page. Une colonne de tableau
+  n'est plus prise pour un paragraphe.

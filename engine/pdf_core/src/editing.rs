@@ -146,7 +146,7 @@ impl PageModel {
                 object.editable
             );
             for line in &block.lines {
-                let first = &self.run.glyphs[line.glyphs[0]];
+                let first = &self.run.glyphs[line.style];
                 let state = &self.run.states[first.state];
                 let font = state.font.as_ref().map_or("?", |f| f.base_name.as_str());
                 let color = state
@@ -190,11 +190,11 @@ impl PageModel {
         out
     }
 
-    /// État graphique et métriques de la police du premier glyphe d'un bloc.
+    /// État graphique du style dominant de la première ligne d'un bloc.
     fn first_state(&self, object: &PageObject) -> Option<&GraphicsState> {
         let block = object.text.as_ref()?;
-        let glyph = block.lines.first()?.glyphs.first()?;
-        Some(&self.run.states[self.run.glyphs[*glyph].state])
+        let glyph = block.lines.first()?.style;
+        Some(&self.run.states[self.run.glyphs[glyph].state])
     }
 
     /// Mise en page du nouveau texte d'un bloc.

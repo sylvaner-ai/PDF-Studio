@@ -64,7 +64,7 @@ pub struct Layout {
 
 /// Met en page `text` dans le bloc `block`, avec la police `shaper`.
 pub fn layout(run: &Interpretation, block: &TextBlock, text: &str, shaper: &dyn Shaper) -> Layout {
-    let first_glyph = &run.glyphs[block.lines[0].glyphs[0]];
+    let first_glyph = &run.glyphs[block.lines[0].style];
     let state = &run.states[first_glyph.state];
     let frame = first_glyph.tm;
     let to_page = frame.then(&state.ctm);

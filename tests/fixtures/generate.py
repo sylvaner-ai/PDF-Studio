@@ -459,7 +459,7 @@ ENCADRE_LIGNES = (
     ("Date de facture", "02/04/2026"),
     ("N° de facture", "12345678901234"),
     ("Remise à zéro", "01/01/2026"),
-    ("Mode de paiement", "Prélèvement automatique"),
+    ("Fin d'engagement", "Sans engagement"),
     ("N° de compte client", "87654321"),
     ("N° de ligne", "01 23 45 67 89"),
     ("Référence", "XX-1234-5678"),
@@ -468,12 +468,11 @@ ENCADRE_LIGNES = (
 
 def encadre() -> None:
     """Encadré d'étiquettes et de valeurs, comme en tête de certaines factures :
-    une ligne par objet BT, étiquettes en gras bleu nuit à gauche, valeurs à
-    droite dans une autre couleur ou une autre police, précédées d'une espace
-    décalée ; la première étiquette partage son BT avec le pied de page, et
-    deux lignes réunissent étiquette et valeur."""
-    from reportlab.pdfbase.pdfmetrics import stringWidth
-
+    une ligne par objet BT, étiquettes en gras bleu nuit à gauche, valeurs en
+    gras bleu clair à droite, souvent précédées d'une espace noire dans une
+    autre police ; la première étiquette partage son BT avec le pied de page,
+    et deux lignes enchaînent étiquette et valeur sans saut de ligne de base
+    (assez près pour former une seule ligne de texte)."""
     pdf = pikepdf.new()
     fonts = {
         name: pdf.make_indirect(pikepdf.Dictionary(
@@ -487,31 +486,27 @@ def encadre() -> None:
         escaped = text.encode("cp1252").replace(b"\\", b"\\\\")
         return b"(" + escaped.replace(b"(", b"\\(").replace(b")", b"\\)") + b") Tj "
 
-    label_color, value_color = b"0 0.11 0.369 rg ", b"0 0.58 0.729 rg "
+    label = b"0 0.11 0.369 rg /F1 9 Tf "
+    value = b"0 0.58 0.729 rg /F1 9 Tf "
+    space = b"0 g /F2 9 Tf "
     content = b""
-    for row, (label, value) in enumerate(ENCADRE_LIGNES):
+    for row, (name, data) in enumerate(ENCADRE_LIGNES):
         y = 680.2 - 12.7 * row
         content += b"BT "
         if row == 0:
             content += b"0.4 g /F2 6 Tf 1 0 0 1 36 40 Tm " + show("Page 1/1 · facture fictive")
-        content += label_color + b"/F1 9 Tf 1 0 0 1 31.2 %.1f Tm " % y
-        if row in (3, 4):
-            # Étiquette et valeur dans la même ligne, la valeur en clair.
-            gap = "  " if row == 3 else " "
-            content += show(label + gap) + b"/F2 9 Tf "
-            if row == 3:
-                content += value_color
-            content += show(value)
+        content += label + b"1 0 0 1 31.2 %.1f Tm " % y
+        if row == 3:
+            # Étiquette, espaces de même style, puis la valeur.
+            content += show(name + "   ")
+        elif row == 4:
+            # Étiquette, une espace dans une autre police, puis la valeur.
+            content += show(name + " ") + space + show(" ")
+        elif row == 0:
+            content += show(name + "   ") + space + b"1 0 0 1 119.3 %.1f Tm " % (y + 5.5) + show(" ")
         else:
-            content += show(label + "   ")
-            if row == 0:
-                content += b"0 g /F2 9 Tf 1 0 0 1 119.3 %.1f Tm " % (y + 5.5) + show(" ")
-                content += value_color + b"/F1 9 Tf 1 0 0 1 127.4 %.1f Tm " % y + show(value)
-            else:
-                content += b"0 g /F2 9 Tf 1 0 0 1 119.3 %.1f Tm " % (y + 0.5) + show(" ")
-                content += b"1 0 0 1 127.4 %.1f Tm " % y + show(value)
-        content += b"ET\n"
-    assert stringWidth(ENCADRE_LIGNES[3][0] + "  ", "Helvetica-Bold", 9) + 31.2 < 127.4
+            content += show(name + "   ") + space + b"1 0 0 1 119.3 %.1f Tm " % (y + 0.5) + show(" ")
+        content += value + b"1 0 0 1 127.4 %.1f Tm " % y + show(data) + b"ET\n"
     pdf.add_blank_page(page_size=(595, 842))
     page = pdf.pages[0]
     page.obj.Resources = pikepdf.Dictionary(Font=pikepdf.Dictionary(**fonts))
