@@ -1,10 +1,13 @@
-//! Session d'organisation des pages d'un document, avec son historique.
+//! Session de modification d'un document (organisation des pages et contenu
+//! des pages), avec son historique.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use edit::{EditError, Editor, PageEntry, PageOrigin, RestoredPage};
+use edit::{EditError, Editor, PageEdits, PageEntry, PageOrigin, RestoredPage, TextReplacement};
 use pdf_core::{OutputPage, SourceData};
 
+use crate::content::{restored_content, ContentEdits, ObjectEditItem, PageObjectItem};
 use crate::{EngineError, PageSize, PdfDocument};
 
 /// Contenu d'une page de la session.
@@ -34,10 +37,13 @@ pub struct PageItem {
     /// Quarts de tour dans le sens horaire (0 à 3), ajoutés à la rotation propre
     /// de la page.
     pub quarter_turns: u8,
+    /// État des modifications du contenu de la page (0 : contenu d'origine) ;
+    /// il change à chaque modification, annulation comprise.
+    pub edit_revision: u64,
 }
 
-impl From<&PageEntry> for PageItem {
-    fn from(entry: &PageEntry) -> Self {
+impl PageItem {
+    fn new(entry: &PageEntry, editor: &Editor) -> Self {
         let kind = match entry.origin {
             PageOrigin::Source { source, index } => PageKind::Source { source, index },
             PageOrigin::Blank { width, height } => PageKind::Blank {
@@ -48,6 +54,7 @@ impl From<&PageEntry> for PageItem {
             id: entry.id,
             kind,
             quarter_turns: entry.quarter_turns,
+            edit_revision: editor.content(entry.id).map_or(0, |edits| edits.revision()),
         }
     }
 }
@@ -80,6 +87,7 @@ pub struct ExportedPdf {
 struct Source {
     data: SourceData,
     page_count: u32,
+    document: Arc<PdfDocument>,
 }
 
 struct State {
@@ -87,8 +95,9 @@ struct State {
     sources: Vec<Source>,
 }
 
-/// Organisation des pages d'un document ouvert : rotation, suppression,
-/// duplication, déplacement et insertion, chacune annulable.
+/// Modifications d'un document ouvert : organisation des pages (rotation,
+/// suppression, duplication, déplacement et insertion) et contenu des pages
+/// (objets supprimés, déplacés, texte modifié), chacune annulable.
 ///
 /// Le fichier n'est jamais modifié : l'application demande les octets du
 /// nouveau PDF ([`EditSession::export_pdf`]) et décide où les écrire.
@@ -109,6 +118,7 @@ impl EditSession {
                 sources: vec![Source {
                     data: document.source_data(),
                     page_count,
+                    document,
                 }],
             }),
         })
@@ -120,17 +130,19 @@ impl EditSession {
         state.sources.push(Source {
             data: document.source_data(),
             page_count: document.page_count(),
+            document,
         });
         (state.sources.len() - 1) as u32
     }
 
     /// Pages, dans l'ordre.
     pub fn pages(&self) -> Vec<PageItem> {
-        self.lock()
+        let state = self.lock();
+        state
             .editor
             .pages()
             .iter()
-            .map(PageItem::from)
+            .map(|entry| PageItem::new(entry, &state.editor))
             .collect()
     }
 
@@ -202,12 +214,47 @@ impl EditSession {
     }
 
     /// Remplace toutes les pages (modifications non enregistrées retrouvées) ;
-    /// les identifiants donnés sont ignorés. Les documents sources doivent avoir
-    /// été ajoutés au préalable, dans le même ordre.
-    pub fn restore(&self, pages: Vec<PageItem>) -> Result<(), EngineError> {
+    /// les identifiants donnés sont ignorés. `contents` donne les
+    /// modifications du contenu de chaque page, dans le même ordre (liste
+    /// plus courte : contenu d'origine) ; celles dont l'objet ne correspond
+    /// plus sont ignorées. Les documents sources doivent avoir été ajoutés au
+    /// préalable, dans le même ordre.
+    pub fn restore(
+        &self,
+        pages: Vec<PageItem>,
+        contents: Vec<Vec<ObjectEditItem>>,
+    ) -> Result<(), EngineError> {
+        let documents = self.documents();
+        let mut kept: Vec<Vec<ObjectEditItem>> = Vec::with_capacity(pages.len());
+        for (page, items) in pages.iter().zip(contents) {
+            let PageKind::Source { source, index } = page.kind else {
+                kept.push(Vec::new());
+                continue;
+            };
+            if items.is_empty() {
+                kept.push(items);
+                continue;
+            }
+            let fingerprints = documents
+                .get(source as usize)
+                .and_then(|document| document.handle.page_objects(index, None).ok())
+                .map(|objects| {
+                    objects
+                        .into_iter()
+                        .map(|object| (object.id, object.fingerprint))
+                        .collect::<HashMap<_, _>>()
+                })
+                .unwrap_or_default();
+            kept.push(
+                items
+                    .into_iter()
+                    .filter(|item| fingerprints.get(&item.object) == Some(&item.fingerprint))
+                    .collect(),
+            );
+        }
         let mut state = self.lock();
         let mut entries = Vec::with_capacity(pages.len());
-        for page in &pages {
+        for (position, page) in pages.iter().enumerate() {
             let origin = match page.kind {
                 PageKind::Source { source, index } => {
                     let known = state.sources.get(source as usize);
@@ -227,10 +274,103 @@ impl EditSession {
             entries.push(RestoredPage {
                 origin,
                 quarter_turns: page.quarter_turns,
-                content: Default::default(),
+                content: kept
+                    .get(position)
+                    .map(|items| restored_content(items))
+                    .unwrap_or_default(),
             });
         }
         Ok(state.editor.restore(&entries)?)
+    }
+
+    /// Objets de la page `page` (identifiant), modifications comprises ; vide
+    /// pour une page vierge.
+    pub fn page_objects(&self, page: u64) -> Result<Vec<PageObjectItem>, EngineError> {
+        let (document, index, edits) = self.page_source(page)?;
+        let Some(document) = document else {
+            return Ok(Vec::new());
+        };
+        Ok(document
+            .handle
+            .page_objects(index, edits)?
+            .into_iter()
+            .map(PageObjectItem::from)
+            .collect())
+    }
+
+    /// Supprime des objets de la page `page`.
+    pub fn delete_objects(&self, page: u64, objects: Vec<u32>) -> Result<(), EngineError> {
+        Ok(self.lock().editor.delete_objects(page, &objects)?)
+    }
+
+    /// Déplace des objets de la page `page` ; le déplacement est exprimé en
+    /// points sur la page droite (sans les quarts de tour de l'organisation),
+    /// vers la droite et vers le bas.
+    pub fn move_objects(
+        &self,
+        page: u64,
+        objects: Vec<u32>,
+        dx: f32,
+        dy: f32,
+    ) -> Result<(), EngineError> {
+        let (document, index, _) = self.page_source(page)?;
+        let document = document.ok_or_else(|| invalid("page vierge"))?;
+        let (dx, dy) = document.handle.page_offset(index, dx, dy)?;
+        Ok(self.lock().editor.move_objects(page, &objects, dx, dy)?)
+    }
+
+    /// Remplace le texte d'un bloc de la page `page`. La police d'origine est
+    /// gardée si elle contient tous les caractères ; sinon la même police
+    /// installée sur le Mac, ou la police standard la plus proche. Renvoie le
+    /// bloc modifié (police employée, débordement).
+    pub fn replace_text(
+        &self,
+        page: u64,
+        object: u32,
+        text: String,
+    ) -> Result<PageObjectItem, EngineError> {
+        let (document, index, _) = self.page_source(page)?;
+        let document = document.ok_or_else(|| invalid("page vierge"))?;
+        let font = document.handle.choose_font(index, object, &text)?;
+        self.lock()
+            .editor
+            .replace_text(page, object, Some(TextReplacement { text, font }))?;
+        self.page_objects(page)?
+            .into_iter()
+            .find(|item| item.id == object)
+            .ok_or_else(|| invalid("objet inexistant"))
+    }
+
+    /// Modifications du contenu de la page `page`, pour la rendre ; `None` si
+    /// son contenu est celui d'origine.
+    pub fn content_edits(&self, page: u64) -> Option<Arc<ContentEdits>> {
+        let edits = self.lock().editor.content(page).cloned()?;
+        Some(Arc::new(ContentEdits { edits }))
+    }
+
+    /// Modifications du contenu de la page `page`, à conserver pour la
+    /// récupération.
+    pub fn content_record(&self, page: u64) -> Result<Vec<ObjectEditItem>, EngineError> {
+        let (document, index, edits) = self.page_source(page)?;
+        let (Some(document), Some(edits)) = (document, edits) else {
+            return Ok(Vec::new());
+        };
+        let fingerprints: HashMap<u32, String> = document
+            .handle
+            .page_objects(index, None)?
+            .into_iter()
+            .map(|object| (object.id, object.fingerprint))
+            .collect();
+        Ok(edits
+            .iter()
+            .filter_map(|(id, edit)| {
+                Some(ObjectEditItem::new(
+                    id,
+                    edit,
+                    fingerprints.get(&id)?.clone(),
+                ))
+            })
+            .collect())
     }
 
     /// Défait la dernière modification ; `false` s'il n'y en a pas.
@@ -279,9 +419,14 @@ impl EditSession {
     /// PDF formé de toutes les pages, relu et vérifié, et la révision écrite.
     pub fn export_pdf(&self) -> Result<ExportedPdf, EngineError> {
         let (snapshot, revision) = self.freeze();
-        let pages: Vec<OutputPage> = snapshot.pages.iter().map(|&(_, page)| page).collect();
+        let pages: Vec<OutputPage> = snapshot.pages.iter().map(|(_, page, _)| *page).collect();
+        let edits: Vec<_> = snapshot
+            .pages
+            .iter()
+            .map(|(_, _, edits)| edits.clone())
+            .collect();
         Ok(ExportedPdf {
-            bytes: pdf_core::write_pdf(&snapshot.sources, &pages)?,
+            bytes: pdf_core::write_edited_pdf(&snapshot.sources, &pages, &edits)?,
             revision,
         })
     }
@@ -321,6 +466,41 @@ impl EditSession {
 }
 
 impl EditSession {
+    /// Documents sources, copiés pour libérer le verrou pendant les lectures.
+    fn documents(&self) -> Vec<Arc<PdfDocument>> {
+        self.lock()
+            .sources
+            .iter()
+            .map(|source| Arc::clone(&source.document))
+            .collect()
+    }
+
+    /// Document et indice de la page `page` (aucun document pour une page
+    /// vierge), et les modifications de son contenu.
+    fn page_source(
+        &self,
+        page: u64,
+    ) -> Result<(Option<Arc<PdfDocument>>, u32, Option<Arc<PageEdits>>), EngineError> {
+        let state = self.lock();
+        let entry = state
+            .editor
+            .pages()
+            .iter()
+            .find(|entry| entry.id == page)
+            .ok_or_else(changed)?;
+        let edits = state.editor.content(page).cloned();
+        Ok(match entry.origin {
+            PageOrigin::Source { source, index } => {
+                let document = state
+                    .sources
+                    .get(source as usize)
+                    .map(|source| Arc::clone(&source.document));
+                (document, index, edits)
+            }
+            PageOrigin::Blank { .. } => (None, 0, None),
+        })
+    }
+
     fn lock(&self) -> MutexGuard<'_, State> {
         // Les opérations ne paniquent pas en laissant l'état à moitié modifié :
         // un verrou empoisonné reste utilisable.
@@ -350,7 +530,7 @@ impl EditSession {
                         quarter_turns: entry.quarter_turns,
                     },
                 };
-                (entry.id, page)
+                (entry.id, page, state.editor.content(entry.id).cloned())
             })
             .collect();
         let sources = state
@@ -367,8 +547,9 @@ impl EditSession {
 #[derive(uniffi::Object)]
 pub struct PageSnapshot {
     sources: Vec<SourceData>,
-    /// Identifiant et contenu de chaque page, dans l'ordre.
-    pages: Vec<(u64, OutputPage)>,
+    /// Identifiant, contenu et modifications du contenu de chaque page, dans
+    /// l'ordre.
+    pages: Vec<(u64, OutputPage, Option<Arc<PageEdits>>)>,
 }
 
 #[uniffi::export]
@@ -379,17 +560,18 @@ impl PageSnapshot {
         if ids.is_empty() {
             return Err(EditError::EmptySelection.into());
         }
-        let pages = ids
+        let selected = ids
             .iter()
             .map(|&id| {
                 self.pages
                     .iter()
-                    .find(|&&(page, _)| page == id)
-                    .map(|&(_, page)| page)
+                    .find(|(page, _, _)| *page == id)
                     .ok_or_else(changed)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(pdf_core::write_pdf(&self.sources, &pages)?)
+        let pages: Vec<OutputPage> = selected.iter().map(|(_, page, _)| *page).collect();
+        let edits: Vec<_> = selected.iter().map(|(_, _, edits)| edits.clone()).collect();
+        Ok(pdf_core::write_edited_pdf(&self.sources, &pages, &edits)?)
     }
 }
 
@@ -421,6 +603,7 @@ mod tests {
     use std::path::Path;
 
     use super::*;
+    use crate::PageObjectKind;
 
     fn open(name: &str) -> Arc<PdfDocument> {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -539,8 +722,9 @@ mod tests {
                 index: 0,
             },
             quarter_turns: 0,
+            edit_revision: 0,
         });
-        session.restore(pages).unwrap();
+        session.restore(pages, Vec::new()).unwrap();
         assert_eq!(
             sources(&session),
             [(0, 4), (0, 3), (0, 2), (0, 1), (0, 0), (1, 0)]
@@ -555,8 +739,9 @@ mod tests {
                 index: 1,
             },
             quarter_turns: 0,
+            edit_revision: 0,
         };
-        assert!(session.restore(vec![missing]).is_err());
+        assert!(session.restore(vec![missing], Vec::new()).is_err());
         assert_eq!(session.pages().len(), 6);
 
         // Restaurées sur une version antérieure du fichier, les pages ne
@@ -564,6 +749,83 @@ mod tests {
         session.forget_saved();
         assert!(session.undo());
         assert!(session.is_modified());
+    }
+
+    #[test]
+    fn modifie_le_contenu_des_pages() {
+        let session = EditSession::new(open("edition.pdf"));
+        let pages = session.pages();
+        let (first, rotated) = (pages[0].id, pages[1].id);
+        let objects = session.page_objects(first).unwrap();
+        assert_eq!(objects.len(), 6);
+        assert_eq!(objects[3].kind, PageObjectKind::Image);
+
+        session.delete_objects(first, vec![3]).unwrap();
+        assert_eq!(session.undo_name().as_deref(), Some("la suppression"));
+        assert_eq!(session.page_objects(first).unwrap().len(), 5);
+        let revision = session.pages()[0].edit_revision;
+        assert_ne!(revision, 0);
+        assert_eq!(session.content_edits(first).unwrap().revision(), revision);
+
+        // Déplacement à l'écran (vers la droite et le bas), sur la page droite.
+        session.move_objects(first, vec![0], 10.0, 20.0).unwrap();
+        let title = session.page_objects(first).unwrap().remove(0);
+        assert!((title.bounds.x - objects[0].bounds.x - 10.0).abs() < 0.01);
+        assert!((title.bounds.y - objects[0].bounds.y - 20.0).abs() < 0.01);
+
+        let line = session
+            .replace_text(first, 2, "Bonjour 2026 €".to_owned())
+            .unwrap();
+        assert_eq!(line.text.as_deref(), Some("Bonjour 2026 €"));
+        assert!(!line.substituted);
+        let title = session
+            .replace_text(first, 0, "Bilan zéro".to_owned())
+            .unwrap();
+        assert!(title.substituted);
+
+        // Page tournée de 90° : vers la droite à l'écran.
+        let before = session.page_objects(rotated).unwrap().remove(0);
+        session.move_objects(rotated, vec![0], 15.0, 0.0).unwrap();
+        let after = session.page_objects(rotated).unwrap().remove(0);
+        assert!(
+            (after.bounds.x - before.bounds.x - 15.0).abs() < 0.01,
+            "{before:?} {after:?}"
+        );
+        assert!((after.bounds.y - before.bounds.y).abs() < 0.01);
+
+        let exported = session.export_pdf().unwrap();
+        let doc = PdfDocument::from_data(exported.bytes, None).unwrap();
+        let text = doc.plain_text(0).unwrap();
+        assert!(text.contains("Bonjour 2026 €") && text.contains("Bilan zéro"));
+
+        // Récupération : les modifications retrouvent leurs objets.
+        let record = session.content_record(first).unwrap();
+        assert_eq!(record.len(), 3);
+        let pages = session.pages();
+        let restored = EditSession::new(open("edition.pdf"));
+        let mut stale = record.clone();
+        stale[0].fingerprint = "Image:0:0:0:0".to_owned();
+        restored
+            .restore(
+                pages.clone(),
+                vec![stale, session.content_record(rotated).unwrap()],
+            )
+            .unwrap();
+        let restored_pages = restored.pages();
+        assert_eq!(
+            restored.content_record(restored_pages[0].id).unwrap().len(),
+            2
+        );
+        assert_eq!(
+            restored.content_record(restored_pages[1].id).unwrap().len(),
+            1
+        );
+
+        // Tout s'annule, jusqu'au contenu d'origine.
+        while session.undo() {}
+        assert_eq!(session.pages()[0].edit_revision, 0);
+        assert!(session.content_edits(first).is_none());
+        assert_eq!(session.page_objects(first).unwrap().len(), 6);
     }
 
     #[test]
