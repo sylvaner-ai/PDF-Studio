@@ -5,6 +5,7 @@
 //! n'est autorisée dans ce crate.
 #![forbid(unsafe_code)]
 
+pub mod content;
 mod document;
 mod error;
 mod fonts;

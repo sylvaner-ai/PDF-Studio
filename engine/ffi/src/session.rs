@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use edit::{EditError, Organizer, PageEntry, PageOrigin};
+use edit::{EditError, Editor, PageEntry, PageOrigin, RestoredPage};
 use pdf_core::{OutputPage, SourceData};
 
 use crate::{EngineError, PageSize, PdfDocument};
@@ -83,7 +83,7 @@ struct Source {
 }
 
 struct State {
-    organizer: Organizer,
+    editor: Editor,
     sources: Vec<Source>,
 }
 
@@ -105,7 +105,7 @@ impl EditSession {
         let page_count = document.page_count();
         Arc::new(Self {
             state: Mutex::new(State {
-                organizer: Organizer::new(page_count),
+                editor: Editor::new(page_count),
                 sources: vec![Source {
                     data: document.source_data(),
                     page_count,
@@ -127,7 +127,7 @@ impl EditSession {
     /// Pages, dans l'ordre.
     pub fn pages(&self) -> Vec<PageItem> {
         self.lock()
-            .organizer
+            .editor
             .pages()
             .iter()
             .map(PageItem::from)
@@ -139,19 +139,19 @@ impl EditSession {
     pub fn rotate(&self, positions: Vec<u32>, quarter_turns: i32) -> Result<(), EngineError> {
         Ok(self
             .lock()
-            .organizer
+            .editor
             .rotate(&usizes(&positions), quarter_turns)?)
     }
 
     /// Supprime les pages désignées ; au moins une page doit rester.
     pub fn delete(&self, positions: Vec<u32>) -> Result<(), EngineError> {
-        Ok(self.lock().organizer.delete(&usizes(&positions))?)
+        Ok(self.lock().editor.delete(&usizes(&positions))?)
     }
 
     /// Duplique les pages désignées, chaque copie juste après son original ;
     /// renvoie les positions des copies.
     pub fn duplicate(&self, positions: Vec<u32>) -> Result<Vec<u32>, EngineError> {
-        Ok(u32s(self.lock().organizer.duplicate(&usizes(&positions))?))
+        Ok(u32s(self.lock().editor.duplicate(&usizes(&positions))?))
     }
 
     /// Déplace les pages désignées devant la page `before` (le nombre de pages :
@@ -159,7 +159,7 @@ impl EditSession {
     pub fn move_pages(&self, positions: Vec<u32>, before: u32) -> Result<Vec<u32>, EngineError> {
         Ok(u32s(
             self.lock()
-                .organizer
+                .editor
                 .move_pages(&usizes(&positions), before as usize)?,
         ))
     }
@@ -185,7 +185,7 @@ impl EditSession {
             .iter()
             .map(|&index| PageOrigin::Source { source, index })
             .collect();
-        Ok(u32s(state.organizer.insert(at as usize, &origins)?))
+        Ok(u32s(state.editor.insert(at as usize, &origins)?))
     }
 
     /// Insère une page vierge devant la position `at` ; renvoie sa position.
@@ -197,7 +197,7 @@ impl EditSession {
             width: size.width,
             height: size.height,
         };
-        let positions = self.lock().organizer.insert(at as usize, &[origin])?;
+        let positions = self.lock().editor.insert(at as usize, &[origin])?;
         Ok(positions[0] as u32)
     }
 
@@ -224,52 +224,56 @@ impl EditSession {
                 }
                 PageKind::Blank { .. } => return Err(invalid("format de page vierge invalide")),
             };
-            entries.push((origin, page.quarter_turns));
+            entries.push(RestoredPage {
+                origin,
+                quarter_turns: page.quarter_turns,
+                content: Default::default(),
+            });
         }
-        Ok(state.organizer.restore(&entries)?)
+        Ok(state.editor.restore(&entries)?)
     }
 
     /// Défait la dernière modification ; `false` s'il n'y en a pas.
     pub fn undo(&self) -> bool {
-        self.lock().organizer.undo()
+        self.lock().editor.undo()
     }
 
     /// Rétablit la dernière modification annulée ; `false` s'il n'y en a pas.
     pub fn redo(&self) -> bool {
-        self.lock().organizer.redo()
+        self.lock().editor.redo()
     }
 
     /// Nom de l'action qu'« Annuler » déferait, avec son article (« la rotation »).
     pub fn undo_name(&self) -> Option<String> {
-        self.lock().organizer.undo_name().map(str::to_owned)
+        self.lock().editor.undo_name().map(str::to_owned)
     }
 
     /// Nom de l'action que « Rétablir » referait.
     pub fn redo_name(&self) -> Option<String> {
-        self.lock().organizer.redo_name().map(str::to_owned)
+        self.lock().editor.redo_name().map(str::to_owned)
     }
 
     /// Vrai si les pages ont changé depuis l'ouverture ou le dernier enregistrement.
     pub fn is_modified(&self) -> bool {
-        self.lock().organizer.is_modified()
+        self.lock().editor.is_modified()
     }
 
     /// Révision des pages : elle change à chaque modification et se retrouve
     /// en annulant ou en rétablissant.
     pub fn revision(&self) -> u64 {
-        self.lock().organizer.revision()
+        self.lock().editor.revision()
     }
 
     /// Retient comme enregistrée la révision écrite ([`ExportedPdf::revision`]) ;
     /// une modification faite pendant l'écriture laisse le document modifié.
     pub fn mark_saved(&self, revision: u64) {
-        self.lock().organizer.mark_saved(revision);
+        self.lock().editor.mark_saved(revision);
     }
 
     /// Oublie l'état enregistré : le document reste modifié jusqu'au prochain
     /// enregistrement, même en annulant toutes les modifications.
     pub fn forget_saved(&self) {
-        self.lock().organizer.forget_saved();
+        self.lock().editor.forget_saved();
     }
 
     /// PDF formé de toutes les pages, relu et vérifié, et la révision écrite.
@@ -330,7 +334,7 @@ impl EditSession {
     fn freeze(&self) -> (PageSnapshot, u64) {
         let state = self.lock();
         let pages = state
-            .organizer
+            .editor
             .pages()
             .iter()
             .map(|entry| {
@@ -355,7 +359,7 @@ impl EditSession {
             .map(|source| source.data.clone())
             .collect();
         let snapshot = PageSnapshot { sources, pages };
-        (snapshot, state.organizer.revision())
+        (snapshot, state.editor.revision())
     }
 }
 

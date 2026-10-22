@@ -1,13 +1,15 @@
-//! Modifications du document : organisation des pages et historique
-//! d'annulation.
+//! Modifications du document et historique d'annulation : organisation des
+//! pages et contenu de chaque page.
 //!
 //! Ce crate ne dépend pas de MuPDF : il décrit les modifications, que
-//! `pdf_core` applique au fichier lors de l'enregistrement. L'historique
-//! ([`History`]) servira aussi à l'édition du contenu (jalon 4).
+//! `pdf_core` applique au contenu des pages pour l'affichage et au fichier lors
+//! de l'enregistrement.
 #![forbid(unsafe_code)]
 
+mod content;
+mod editor;
 mod history;
-mod pages;
 
+pub use content::{FontChoice, ObjectEdit, PageEdits, TextReplacement};
+pub use editor::{EditError, Editor, PageEntry, PageOrigin, RestoredPage, Result};
 pub use history::{Command, History};
-pub use pages::{EditError, Organizer, PageEntry, PageOrigin, Result};
