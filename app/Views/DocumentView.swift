@@ -163,6 +163,11 @@ struct ReaderView: View {
                             EditingBadge(editing: model.editing)
                         }
                     }
+                    .overlay(alignment: .topTrailing) {
+                        if let search = model.search, search.isPresented {
+                            SearchPanel(search: search)
+                        }
+                    }
             case .organizing:
                 PageGrid(
                     model: model,
@@ -185,36 +190,57 @@ struct ReaderView: View {
                 .labelStyle(.iconOnly)
                 .help(Text("Lecture (⌘1), organisation des pages (⌘2) ou édition du contenu (⌘3)"))
             }
-            ToolbarItem(placement: .primaryAction) {
-                if model.workspace == .reading, let search = model.search {
-                    SearchToolbarItem(search: search)
-                }
-            }
         }
     }
 }
 
-/// Champ de recherche et compteur d'occurrences.
-struct SearchToolbarItem: View {
+/// Panneau de recherche, en haut à droite des pages (⌘F) : champ, compteur
+/// d'occurrences, occurrence précédente ou suivante, fermeture (Échap).
+struct SearchPanel: View {
     let search: SearchModel
 
     var body: some View {
         HStack(spacing: 8) {
-            if let status = search.status {
-                Text(status)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
             SearchField(
                 text: search.query,
                 focusRequest: search.focusRequest,
                 onChange: { search.update(query: $0) },
                 onNext: { search.next() },
-                onPrevious: { search.previous() }
+                onPrevious: { search.previous() },
+                onCancel: { search.dismiss() }
             )
-            .frame(minWidth: 140, idealWidth: 200, maxWidth: 240)
+            .frame(width: 220)
+            if let status = search.status {
+                Text(status)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .fixedSize()
+            }
+            Button { search.previous() } label: {
+                Image(systemName: "chevron.up")
+            }
+            .help(Text("Occurrence précédente (⇧⌘G)"))
+            .disabled(!search.hasHits)
+            Button { search.next() } label: {
+                Image(systemName: "chevron.down")
+            }
+            .help(Text("Occurrence suivante (⌘G)"))
+            .disabled(!search.hasHits)
+            Button { search.dismiss() } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .help(Text("Fermer la recherche (Échap)"))
+            .accessibilityLabel(Text("Fermer la recherche"))
         }
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator))
+        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+        .padding(12)
     }
 }
 

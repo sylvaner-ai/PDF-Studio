@@ -89,6 +89,12 @@ final class CanvasController {
         canvas.go(to: page, top: top, animated: false)
     }
 
+    /// Rend le clavier aux pages (après la fermeture de la recherche).
+    func focusPages() {
+        guard let canvas else { return }
+        canvas.window?.makeFirstResponder(canvas.pagesView)
+    }
+
     func goToNextPage() { canvas?.goToNextPage() }
     func goToPreviousPage() { canvas?.goToPreviousPage() }
     func goToFirstPage() { go(to: 0) }

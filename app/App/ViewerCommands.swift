@@ -19,7 +19,7 @@ struct ViewerCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .textEditing) {
-            // La recherche n'apparaît qu'en lecture.
+            // La recherche s'ouvre dans un panneau sur les pages (lecture ou édition).
             Button("Rechercher…") { search?.requestFocus() }
                 .keyboardShortcut("f")
                 .disabled(search == nil)
@@ -103,7 +103,7 @@ struct ViewerCommands: Commands {
     }
 
     private var search: SearchModel? {
-        model?.workspace == .reading ? model?.search : nil
+        model?.workspace == .organizing ? nil : model?.search
     }
 
     private func workspace(_ workspace: Workspace) -> Binding<Bool> {

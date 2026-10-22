@@ -106,6 +106,9 @@ l'interprétation du flux de contenu et sur MuPDF.
   un par ligne. L'application interroge les pages une à une (`search_page`) :
   les résultats s'affichent au fil de l'eau et une nouvelle saisie interrompt la
   recherche en cours. Le texte de 256 pages reste en cache dans le moteur.
+  Côté application, la recherche s'ouvre par ⌘F ou le menu Édition dans un
+  panneau posé en haut à droite des pages (`SearchPanel`), et non dans la barre
+  d'outils (décision D24).
 - **Plan.** Le plan MuPDF est aplati en parcours en profondeur (titre, niveau, page,
   position verticale), forme simple à faire traverser le pont ; l'application
   reconstruit l'arbre (`OutlineTree`).

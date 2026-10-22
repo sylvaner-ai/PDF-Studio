@@ -4,13 +4,15 @@ import SwiftUI
 /// Champ de recherche natif de macOS (`NSSearchField`).
 ///
 /// Entrée passe à l'occurrence suivante, Majuscule-Entrée à la précédente,
-/// Échap efface la recherche.
+/// Échap appelle `onCancel` (à défaut, efface la recherche). Le champ prend le
+/// focus dès qu'il apparaît, puis à chaque changement de `focusRequest`.
 struct SearchField: NSViewRepresentable {
     let text: String
     let focusRequest: Int
     let onChange: @MainActor (String) -> Void
     let onNext: @MainActor () -> Void
     let onPrevious: @MainActor () -> Void
+    var onCancel: (@MainActor () -> Void)?
 
     func makeNSView(context: Context) -> NSSearchField {
         let field = NSSearchField()
@@ -21,6 +23,9 @@ struct SearchField: NSViewRepresentable {
         field.target = context.coordinator
         field.action = #selector(Coordinator.searchChanged(_:))
         field.setAccessibilityLabel(String(localized: "Rechercher dans le document"))
+        Task { @MainActor in
+            field.window?.makeFirstResponder(field)
+        }
         return field
     }
 
@@ -61,6 +66,10 @@ struct SearchField: NSViewRepresentable {
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if selector == #selector(NSResponder.cancelOperation(_:)), let onCancel = parent.onCancel {
+                onCancel()
+                return true
+            }
             guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
             if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
                 parent.onPrevious()

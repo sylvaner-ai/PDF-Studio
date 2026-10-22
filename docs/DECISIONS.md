@@ -312,3 +312,14 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
 - **Alternative :** une vue d'édition séparée, page par page.
 - **Raisons :** zoom, défilement et rendu par tuiles sont ceux de la lecture ;
   passer d'un mode à l'autre ne change pas la page lue.
+
+## D24 — Recherche dans un panneau ouvert par ⌘F (jalon 4)
+
+- **Retenu :** la recherche n'a plus de champ dans la barre d'outils. ⌘F (ou
+  Édition > Rechercher…) ouvre un petit panneau en haut à droite des pages, sous
+  la barre d'outils : champ, compteur, occurrence précédente et suivante. Échap ou
+  le bouton de fermeture le referment et effacent le surlignage. Elle fonctionne
+  en lecture comme en édition.
+- **Raisons :** demande de Sylvain du 22 octobre 2026 ; la barre d'outils reste
+  épurée, comme le demande le cahier des charges.
+
