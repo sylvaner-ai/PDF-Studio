@@ -73,9 +73,12 @@ pub fn flatten_background(image: &GrayImage, dpi: f32) -> GrayImage {
     out
 }
 
-/// Étire les niveaux pour que l'encre la plus sombre (premier centile des
-/// pixels sombres) devienne noire ; une page presque blanche est laissée telle
-/// quelle.
+/// Étire les niveaux : l'encre la plus sombre (premier centile des pixels
+/// sombres) devient noire, et le papier blanc. Le blanc est pris au quart le
+/// plus sombre des pixels (une page est surtout du papier) : le grain du
+/// papier et le bruit du scanner disparaissent, alors qu'ils occupent toute la
+/// page et égarent les moteurs de lecture. Une page presque blanche est
+/// laissée telle quelle.
 fn stretch_contrast(image: &mut GrayImage) {
     let mut histogram = [0u64; 256];
     for &value in &image.pixels {
@@ -85,22 +88,25 @@ fn stretch_contrast(image: &mut GrayImage) {
     if dark < 100 {
         return;
     }
-    let target = dark / 100;
-    let mut seen = 0u64;
-    let mut low = 0usize;
-    for (value, &count) in histogram.iter().enumerate() {
-        seen += count;
-        if seen > target {
-            low = value;
-            break;
+    let level_at = |count: u64, histogram: &[u64; 256]| {
+        let mut seen = 0u64;
+        for (value, &n) in histogram.iter().enumerate() {
+            seen += n;
+            if seen > count {
+                return value;
+            }
         }
-    }
+        255
+    };
+    let low = level_at(dark / 100, &histogram);
     if low == 0 || low > 160 {
         return;
     }
-    let low = low as f32;
+    let total = image.pixels.len() as u64;
+    let high = level_at(total / 4, &histogram).max(low + 80).min(255);
+    let (low, high) = (low as f32, high as f32);
     for value in &mut image.pixels {
-        let stretched = (f32::from(*value) - low) * 255.0 / (255.0 - low);
+        let stretched = (f32::from(*value) - low) * 255.0 / (high - low);
         *value = stretched.round().clamp(0.0, 255.0) as u8;
     }
 }
