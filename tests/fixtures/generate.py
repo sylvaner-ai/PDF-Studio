@@ -2,7 +2,8 @@
 """Génère le jeu de PDF de test publics de PDF Studio.
 
 Usage : python3 tests/fixtures/generate.py
-Dépendances : reportlab, pikepdf, pillow (pip install reportlab pikepdf pillow).
+Dépendances : reportlab, pikepdf, pillow, fonttools
+(pip install reportlab pikepdf pillow fonttools).
 
 Les fichiers produits sont déterministes (dates et identifiants figés) pour que
 leur régénération ne modifie pas le dépôt, sauf chiffre.pdf (cf. chiffre()). Les documents personnels de
@@ -388,6 +389,72 @@ def edition() -> None:
         save(pdf, "edition.pdf")
 
 
+POLICE_CFF_LIGNES = ("Montant prélevé : 42,50 €", "Échéance réglée")
+
+
+def police_cff() -> None:
+    """Police CFF intégrée (Type1C), réduite aux caractères utilisés, sans
+    /Encoding dans le PDF : les codes suivent l'encodage propre au programme
+    (« é » en 0xE9, qui vaut « Ø » en StandardEncoding), comme dans des
+    factures produites par certains logiciels."""
+    import reportlab
+    from fontTools.fontBuilder import FontBuilder
+    from fontTools.pens.t2CharStringPen import T2CharStringPen
+    from fontTools.ttLib import TTFont as FontFile
+
+    source = FontFile(Path(reportlab.__file__).parent / "fonts" / "Vera.ttf")
+    cmap = source.getBestCmap()
+    glyphs = source.getGlyphSet()
+    units = source["head"].unitsPerEm
+    chars = sorted(set("".join(POLICE_CFF_LIGNES)))
+    names = [".notdef"] + [cmap[ord(c)] for c in chars]
+    charstrings = {}
+    for name in names:
+        pen = T2CharStringPen(glyphs[name].width, glyphs)
+        glyphs[name].draw(pen)
+        charstrings[name] = pen.getCharString()
+
+    builder = FontBuilder(units, isTTF=False)
+    builder.setupGlyphOrder(names)
+    builder.setupCharacterMap({ord(c): cmap[ord(c)] for c in chars})
+    builder.setupCFF("VeraCFF", {"FullName": "Vera CFF"}, charstrings, {})
+    builder.setupHorizontalMetrics({name: (glyphs[name].width, 0) for name in names})
+    cff = builder.font["CFF "].cff
+    encoding = [".notdef"] * 256
+    codes = {c: c.encode("cp1252")[0] for c in chars}
+    for c, code in codes.items():
+        encoding[code] = cmap[ord(c)]
+    cff.topDictIndex[0].Encoding = encoding
+    program = io.BytesIO()
+    cff.compile(program, builder.font)
+
+    pdf = pikepdf.new()
+    by_code = {code: c for c, code in codes.items()}
+    widths = [
+        round(glyphs[cmap[ord(by_code[code])]].width * 1000 / units) if code in by_code else 0
+        for code in range(32, 256)
+    ]
+    fontfile = pikepdf.Stream(pdf, program.getvalue())
+    fontfile.Subtype = pikepdf.Name.Type1C
+    descriptor = pdf.make_indirect(pikepdf.Dictionary(
+        Type=pikepdf.Name.FontDescriptor, FontName=pikepdf.Name("/ABCDEF+VeraCFF"),
+        Flags=32, FontBBox=[-183, -236, 1287, 928], ItalicAngle=0, Ascent=928,
+        Descent=-236, CapHeight=729, StemV=80, FontFile3=fontfile,
+    ))
+    font = pdf.make_indirect(pikepdf.Dictionary(
+        Type=pikepdf.Name.Font, Subtype=pikepdf.Name.Type1,
+        BaseFont=pikepdf.Name("/ABCDEF+VeraCFF"), FirstChar=32, LastChar=255,
+        Widths=widths, FontDescriptor=descriptor,
+    ))
+    lines = [line.encode("cp1252") for line in POLICE_CFF_LIGNES]
+    content = b"BT /F1 18 Tf 72 760 Td (" + lines[0] + b") Tj 0 -40 Td (" + lines[1] + b") Tj ET"
+    pdf.add_blank_page(page_size=(595, 842))
+    page = pdf.pages[0]
+    page.obj.Resources = pikepdf.Dictionary(Font=pikepdf.Dictionary(F1=font))
+    page.obj.Contents = pdf.make_stream(content)
+    save(pdf, "police_cff.pdf")
+
+
 def save(pdf: pikepdf.Pdf, name: str, **kwargs) -> None:
     pdf.save(OUT / name, static_id=True, deterministic_id=False, **kwargs)
 
@@ -434,6 +501,7 @@ def main() -> None:
     pdf20()
     organisation()
     edition()
+    police_cff()
     signature_factice()
     corrompu()
     pas_un_pdf()

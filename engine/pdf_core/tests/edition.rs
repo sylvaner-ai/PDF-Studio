@@ -235,3 +235,60 @@ fn deplacement_sur_une_page_tournee() {
     let (dx, dy) = handle.page_offset(0, 10.0, 5.0).unwrap();
     assert!((dx - 10.0).abs() < 1e-4 && (dy + 5.0).abs() < 1e-4);
 }
+
+/// Police CFF intégrée sans `/Encoding` : ses codes suivent l'encodage de son
+/// programme, où 0xE9 est « é » (et non « Ø » comme en StandardEncoding).
+#[test]
+fn lit_l_encodage_propre_d_une_police_cff() {
+    let bytes = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/police_cff.pdf"),
+    )
+    .unwrap();
+    let found = objects(&bytes, 0);
+    let texts = text_of(&found);
+    assert!(
+        texts
+            .iter()
+            .any(|t| t.contains("Montant prélevé : 42,50 €")),
+        "{texts:?}"
+    );
+    assert!(texts.iter().any(|t| t.contains("Échéance réglée")));
+    assert!(found.iter().all(|o| o.editable));
+    let line = found
+        .iter()
+        .find(|o| o.text.as_deref().is_some_and(|t| t.contains("Montant")))
+        .unwrap();
+
+    // Les accents retapés restent dans la police d'origine.
+    let new = "Montant prélevé : 25,50 €";
+    let mut doc = Document::from_bytes(&bytes, None).unwrap();
+    assert_eq!(
+        doc.choose_font(0, line.id, new).unwrap(),
+        FontChoice::Original
+    );
+    let written = write_edited_pdf(
+        &[SourceData::new(bytes.clone(), None)],
+        &[OutputPage::Source {
+            source: 0,
+            index: 0,
+            quarter_turns: 0,
+        }],
+        &[Some(edits(vec![(
+            line.id,
+            replaced(new, FontChoice::Original),
+        )]))],
+    )
+    .unwrap();
+    let after = objects(&written, 0);
+    let replaced_line = after
+        .iter()
+        .find(|o| o.text.as_deref().is_some_and(|t| t.contains("25,50")))
+        .unwrap();
+    assert!(!replaced_line.substituted);
+    assert_eq!(replaced_line.font_name.as_deref(), Some("VeraCFF"));
+    let text = Document::from_bytes(&written, None)
+        .unwrap()
+        .plain_text(0)
+        .unwrap();
+    assert!(text.contains(new), "{text}");
+}

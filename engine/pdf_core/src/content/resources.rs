@@ -10,6 +10,7 @@ use mupdf::pdf::PdfObject;
 use super::cmap::CMap;
 use super::encodings::{glyph_name_text, BaseEncoding};
 use super::font::{FontKind, FontMetrics};
+use super::fontprog::{self, ProgramFormat};
 use super::geometry::{Matrix, Rect};
 use super::interp::{Resources, XObject};
 use crate::error::Result;
@@ -127,14 +128,14 @@ fn simple_metrics(font: &PdfObject, base_name: &str, kind: FontKind) -> Result<F
     };
 
     // Encodage : base, puis différences.
-    let mut base = BaseEncoding::Standard;
+    let mut base = None;
     let mut differences: HashMap<u32, String> = HashMap::new();
     if let Some(encoding) = font.get_dict("Encoding")? {
         if encoding.is_name()? {
-            base = BaseEncoding::from_name(&encoding.as_name()?).unwrap_or(base);
+            base = BaseEncoding::from_name(&encoding.as_name()?);
         } else if encoding.is_dict()? {
             if let Some(name) = name(&encoding, "BaseEncoding")? {
-                base = BaseEncoding::from_name(&name).unwrap_or(base);
+                base = BaseEncoding::from_name(&name);
             }
             if let Some(array) = encoding.get_dict("Differences")? {
                 let mut code = 0u32;
@@ -154,11 +155,25 @@ fn simple_metrics(font: &PdfObject, base_name: &str, kind: FontKind) -> Result<F
             }
         }
     }
+    // Sans encodage de base désigné, une police Type 1 ou CFF intégrée suit
+    // l'encodage de son programme (StandardEncoding s'il n'en porte pas).
+    let builtin = match (base, kind, &descriptor) {
+        (None, FontKind::Simple, Some(descriptor)) => builtin_encoding(font, descriptor)?,
+        _ => None,
+    };
+    let base = base.unwrap_or(BaseEncoding::Standard);
     let symbolic = base_name.starts_with("Symbol") || base_name.starts_with("ZapfDingbats");
     let mut unicode: HashMap<u32, String> = HashMap::new();
     for code in 0..256u32 {
         if let Some(text) = differences.remove(&code) {
             unicode.insert(code, text);
+        } else if let Some(builtin) = &builtin {
+            if let Some(text) = builtin
+                .get(&(code as u8))
+                .and_then(|name| glyph_name_text(name))
+            {
+                unicode.insert(code, text);
+            }
         } else if !symbolic && kind != FontKind::Type3 {
             if let Some(c) = base.char(code as u8) {
                 unicode.insert(code, c.to_string());
@@ -206,6 +221,33 @@ fn simple_metrics(font: &PdfObject, base_name: &str, kind: FontKind) -> Result<F
             | if standard.is_monospaced() { 0x1 } else { 0 };
     }
     Ok(metrics)
+}
+
+/// Encodage interne du programme intégré d'une police Type 1 ou CFF.
+fn builtin_encoding(
+    font: &PdfObject,
+    descriptor: &PdfObject,
+) -> Result<Option<HashMap<u8, String>>> {
+    // Une police TrueType sans encodage suit sa table `cmap`, que MuPDF lit.
+    if name(font, "Subtype")?.as_deref() == Some(b"TrueType") {
+        return Ok(None);
+    }
+    let (program, format) = if let Some(program) = descriptor.get_dict("FontFile")? {
+        (program, ProgramFormat::Type1)
+    } else if let Some(program) = descriptor.get_dict("FontFile3")? {
+        let format = match name(&program, "Subtype")?.as_deref() {
+            Some(b"Type1C") => ProgramFormat::Cff,
+            Some(b"OpenType") => ProgramFormat::OpenType,
+            _ => return Ok(None),
+        };
+        (program, format)
+    } else {
+        return Ok(None);
+    };
+    if !program.is_stream()? {
+        return Ok(None);
+    }
+    Ok(fontprog::builtin_encoding(&program.read_stream()?, format))
 }
 
 /// Police composite (Type 0).

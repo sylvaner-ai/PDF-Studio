@@ -36,7 +36,7 @@ soit une licence commerciale d'Artifex, soit le passage à PDFium (BSD).
 | `image` | banc d'essai (export PNG) | MIT ou Apache-2.0 |
 | XcodeGen | génération du projet Xcode | MIT |
 | SwiftLint | analyse du code Swift | MIT |
-| reportlab, pikepdf, Pillow | génération du jeu de test | BSD, MPL-2.0, HPND |
+| reportlab, pikepdf, Pillow, fontTools | génération du jeu de test | BSD, MPL-2.0, HPND, MIT |
 
 ## Polices embarquées
 

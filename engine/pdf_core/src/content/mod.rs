@@ -7,6 +7,7 @@
 pub mod cmap;
 pub mod encodings;
 pub mod font;
+pub mod fontprog;
 pub mod geometry;
 pub mod interp;
 pub mod layout;
