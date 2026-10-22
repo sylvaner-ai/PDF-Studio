@@ -151,6 +151,13 @@ l'*inpainting* des scans (jalon 7).
 - **Mesures :** deux des cinq documents privés de test ont une référence
   inexploitable (texte natif sans Unicode, ou texte invisible) : leur taux n'est
   pas significatif.
+- **Sélection du texte dans l'application :** le mode Lecture affiche les pages
+  en images et ne permet pas de sélectionner ni de copier du texte, natif ou
+  reconnu. Le texte reconnu se sélectionne dans les autres lecteurs (Aperçu,
+  Acrobat) une fois le document enregistré.
+- **Mots douteux :** sur un scan propre, Vision donne une confiance d'au moins
+  0,5 à presque tous les mots : aucun n'est alors signalé. Le surlignage
+  n'apparaît que sur les scans de moindre qualité.
 - **Confiance perdue à l'enregistrement :** la couche de texte enregistrée ne
   garde pas la confiance des mots. Après réouverture, les mots douteux ne sont
   plus signalés, et la couche n'est pas modifiable en mode Édition (le texte
