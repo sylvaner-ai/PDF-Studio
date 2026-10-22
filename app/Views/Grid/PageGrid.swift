@@ -7,6 +7,8 @@ enum Workspace: Hashable {
     case reading
     /// Grille de vignettes, pour organiser les pages.
     case organizing
+    /// Modification du contenu des pages dans le canevas.
+    case editing
 }
 
 /// Grille des vignettes de toutes les pages, pour les organiser.

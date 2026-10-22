@@ -16,7 +16,7 @@ préférées à qualité équivalente.
 | libjpeg (via MuPDF) | images JPEG | IJG |
 | OpenJPEG (via MuPDF) | images JPEG 2000 | BSD-2-Clause |
 | zlib (via MuPDF) | compression | zlib |
-| `font-kit` | accès aux polices système de macOS | MIT ou Apache-2.0 |
+| `font-kit` | polices installées sur le Mac (par MuPDF, et depuis le jalon 4 pour intégrer une police au texte modifié) | MIT ou Apache-2.0 |
 | `uniffi` | pont Swift ↔ Rust | MPL-2.0 |
 | `thiserror` | erreurs Rust | MIT ou Apache-2.0 |
 | `unicode-normalization` | repli des accents pour la recherche | MIT ou Apache-2.0 |

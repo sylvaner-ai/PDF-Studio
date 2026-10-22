@@ -31,6 +31,8 @@ final class PageTileView: NSView {
     private let baseView = NSImageView()
     private let detailView = FlippedView()
     private let highlightView = HighlightView()
+    /// Sélection des objets, en mode Édition.
+    private var overlay: EditingOverlayView?
 
     private var basePixelWidth = 0
     private var baseTask: Task<Void, Never>?
@@ -93,6 +95,16 @@ final class PageTileView: NSView {
             updateAccessibility()
         }
         guard page != self.page || display != self.display else { return }
+        if display == self.display, page.hasSameLayout(as: self.page) {
+            // Contenu modifié : l'image actuelle reste affichée jusqu'au
+            // nouveau rendu, que demandera le prochain `refresh`.
+            self.page = page
+            baseTask?.cancel()
+            basePixelWidth = 0
+            clearDetail()
+            overlay?.configure(page: page, rotation: rotation)
+            return
+        }
         self.page = page
         self.display = display
         pageSize = page.size(display)
@@ -102,7 +114,34 @@ final class PageTileView: NSView {
         baseView.image = nil
         clearDetail()
         highlightView.update(matches: [], current: nil)
+        overlay?.configure(page: page, rotation: rotation)
         updateAccessibility()
+    }
+
+    /// Identifiant de la page affichée.
+    var pageID: UInt64 { page.id }
+
+    /// Mode Édition (`editing` non nul) ou lecture.
+    func setEditing(_ editing: PageEditing?) {
+        guard let editing else {
+            overlay?.close()
+            overlay?.removeFromSuperview()
+            overlay = nil
+            return
+        }
+        let overlay = self.overlay ?? EditingOverlayView(frame: bounds)
+        if self.overlay == nil {
+            overlay.autoresizingMask = [.width, .height]
+            addSubview(overlay)
+            self.overlay = overlay
+        }
+        overlay.editing = editing
+        overlay.configure(page: page, rotation: rotation)
+    }
+
+    /// Les objets ou la sélection de la page ont changé.
+    func editingDidChange() {
+        overlay?.update()
     }
 
     /// Ajuste la netteté de l'affichage au grossissement courant.

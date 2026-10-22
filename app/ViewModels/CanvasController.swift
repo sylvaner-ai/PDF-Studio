@@ -14,6 +14,7 @@ final class CanvasController {
     @ObservationIgnored private weak var canvas: PageCanvasView?
     @ObservationIgnored private var matches: [Int: [SearchMatch]] = [:]
     @ObservationIgnored private var currentMatch: SearchHit?
+    @ObservationIgnored private var editing: PageEditing?
 
     init(pages: [DisplayPage]) {
         self.pages = pages
@@ -28,6 +29,7 @@ final class CanvasController {
         canvas.setDisplayMode(displayMode)
         canvas.start(at: currentPage)
         canvas.showMatches(matches, current: currentMatch)
+        canvas.setEditing(editing)
         canvas.onCurrentPageChange = { [weak self] page in
             self?.currentPage = page
         }
@@ -62,6 +64,13 @@ final class CanvasController {
         } else {
             currentPage = min(currentPage, pages.count - 1)
         }
+    }
+
+    /// Mode Édition : les objets des pages se sélectionnent et se modifient
+    /// dans le canevas ; `nil` revient à la lecture.
+    func setEditing(_ editing: PageEditing?) {
+        self.editing = editing
+        canvas?.setEditing(editing)
     }
 
     func setDisplayMode(_ mode: DisplayMode) {

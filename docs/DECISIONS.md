@@ -203,6 +203,7 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
 - **Raisons :** l'écriture est instantanée à chaque changement, et rien n'est perdu
   entre deux sauvegardes automatiques. Le mot de passe d'un document protégé n'est
   jamais écrit sur le disque.
+- *Complétée au jalon 4 : les modifications du contenu sont retenues aussi (D22).*
 
 ## D15 — ⌘L et ⌘R font pivoter les pages, ⌥⌘L et ⌥⌘R l'affichage (jalon 3)
 
@@ -245,3 +246,69 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   page extraite qui a disparu fait échouer l'extraction avec un message, plutôt que
   de produire un fichier faux ; une page sélectionnée qui a disparu est simplement
   laissée de côté par l'export en images et par la scission.
+
+## D19 — Édition : réécriture ciblée du flux de contenu (jalon 4)
+
+- **Retenu :** le moteur lit lui-même le flux de contenu de la page (analyseur et
+  interpréteur en Rust sûr, `pdf_core::content`). Il en tire des objets : blocs de
+  texte (un paragraphe forme un bloc), images, groupes de tracés qui se touchent,
+  formulaires et dégradés, dans l'ordre d'empilement. Une modification (supprimé,
+  déplacé de dx, dy, nouveau texte) est notée par objet ; à l'enregistrement comme
+  pour l'aperçu, seules les opérations des objets modifiés sont réécrites, le
+  reste du flux est recopié octet pour octet. Un glyphe effacé devient un décalage
+  dans son tableau `TJ`, un texte déplacé ou remplacé est redessiné juste après son
+  objet texte avec tout son état graphique, un autre objet est retiré ou entouré
+  de `q cm … Q`.
+- **Alternative :** reconstruire toute la page à partir de la liste d'affichage de
+  MuPDF.
+- **Raisons :** ce qui n'est pas touché reste identique (couleurs, détourages,
+  calques, ordre d'empilement, texte balisé) ; le fichier grossit à peine ; le même
+  code produit l'aperçu et le fichier, qui ne peuvent pas différer.
+
+## D20 — Police d'un texte modifié : celle d'origine, sinon installée, sinon standard (jalon 4)
+
+- **Retenu :** le nouveau texte garde la police du bloc si elle contient tous ses
+  caractères : le moteur le vérifie par un rendu d'essai, chaque glyphe devant
+  exister et avoir un contour (une police réduite aux caractères utilisés n'a pas
+  les autres). Sinon, la même police installée sur le Mac est cherchée par son nom
+  PostScript (`font-kit`) et intégrée au document si sa licence le permet
+  (OS/2 `fsType`) et si elle pèse 16 Mo au plus. À défaut, la police standard la
+  plus proche (Helvetica, Times, Courier, en gras ou italique) est utilisée, sans
+  être intégrée. Le bandeau du mode Édition signale la substitution, le texte qui
+  déborde du bloc et les caractères absents.
+- **Alternative :** toujours intégrer une police libre embarquée.
+- **Raisons :** le texte modifié ressemble le plus possible au reste ; une police
+  dont la licence interdit l'intégration n'est jamais copiée dans le fichier.
+
+## D21 — Un seul historique pour les pages et leur contenu (jalon 4)
+
+- **Retenu :** l'état du crate `edit` réunit la liste des pages et les
+  modifications du contenu, rangées par identifiant de page. ⌘Z annule
+  indifféremment une rotation, une suppression de page ou un texte modifié, dans
+  l'ordre où ils ont été faits. Une page dupliquée ou déplacée garde ses
+  modifications.
+- **Alternative :** un historique par page.
+- **Raisons :** un seul ⌘Z, comme dans les autres applications du Mac ; une page
+  supprimée puis rétablie retrouve son contenu modifié.
+
+## D22 — Récupération : le contenu modifié aussi, avec une empreinte par objet (jalon 4)
+
+- **Retenu :** le fichier de récupération (D14) retient aussi, pour chaque page,
+  les modifications de son contenu, avec l'empreinte de l'objet visé (nature et
+  emprise). À la restauration, une modification dont l'objet ne correspond plus est
+  ignorée. Les enregistrements du jalon 3 restent lisibles.
+- **Raisons :** une modification ne doit jamais s'appliquer à un autre objet que
+  celui qui a été modifié.
+
+## D23 — Mode Édition dans le canevas de lecture (jalon 4)
+
+- **Retenu :** un troisième mode (⌘3) réutilise le canevas de lecture ; une vue
+  AppKit posée sur chaque page dessine la sélection et reçoit la souris. Un clic
+  sélectionne le plus petit objet sous le pointeur (un fond qui couvre presque
+  toute la page n'est pas sélectionné par un clic), ⇧-clic ajoute ou retire, un
+  rectangle tracé sur la page sélectionne plusieurs objets ; on déplace en
+  glissant ou avec les flèches (1 pt, 10 pt avec ⇧), on supprime avec ⌫, on
+  modifie un texte par double-clic ou Retour.
+- **Alternative :** une vue d'édition séparée, page par page.
+- **Raisons :** zoom, défilement et rendu par tuiles sont ceux de la lecture ;
+  passer d'un mode à l'autre ne change pas la page lue.

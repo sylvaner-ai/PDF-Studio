@@ -19,7 +19,7 @@ struct RecoveryContext {
 // MARK: - Récupération des modifications non enregistrées
 
 /// Tant que des modifications ne sont pas enregistrées, l'organisation des pages
-/// est retenue à chaque changement (cf. ``RecoveryStore``). Si l'application
+/// et les modifications de leur contenu sont retenues à chaque changement (cf. ``RecoveryStore``). Si l'application
 /// s'arrête ou est quittée entre-temps, elle est proposée à la prochaine ouverture
 /// du fichier. Les pages renvoient au fichier tel qu'il a été ouvert ; avant le
 /// premier enregistrement, qui le remplace, une copie en est conservée, comme
@@ -59,7 +59,7 @@ extension DocumentViewModel {
         Task { await restore(record) }
     }
 
-    /// Retient l'organisation des pages tant qu'elle n'est pas enregistrée.
+    /// Retient l'organisation et le contenu des pages tant qu'ils ne sont pas enregistrés.
     func updateRecovery() {
         guard recovery.isActive, recoveryOffer == nil, let store = recoveryStore else { return }
         guard isModified, recovery.isAvailable, let stamp = recovery.stamp else {
@@ -71,7 +71,10 @@ extension DocumentViewModel {
             stamp: stamp,
             basePath: recovery.basePath,
             sources: recovery.extraSources,
-            pages: pages.map { RecoveryRecord.Page($0) },
+            pages: pages.map { page in
+                let edits = page.editRevision == 0 ? [] : (try? session?.contentRecord(page: page.id)) ?? []
+                return RecoveryRecord.Page(page, edits: edits)
+            },
             date: Date()
         ))
     }
@@ -174,7 +177,10 @@ extension DocumentViewModel {
         }
         others.forEach { _ = addSource($0) }
         recovery.extraSources = record.sources
-        guard perform({ try $0.restore(pages: record.pages.map(\.item)) }) else {
+        let restored = perform {
+            try $0.restore(pages: record.pages.map(\.item), contents: record.pages.map(\.contentItems))
+        }
+        guard restored else {
             abandon(record)
             // Les pages affichées sont celles de la copie d'ouverture : le fichier est rouvert.
             if base != nil {

@@ -74,7 +74,8 @@ l'*inpainting* des scans (jalon 7).
   d'écran lisent alors le document sans ses balises.
 - **Signature numérique :** tout enregistrement la rend invalide (PDF Studio prévient
   avant). Signer de nouveau relève d'un autre logiciel.
-- **Récupération :** seule l'organisation des pages est retenue. Si le fichier est
+- **Récupération :** seule l'organisation des pages est retenue (*le contenu
+  modifié l'est aussi depuis le jalon 4*). Si le fichier est
   modifié par une autre application avant tout enregistrement dans PDF Studio, les
   modifications retenues sont abandonnées à la réouverture. Insérer des pages d'un
   PDF protégé par un mot de passe rend la récupération impossible pour ce document,
@@ -99,3 +100,34 @@ l'*inpainting* des scans (jalon 7).
   assertions. L'une d'elles (`pdf_load_hail_mary_font`) peut se déclencher quand des
   tests parallèles chargent un formulaire sans police par défaut. La version Release
   n'est pas concernée, et le jeu de test fournit cette police.
+
+## Jalon 4
+
+- **Objets verrouillés :** le texte vertical, le texte dans une police que le moteur
+  ne sait pas mesurer (codages CJK prédéfinis, par exemple) et le texte qui sert de
+  détourage ne peuvent être ni déplacés ni modifiés ; le bandeau l'indique. Un
+  formulaire PDF (contenu réutilisable) se déplace ou se supprime d'un bloc, sans
+  accès à ses éléments.
+- **Texte modifié :** il reprend la police, le corps, la couleur et l'alignement du
+  début du bloc ; les mélanges de styles dans un même bloc (un mot en gras, un
+  lien coloré) sont perdus, de même que le crénage d'origine. Un texte plus long
+  que l'original déborde du bloc vers le bas sans repousser ce qui suit ; le
+  bandeau le signale.
+- **Polices :** une police installée est intégrée entière, sans réduction aux
+  caractères utilisés (quelques centaines de kilo-octets à quelques
+  méga-octets). Une police qui interdit l'intégration, ou de plus de 16 Mo, est
+  remplacée par une police standard non intégrée. Selon les règles du bac à sable
+  de macOS, les polices installées dans la bibliothèque personnelle
+  (`~/Library/Fonts`) peuvent être illisibles : la police standard prend alors le
+  relais.
+- **Recherche :** elle porte sur le texte d'origine des pages tant que le document
+  n'est pas enregistré puis rouvert.
+- **Scans :** le texte invisible issu d'une reconnaissance de caractères n'est pas
+  un objet modifiable ; supprimer ou déplacer l'image d'un scan laisse ce texte en
+  place.
+- **Saisie du texte :** elle se fait à l'horizontale, même sur une page tournée, et
+  dans la police du bloc seulement si elle est installée sur le Mac (sinon la police
+  du système) ; le rendu exact apparaît une fois la saisie validée. Pendant un
+  glisser, seul le contour des objets suit le pointeur.
+- **Historique :** chaque appui sur une flèche compte pour une modification à
+  annuler.

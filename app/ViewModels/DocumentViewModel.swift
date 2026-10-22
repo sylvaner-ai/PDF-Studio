@@ -31,8 +31,19 @@ final class DocumentViewModel {
     private(set) var pages: [DisplayPage] = []
     /// Pages sélectionnées dans les vignettes, par identifiant.
     var selection: Set<UInt64> = []
-    /// Lecture des pages, ou grille pour les organiser.
-    var workspace = Workspace.reading
+    /// Lecture des pages, grille pour les organiser, ou édition de leur contenu.
+    var workspace = Workspace.reading {
+        didSet {
+            guard workspace != oldValue else { return }
+            // Le canevas d'abord : un texte en cours de saisie est validé.
+            canvas.setEditing(workspace == .editing ? editing : nil)
+            if workspace != .editing {
+                editing.endEditing()
+            }
+        }
+    }
+    /// Sélection et modification des objets des pages (mode Édition).
+    let editing = PageEditing()
     /// Largeur des vignettes de la grille, en points (⌘+ et ⌘- dans la grille).
     var gridThumbnailWidth: CGFloat = 150
     private(set) var renderer: PageRenderer?
@@ -77,6 +88,7 @@ final class DocumentViewModel {
         self.reference = reference
         self.title = reference.displayName
         OpenDocuments.register(self)
+        editing.model = self
     }
 
     var pageCount: Int { pages.count }
@@ -142,6 +154,8 @@ final class DocumentViewModel {
         }
         renderer = PageRenderer(sources: sources)
         canvas = CanvasController(pages: pages)
+        editing.reset()
+        canvas.setEditing(workspace == .editing ? editing : nil)
         search = SearchModel(sources: sources, pages: pages, canvas: canvas)
         selection = pages.first.map { [$0.id] } ?? []
         phase = .ready
@@ -298,6 +312,13 @@ extension DocumentViewModel {
     private func reloadPages() {
         guard let session else { return }
         pages = session.pages().map { DisplayPage($0, sizes: sourceSizes) }
+        // Les rendus doivent trouver les modifications avant que les pages ne changent.
+        var edits: [UInt64: ContentEdits] = [:]
+        for page in pages where page.editRevision != 0 {
+            edits[page.id] = session.contentEdits(page: page.id)
+        }
+        sources?.setEdits(edits)
+        editing.pagesDidChange(pages)
         setModified(session.isModified())
         selection.formIntersection(pages.map(\.id))
         canvas.setPages(pages)

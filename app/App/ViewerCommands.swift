@@ -38,6 +38,9 @@ struct ViewerCommands: Commands {
             Toggle("Organisation des pages", isOn: workspace(.organizing))
                 .keyboardShortcut("2")
                 .disabled(canvas == nil)
+            Toggle("Édition", isOn: workspace(.editing))
+                .keyboardShortcut("3")
+                .disabled(canvas == nil)
             Divider()
             Button("Taille réelle") { reading?.actualSize() }
                 .keyboardShortcut("0")
@@ -96,7 +99,7 @@ struct ViewerCommands: Commands {
 
     /// Canevas du document actif s'il est affiché (et non la grille d'organisation).
     private var reading: CanvasController? {
-        model?.workspace == .reading ? canvas : nil
+        model?.workspace == .organizing ? nil : canvas
     }
 
     private var search: SearchModel? {

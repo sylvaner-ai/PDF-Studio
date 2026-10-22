@@ -6,8 +6,12 @@ extension PageCanvasView {
     /// Pas de défilement des flèches, en points.
     private static let lineStep: CGFloat = 48
 
-    /// Touches de lecture, reçues de la vue des pages.
+    /// Touches de lecture, reçues de la vue des pages ; en mode Édition, les
+    /// touches de la sélection passent d'abord.
     func handleKey(_ event: NSEvent) -> Bool {
+        if let editing, handleEditingKey(event, editing: editing) {
+            return true
+        }
         guard let key = ReadingKey(event) else { return false }
         let visible = pagesView.visibleRect
         let screen = visible.height - 4 * PageLayout.spacing

@@ -19,9 +19,10 @@ struct FileStamp: Codable, Equatable, Sendable {
 /// Modifications non enregistrées d'un document, de quoi les retrouver après un
 /// arrêt imprévu ou quand l'application a été quittée sans enregistrer.
 ///
-/// Seule l'organisation des pages est retenue : les pages renvoient au document
-/// (ou à une copie de sa version d'ouverture, s'il a été enregistré depuis) et à
-/// des copies des documents dont des pages ont été insérées.
+/// L'organisation des pages et les modifications de leur contenu sont retenues :
+/// les pages renvoient au document (ou à une copie de sa version d'ouverture,
+/// s'il a été enregistré depuis) et à des copies des documents dont des pages
+/// ont été insérées.
 struct RecoveryRecord: Codable, Equatable, Sendable {
     struct Page: Codable, Equatable, Sendable {
         /// Document source (0 : le document) ; `nil` pour une page vierge.
@@ -30,6 +31,27 @@ struct RecoveryRecord: Codable, Equatable, Sendable {
         let width: Float
         let height: Float
         let quarterTurns: Int
+        /// Modifications du contenu de la page (absentes des enregistrements
+        /// antérieurs à l'édition du contenu).
+        var edits: [ObjectEdit]?
+    }
+
+    /// Modification d'un objet d'une page (cf. ``ObjectEditItem``).
+    struct ObjectEdit: Codable, Equatable, Sendable {
+        let object: UInt32
+        let deleted: Bool
+        let dx: Float
+        let dy: Float
+        let text: String?
+        let font: Font?
+        let fingerprint: String
+
+        /// Police d'un texte modifié (cf. ``TextFont``).
+        enum Font: Codable, Equatable, Sendable {
+            case original
+            case installed(postscriptName: String)
+            case standard(name: String)
+        }
     }
 
     var version = 1
@@ -46,19 +68,61 @@ struct RecoveryRecord: Codable, Equatable, Sendable {
 }
 
 extension RecoveryRecord.Page {
-    init(_ page: DisplayPage) {
+    init(_ page: DisplayPage, edits: [ObjectEditItem] = []) {
         source = page.source?.document
         index = page.source?.index ?? 0
         width = Float(page.baseSize.width)
         height = Float(page.baseSize.height)
         quarterTurns = page.quarterTurns
+        self.edits = edits.isEmpty ? nil : edits.map { RecoveryRecord.ObjectEdit($0) }
+    }
+
+    /// Modifications du contenu au format du moteur.
+    var contentItems: [ObjectEditItem] {
+        (edits ?? []).map(\.item)
     }
 
     /// Page au format du moteur ; l'identifiant est attribué par le moteur.
     var item: PageItem {
         let kind: PageKind = source.map { .source(source: UInt32($0), index: UInt32(index)) }
             ?? .blank(size: PageSize(width: width, height: height))
-        return PageItem(id: 0, kind: kind, quarterTurns: UInt8(quarterTurns & 3))
+        return PageItem(id: 0, kind: kind, quarterTurns: UInt8(quarterTurns & 3), editRevision: 0)
+    }
+}
+
+extension RecoveryRecord.ObjectEdit {
+    init(_ item: ObjectEditItem) {
+        object = item.object
+        deleted = item.deleted
+        dx = item.dx
+        dy = item.dy
+        text = item.text
+        font = item.font.map { Font($0) }
+        fingerprint = item.fingerprint
+    }
+
+    var item: ObjectEditItem {
+        ObjectEditItem(
+            object: object, deleted: deleted, dx: dx, dy: dy, text: text, font: font?.engine, fingerprint: fingerprint
+        )
+    }
+}
+
+extension RecoveryRecord.ObjectEdit.Font {
+    init(_ font: TextFont) {
+        switch font {
+        case .original: self = .original
+        case let .installed(postscriptName): self = .installed(postscriptName: postscriptName)
+        case let .standard(name): self = .standard(name: name)
+        }
+    }
+
+    var engine: TextFont {
+        switch self {
+        case .original: return .original
+        case let .installed(postscriptName): return .installed(postscriptName: postscriptName)
+        case let .standard(name): return .standard(name: name)
+        }
     }
 }
 

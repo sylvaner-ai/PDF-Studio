@@ -153,9 +153,16 @@ struct ReaderView: View {
                 .navigationSplitViewColumnWidth(min: 140, ideal: 168, max: 260)
         } detail: {
             switch model.workspace {
-            case .reading:
+            case .reading, .editing:
+                // Une seule branche : le canevas reste le même en passant de la
+                // lecture à l'édition.
                 PageCanvas(renderer: renderer, controller: model.canvas)
                     .accessibilityLabel(Text("Pages du document"))
+                    .overlay(alignment: .bottom) {
+                        if model.workspace == .editing {
+                            EditingBadge(editing: model.editing)
+                        }
+                    }
             case .organizing:
                 PageGrid(
                     model: model,
@@ -172,10 +179,11 @@ struct ReaderView: View {
                 Picker("Présentation", selection: $model.workspace) {
                     Label("Lecture", systemImage: "doc.text").tag(Workspace.reading)
                     Label("Organisation des pages", systemImage: "square.grid.2x2").tag(Workspace.organizing)
+                    Label("Édition", systemImage: "pencil").tag(Workspace.editing)
                 }
                 .pickerStyle(.segmented)
                 .labelStyle(.iconOnly)
-                .help(Text("Lecture (⌘1) ou organisation des pages (⌘2)"))
+                .help(Text("Lecture (⌘1), organisation des pages (⌘2) ou édition du contenu (⌘3)"))
             }
             ToolbarItem(placement: .primaryAction) {
                 if model.workspace == .reading, let search = model.search {
