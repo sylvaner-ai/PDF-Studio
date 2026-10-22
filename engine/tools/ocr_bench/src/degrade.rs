@@ -16,17 +16,21 @@ pub enum Profile {
     Tilted,
     /// Page numérisée à l'envers.
     UpsideDown,
+    /// Page à l'italienne numérisée couchée (un quart de tour, sens
+    /// antihoraire).
+    Sideways,
     /// Basse résolution (150 dpi), comme une télécopie ou un scan rapide.
     LowResolution,
 }
 
 impl Profile {
     /// Tous les profils, dans l'ordre du rapport.
-    pub const ALL: [Profile; 5] = [
+    pub const ALL: [Profile; 6] = [
         Profile::Clean,
         Profile::Degraded,
         Profile::Tilted,
         Profile::UpsideDown,
+        Profile::Sideways,
         Profile::LowResolution,
     ];
 
@@ -37,6 +41,7 @@ impl Profile {
             Profile::Degraded => "dégradé",
             Profile::Tilted => "incliné",
             Profile::UpsideDown => "retourné",
+            Profile::Sideways => "couché",
             Profile::LowResolution => "150 dpi",
         }
     }
@@ -49,9 +54,15 @@ impl Profile {
             .or(match name {
                 "incline" => Some(Profile::Tilted),
                 "retourne" => Some(Profile::UpsideDown),
+                "couche" => Some(Profile::Sideways),
                 "150" => Some(Profile::LowResolution),
                 _ => None,
             })
+    }
+
+    /// Quarts de tour (sens horaire) qui remettent la page simulée à l'endroit.
+    pub fn expected_turns(self) -> u8 {
+        (4 - self.spec().turns) % 4
     }
 
     /// Résolution de rastérisation.
@@ -93,6 +104,7 @@ impl Profile {
                 ..clean
             },
             Profile::UpsideDown => Spec { turns: 2, ..clean },
+            Profile::Sideways => Spec { turns: 3, ..clean },
             Profile::LowResolution => Spec {
                 blur: 0.4,
                 noise: 5.0,

@@ -19,7 +19,8 @@ struct FileStamp: Codable, Equatable, Sendable {
 /// Modifications non enregistrées d'un document, de quoi les retrouver après un
 /// arrêt imprévu ou quand l'application a été quittée sans enregistrer.
 ///
-/// L'organisation des pages et les modifications de leur contenu sont retenues :
+/// L'organisation des pages, les modifications de leur contenu et le texte
+/// reconnu des pages scannées sont retenus :
 /// les pages renvoient au document (ou à une copie de sa version d'ouverture,
 /// s'il a été enregistré depuis) et à des copies des documents dont des pages
 /// ont été insérées.
@@ -34,6 +35,16 @@ struct RecoveryRecord: Codable, Equatable, Sendable {
         /// Modifications du contenu de la page (absentes des enregistrements
         /// antérieurs à l'édition du contenu).
         var edits: [ObjectEdit]?
+        /// Couche de texte reconnue de la page, s'il y en a une.
+        var layer: [LayerWord]?
+    }
+
+    /// Mot de la couche de texte d'une page reconnue (cf. ``LayerWordItem``).
+    struct LayerWord: Codable, Equatable, Sendable {
+        let text: String
+        let quad: [Float]
+        let confidence: Float
+        let line: UInt32
     }
 
     /// Modification d'un objet d'une page (cf. ``ObjectEditItem``).
@@ -68,13 +79,21 @@ enum RecoveryTextFont: Codable, Equatable, Sendable {
 }
 
 extension RecoveryRecord.Page {
-    init(_ page: DisplayPage, edits: [ObjectEditItem] = []) {
+    init(_ page: DisplayPage, edits: [ObjectEditItem] = [], layer: [LayerWordItem] = []) {
         source = page.source?.document
         index = page.source?.index ?? 0
         width = Float(page.baseSize.width)
         height = Float(page.baseSize.height)
         quarterTurns = page.quarterTurns
         self.edits = edits.isEmpty ? nil : edits.map { RecoveryRecord.ObjectEdit($0) }
+        self.layer = layer.isEmpty ? nil : layer.map {
+            RecoveryRecord.LayerWord(text: $0.text, quad: $0.quad, confidence: $0.confidence, line: $0.line)
+        }
+    }
+
+    /// Couche de texte au format du moteur.
+    var layerItems: [LayerWordItem] {
+        (layer ?? []).map { LayerWordItem(text: $0.text, quad: $0.quad, confidence: $0.confidence, line: $0.line) }
     }
 
     /// Modifications du contenu au format du moteur.
@@ -86,7 +105,9 @@ extension RecoveryRecord.Page {
     var item: PageItem {
         let kind: PageKind = source.map { .source(source: UInt32($0), index: UInt32(index)) }
             ?? .blank(size: PageSize(width: width, height: height))
-        return PageItem(id: 0, kind: kind, quarterTurns: UInt8(quarterTurns & 3), editRevision: 0)
+        return PageItem(
+            id: 0, kind: kind, quarterTurns: UInt8(quarterTurns & 3), editRevision: 0, textLayerRevision: 0
+        )
     }
 }
 

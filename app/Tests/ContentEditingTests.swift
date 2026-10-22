@@ -72,7 +72,9 @@ final class ContentEditingTests: XCTestCase {
         XCTAssertEqual(decoded, records)
 
         let restored = EditSession(document: try open())
-        try restored.restore(pages: decoded.map(\.item), contents: decoded.map(\.contentItems))
+        try restored.restore(
+            pages: decoded.map(\.item), contents: decoded.map(\.contentItems), layers: decoded.map(\.layerItems)
+        )
         let page = try XCTUnwrap(restored.pages().first)
         XCTAssertNotEqual(page.editRevision, 0)
         let objects = try restored.pageObjects(page: page.id)

@@ -62,6 +62,11 @@ final class DocumentViewModel {
     var activity: String?
     /// Modifications non enregistrées retrouvées à l'ouverture, en attente d'une réponse.
     var recoveryOffer: RecoveryRecord?
+    /// Reconnaissance du texte en cours (cf. `DocumentViewModel+Recognizing.swift`) ;
+    /// les pages restent figées jusqu'à sa fin.
+    var recognition: RecognitionProgress?
+    /// Information passagère, en bas de la fenêtre (bilan d'une reconnaissance).
+    var notice: String?
 
     /// Gestionnaire d'annulation de la fenêtre.
     @ObservationIgnored weak var undoManager: UndoManager?
@@ -74,6 +79,10 @@ final class DocumentViewModel {
     @ObservationIgnored private(set) var isClosed = false
     /// Dernière insertion demandée ; la suivante attend sa fin.
     @ObservationIgnored var insertionTask: Task<Void, Never>?
+    /// Reconnaissance du texte en cours, à interrompre.
+    @ObservationIgnored var recognitionTask: Task<Void, Never>?
+    /// Fin de l'affichage de l'information passagère.
+    @ObservationIgnored var noticeTask: Task<Void, Never>?
     @ObservationIgnored private var declaredTitle: String?
     /// Format des pages de chaque document source, en points.
     @ObservationIgnored private var sourceSizes: [[CGSize]] = []
@@ -134,6 +143,8 @@ final class DocumentViewModel {
 
     /// La fenêtre se ferme : ses actions d'annulation n'ont plus d'objet.
     func close() {
+        recognitionTask?.cancel()
+        noticeTask?.cancel()
         undoManager?.removeAllActions(withTarget: self)
         DocumentOpener.shared.setUnsaved(false, for: self)
         endRecovery()
@@ -156,7 +167,7 @@ final class DocumentViewModel {
         canvas = CanvasController(pages: pages)
         editing.reset()
         canvas.setEditing(workspace == .editing ? editing : nil)
-        search = SearchModel(sources: sources, pages: pages, canvas: canvas)
+        search = SearchModel(session: session, pages: pages, canvas: canvas)
         selection = pages.first.map { [$0.id] } ?? []
         phase = .ready
     }
@@ -232,9 +243,11 @@ extension DocumentViewModel {
     }
 
     /// Les pages restent figées tant que des modifications retrouvées attendent une
-    /// réponse, pendant une exportation, et une fois la fenêtre fermée.
+    /// réponse, pendant une exportation ou une reconnaissance du texte, et une fois
+    /// la fenêtre fermée.
     var canEdit: Bool {
-        phase == .ready && session != nil && recoveryOffer == nil && activity == nil && !isClosed
+        phase == .ready && session != nil && recoveryOffer == nil && activity == nil && recognition == nil
+            && !isClosed
     }
 
     /// Un document garde au moins une page.

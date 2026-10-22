@@ -24,6 +24,9 @@ struct DisplayPage: Identifiable, Hashable, Sendable {
     /// État des modifications du contenu (0 : contenu d'origine) ; il change à
     /// chaque modification, annulation comprise.
     var editRevision: UInt64 = 0
+    /// État de la couche de texte reconnue (0 : page non reconnue) ; il change
+    /// à chaque reconnaissance, annulation comprise.
+    var textRevision: UInt64 = 0
 
     var isBlank: Bool { source == nil }
 
@@ -51,6 +54,7 @@ extension DisplayPage {
         id = item.id
         quarterTurns = Int(item.quarterTurns)
         editRevision = item.editRevision
+        textRevision = item.textLayerRevision
         switch item.kind {
         case let .source(document, index):
             source = Source(document: Int(document), index: Int(index))

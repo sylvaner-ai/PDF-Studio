@@ -266,7 +266,7 @@ pub fn markdown(
     let _ = writeln!(out, "\n## Orientation et inclinaison\n");
     let _ = writeln!(
         out,
-        "| Moteur | Prétraitement | Pages retournées remises à l'endroit | Écart moyen d'inclinaison (page à 4°) |\n|---|---|---:|---:|"
+        "| Moteur | Prétraitement | Pages retournées remises à l'endroit | Pages couchées remises à l'endroit | Écart moyen d'inclinaison (page à 4°) |\n|---|---|---:|---:|---:|"
     );
     for (engine, variant) in combinations(runs) {
         if variant == Variant::Raw {
@@ -282,7 +282,20 @@ pub fn markdown(
             .iter()
             .filter(|r| r.engine == engine && r.variant == variant && r.profile == Profile::Tilted)
             .collect();
-        let righted = upside.iter().filter(|r| r.orientation_ok).count();
+        let sideways: Vec<_> = runs
+            .iter()
+            .filter(|r| {
+                r.engine == engine && r.variant == variant && r.profile == Profile::Sideways
+            })
+            .collect();
+        let righted = |runs: &[&SimulatedRun]| {
+            if runs.is_empty() {
+                "—".to_owned()
+            } else {
+                let ok = runs.iter().filter(|r| r.orientation_ok).count();
+                format!("{ok} sur {}", runs.len())
+            }
+        };
         let skew_error = if tilted.is_empty() {
             "—".to_owned()
         } else {
@@ -293,13 +306,10 @@ pub fn markdown(
         };
         let _ = writeln!(
             out,
-            "| {engine} | {} | {} | {skew_error} |",
+            "| {engine} | {} | {} | {} | {skew_error} |",
             variant.name(),
-            if upside.is_empty() {
-                "—".to_owned()
-            } else {
-                format!("{righted} sur {}", upside.len())
-            }
+            righted(&upside),
+            righted(&sideways),
         );
     }
 

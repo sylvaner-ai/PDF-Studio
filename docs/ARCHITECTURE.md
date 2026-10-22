@@ -8,13 +8,15 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
 ┌──────────────────────── Application SwiftUI (app/) ──────────────────────────┐
 │ Views/        DocumentWindow, DocumentView (lecteur), SidebarView,           │
 │               DocumentWindowBridge (fermeture), ExportOptions, SearchField ; │
-│               EditingBadge ; Canvas/ : PageCanvasView (AppKit),              │
+│               EditingBadge, RecognitionViews (bouton et avancement OCR) ;    │
+│               Canvas/ : PageCanvasView (AppKit),                             │
 │               PageTileView, EditingOverlayView ;                             │
 │               Grid/ : PageGrid, PageGridCoordinator, PageGridItem (AppKit)   │
 │ ViewModels/   DocumentViewModel (+Saving, +Recovery, +Inserting,             │
-│               +Exporting), DisplayPage, CanvasController, SearchModel,       │
-│               OutlineTree, PageLayout, PageRenderer, FileSaver,              │
-│               RecoveryStore, PageExporter, PageEditing                       │
+│               +Exporting, +Recognizing), DisplayPage, CanvasController,      │
+│               SearchModel, OutlineTree, PageLayout, PageRenderer,            │
+│               FileSaver, RecoveryStore, PageExporter, PageEditing            │
+│ Recognition/  VisionTextReader (Vision), VisionTextRecognizer (pour Rust)    │
 │ App/          PDFStudioApp, ViewerCommands et PageCommands (menus),          │
 │               DocumentOpener, DocumentReference (signets de sécurité)        │
 │ Bridge/       EngineBridge.swift + Generated/ (liaisons UniFFI générées)     │
@@ -22,24 +24,29 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
                                 │ UniFFI : PdfDocument, EditSession, PageItem,
                                 │          RenderedPage, OutlineItem, SearchMatch,
                                 │          PageRect, PageObjectItem, ContentEdits,
-                                │          ObjectEditItem, EngineError
+                                │          ObjectEditItem, TextRecognizer (trait
+                                │          implémenté en Swift), PageRecognition,
+                                │          EngineError
 ┌───────────────────────────────▼──────────── Moteur Rust (engine/) ───────────┐
 │ ffi/        interface pour Swift (seule couche contenant du code unsafe :    │
 │             macros UniFFI et deux appels système de qualité de service)      │
-│ edit/       pages, modifications de leur contenu et historique d'annulation  │
-│             (patron Command)                                                 │
+│ edit/       pages, modifications de leur contenu, couches de texte reconnu   │
+│             et historique d'annulation (patron Command)                      │
+│ ocr/        trait OcrEngine, préparation de l'image (fond, bruit,            │
+│             binarisation, inclinaison, orientation), mesure de la lecture    │
 │ render/     rastérisation RGBA : page entière ou zone, rotation d'affichage  │
 │ pdf_core/   ouverture, pages, métadonnées, plan, texte et recherche ;        │
 │             écriture d'un PDF réorganisé ; fil dédié par document ;          │
 │             choix des polices standard ; content/ : lecture du flux de       │
 │             contenu, objets des pages, mise en page et réécriture ;          │
-│             editing : polices, aperçu et application des modifications       │
+│             editing : polices, aperçu et application des modifications ;     │
+│             textlayer : couche de texte invisible des pages reconnues        │
 │ (MuPDF)     analyse, rendu, extraction du texte, écriture                    │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Les crates `ocr`, `layout` et `fonts` prévus par le cahier des charges seront
-créés aux jalons qui les utilisent (5 à 7) ; `edit` l'a été au jalon 3. Au
+Les crates `layout` et `fonts` prévus par le cahier des charges seront créés aux
+jalons qui les utilisent (6 et 7) ; `edit` l'a été au jalon 3, `ocr` au jalon 5. Au
 jalon 4, la mise en page du texte modifié et le choix de sa police sont restés
 dans `pdf_core` (`content::layout`, `editing`), car ils reposent sur
 l'interprétation du flux de contenu et sur MuPDF.
@@ -153,14 +160,49 @@ l'interprétation du flux de contenu et sur MuPDF.
   traduit souris et clavier en modifications (D23), toujours exprimées sur la page
   droite, rotation d'affichage et quarts de tour de l'organisation retirés.
 
+## Reconnaissance du texte (OCR)
+
+- **Moteurs interchangeables.** Le crate `ocr` définit le trait `OcrEngine`
+  (une image en niveaux de gris, des langues → des mots avec leur quadrilatère,
+  leur confiance et leur ligne). L'application fournit le sien : Vision, par le
+  trait UniFFI `TextRecognizer`, implémenté en Swift (`VisionTextRecognizer`) et
+  appelé par Rust (décision D26). Le banc d'essai (`engine/tools/ocr_bench`)
+  branche sur le même trait Tesseract, `ocrs` et Vision.
+- **Préparation.** `ocr::recognize` égalise le fond et étire le contraste,
+  filtre éventuellement le bruit, détecte une page couchée, mesure et corrige
+  l'inclinaison, binarise éventuellement, puis lit ; une lecture douteuse est
+  reprise dans les autres sens (D27). Les mots reviennent dans le repère de
+  l'image reçue.
+- **Une page.** `EditSession.recognize_page` rend la page (contenu modifié
+  compris) à 300 ppp, la fait lire, écarte les mots qui recouvrent un texte déjà
+  présent dans la page, puis convertit les quadrilatères en points dans l'espace
+  de la page PDF (inverse de la matrice d'affichage). Rien ne change dans le
+  document : `apply_recognitions` range ensuite les couches de toutes les pages
+  lues dans l'état du crate `edit`, en une étape d'annulation, et remet à
+  l'endroit les pages couchées ou retournées.
+- **Couche de texte.** Avant l'enregistrement, la recherche porte sur le texte
+  de la page et sur sa couche (`search_page_with_layer`). À l'écriture,
+  `textlayer` ajoute au flux de contenu, après le contenu d'origine entouré de
+  `q … Q`, un bloc marqué `/PDFStudioOCR` : chaque mot en rendu invisible
+  (`3 Tr`), placé et étiré sur son quadrilatère, dans une police Type0 sans
+  dessin construite par le code (D28). Les lecteurs PDF y trouvent le texte
+  (sélection, recherche, copie) sans que l'image change.
+- **Interface.** Le bouton « Reconnaître le texte » de la barre d'outils et le
+  menu Pages lancent la lecture des pages scannées (détectées par le moteur :
+  aucun texte, mais un contenu), de la page lue, de la sélection ou de tout le
+  document. Les pages sont lues une à une hors du fil principal ; un bandeau
+  montre l'avancement et permet d'arrêter après la page en cours. En mode
+  Édition, les mots douteux (confiance inférieure à 0,5) sont surlignés.
+
 ## Enregistrement, récupération et exportations
 
 - **Écriture.** `EditSession.export_pdf` produit les octets du nouveau PDF à partir
   des octets lus à l'ouverture (décision D12) ; `FileSaver` les écrit après
   confirmation et copie de sauvegarde, puis relit le résultat (D13).
 - **Récupération.** `RecoveryStore` retient, à chaque modification non enregistrée,
-  l'organisation des pages, les modifications de leur contenu (D22) et des copies
-  des documents dont elles viennent (D14).
+  l'organisation des pages, les modifications de leur contenu (D22), le texte
+  reconnu des pages scannées et des copies des documents dont elles viennent
+  (D14).
   Les copies orphelines sont supprimées au lancement.
 - **Exportations.** Extraction et scission passent par `export_pages` ; les images
   sont rendues par le moteur et encodées par ImageIO ; le texte vient de
@@ -205,13 +247,16 @@ lancé depuis Xcode reste donc à jour.
 ## Tests
 
 - `make test-engine` : tests Rust (`cargo test`) sur `tests/fixtures/`.
+- `make ocr-bench` : banc d'essai des moteurs OCR (`docs/OCR_BENCHMARK.md`).
 - `make test-app` : tests XCTest du pont, du rendu, de la recherche, de la
   géométrie d'affichage, de l'organisation, de l'enregistrement, de la
-  récupération, des exportations et de l'édition du contenu, hébergés dans
-  l'application.
+  récupération, des exportations, de l'édition du contenu et de la
+  reconnaissance du texte par Vision, hébergés dans l'application.
 - `tests/fixtures/generate.py` régénère le jeu de PDF publics, dont
   `organisation.pdf` (signets, liens, champs, note, numérotation et métadonnées à
   préserver) et `signature_factice.pdf` (champ de signature) pour le jalon 3,
   `edition.pdf` (titre en police intégrée, paragraphe justifié, ligne en
-  Helvetica, image, tracés, page tournée) pour le jalon 4 ;
+  Helvetica, image, tracés, page tournée) pour le jalon 4, `ocr/` (lettre,
+  facture, colonnes, tableau dense, petits caractères, texte anglais) pour le
+  jalon 5 ;
   `tests/fixtures/private/` reçoit les documents personnels, jamais versionnés.

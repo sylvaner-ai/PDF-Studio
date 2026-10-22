@@ -9,32 +9,49 @@ use crate::image::GrayImage;
 /// Égalise le fond (éclairage inégal, papier jauni) puis étire le contraste :
 /// le papier devient blanc et l'encre la plus sombre noire.
 ///
-/// Le fond est estimé par le pixel le plus clair de carrés d'un quart de
-/// pouce, étendu aux carrés voisins puis interpolé ; chaque pixel est divisé
-/// par ce fond.
+/// Le fond de chaque carré d'un quart de pouce est le niveau que dépassent
+/// ses 10 % de pixels les plus clairs (le bruit n'y compte pas, à la
+/// différence du pixel le plus clair) ; un carré presque couvert d'encre
+/// prend la médiane de ses voisins. Le fond est interpolé entre les carrés et
+/// chaque pixel divisé par ce fond.
 pub fn flatten_background(image: &GrayImage, dpi: f32) -> GrayImage {
     let block = ((dpi / 4.0).round() as u32).max(16);
     let (gw, gh) = (image.width.div_ceil(block), image.height.div_ceil(block));
-    let mut maxima = vec![0u8; (gw * gh) as usize];
+    let mut histograms = vec![[0u32; 256]; (gw * gh) as usize];
     for y in 0..image.height {
         let row = &image.pixels[(y * image.width) as usize..][..image.width as usize];
         let gy = y / block;
         for (x, &value) in row.iter().enumerate() {
-            let cell = &mut maxima[(gy * gw + x as u32 / block) as usize];
-            *cell = (*cell).max(value);
+            histograms[(gy * gw + x as u32 / block) as usize][value as usize] += 1;
         }
     }
-    // Un carré couvert d'écriture prend le fond de ses voisins.
-    let mut background = maxima.clone();
-    for gy in 0..gh {
-        for gx in 0..gw {
-            let mut best = 0u8;
-            for ny in gy.saturating_sub(1)..=(gy + 1).min(gh - 1) {
-                for nx in gx.saturating_sub(1)..=(gx + 1).min(gw - 1) {
-                    best = best.max(maxima[(ny * gw + nx) as usize]);
+    let levels: Vec<u8> = histograms
+        .iter()
+        .map(|histogram| {
+            let total: u32 = histogram.iter().sum();
+            let mut brighter = 0;
+            for level in (0..256).rev() {
+                brighter += histogram[level];
+                if brighter * 10 >= total {
+                    return level as u8;
                 }
             }
-            background[(gy * gw + gx) as usize] = best.max(1);
+            0
+        })
+        .collect();
+    let mut background = levels.clone();
+    for gy in 0..gh {
+        for gx in 0..gw {
+            let mut around: Vec<u8> = Vec::with_capacity(9);
+            for ny in gy.saturating_sub(1)..=(gy + 1).min(gh - 1) {
+                for nx in gx.saturating_sub(1)..=(gx + 1).min(gw - 1) {
+                    around.push(levels[(ny * gw + nx) as usize]);
+                }
+            }
+            around.sort_unstable();
+            let median = around[around.len() / 2];
+            let own = levels[(gy * gw + gx) as usize];
+            background[(gy * gw + gx) as usize] = own.max(median).max(1);
         }
     }
     let grid = Grid {
@@ -253,17 +270,81 @@ struct Ink {
 /// Plus grand nombre de pixels d'encre examinés.
 const MAX_INK_POINTS: usize = 200_000;
 
+/// Efface de `ink` (image de `width` × `height` pixels à `dpi`) les taches
+/// (composantes connexes) qui ne peuvent pas être du texte : trop petites
+/// (bruit), plus longues qu'un pouce et demi (filets, bords, lignes de texte
+/// fondues par le flou, dans un sens comme dans l'autre) ou plus épaisses
+/// qu'un demi-pouce (images).
+fn keep_text_shapes(ink: &mut [bool], width: u32, height: u32, dpi: f32) {
+    let (w, h) = (width as usize, height as usize);
+    let longest = (1.5 * dpi) as usize;
+    let thickest = (0.5 * dpi) as usize;
+    let mut seen = vec![false; ink.len()];
+    let mut stack = Vec::new();
+    let mut members = Vec::new();
+    for start in 0..ink.len() {
+        if !ink[start] || seen[start] {
+            continue;
+        }
+        seen[start] = true;
+        stack.push(start);
+        members.clear();
+        let (mut x0, mut y0, mut x1, mut y1) = (usize::MAX, usize::MAX, 0, 0);
+        while let Some(index) = stack.pop() {
+            members.push(index);
+            let (x, y) = (index % w, index / w);
+            (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+            let mut visit = |next: usize| {
+                if ink[next] && !seen[next] {
+                    seen[next] = true;
+                    stack.push(next);
+                }
+            };
+            if x > 0 {
+                visit(index - 1);
+            }
+            if x + 1 < w {
+                visit(index + 1);
+            }
+            if y > 0 {
+                visit(index - w);
+            }
+            if y + 1 < h {
+                visit(index + w);
+            }
+        }
+        let (long, short) = {
+            let (bw, bh) = (x1 - x0 + 1, y1 - y0 + 1);
+            (bw.max(bh), bw.min(bh))
+        };
+        if long > longest || short > thickest || long < 2 {
+            for &index in &members {
+                ink[index] = false;
+            }
+        }
+    }
+}
+
 impl Ink {
-    fn sample(image: &GrayImage, dpi: f32) -> Self {
+    /// Pixels d'encre (seuil d'Otsu) de l'image réduite. Avec `text_only`,
+    /// seuls comptent ceux des taches de la taille d'un caractère ou d'un mot :
+    /// ni les filets d'un tableau, ni les bords sombres d'un scan, ni les
+    /// grandes images, qui tromperaient la détection d'une page couchée.
+    fn sample(image: &GrayImage, dpi: f32, text_only: bool) -> Self {
         let factor = (dpi / 100.0).round().max(1.0) as u32;
         let small = image.downscale(factor);
         let threshold = otsu(&small);
-        let total = small.pixels.iter().filter(|&&v| v < threshold).count();
+        let mut ink: Vec<bool> = small.pixels.iter().map(|&v| v < threshold).collect();
+        if text_only {
+            let scale = dpi / factor as f32;
+            keep_text_shapes(&mut ink, small.width, small.height, scale);
+        }
+        let total = ink.iter().filter(|&&v| v).count();
         let step = total.div_ceil(MAX_INK_POINTS).max(1);
         let mut points = Vec::with_capacity(total.min(MAX_INK_POINTS));
         let mut seen = 0usize;
-        for (index, &value) in small.pixels.iter().enumerate() {
-            if value < threshold {
+        for (index, &is_ink) in ink.iter().enumerate() {
+            if is_ink {
                 if seen % step == 0 {
                     let x = (index as u32 % small.width) as f32;
                     let y = (index as u32 / small.width) as f32;
@@ -370,7 +451,7 @@ fn otsu(image: &GrayImage) -> u8 {
 /// lignes qui descendent vers la droite ont un angle positif), cherchée entre
 /// −10° et 10° ; 0 pour une page sans texte.
 pub fn estimate_skew(image: &GrayImage, dpi: f32) -> f64 {
-    Ink::sample(image, dpi).best_angle(10.0, false).0
+    Ink::sample(image, dpi, false).best_angle(10.0, false).0
 }
 
 /// Vrai si les lignes de texte sont verticales : la page est couchée et doit
@@ -382,7 +463,7 @@ pub fn estimate_skew(image: &GrayImage, dpi: f32) -> f64 {
 /// variation relative des deux profils, à l'échelle de quelques points pour ne
 /// pas voir le détail des lettres.
 pub fn is_sideways(image: &GrayImage, dpi: f32) -> bool {
-    let ink = Ink::sample(image, dpi);
+    let ink = Ink::sample(image, dpi, true);
     if ink.points.len() < 500 {
         return false;
     }

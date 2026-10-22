@@ -34,11 +34,16 @@ final class PageEditing {
     @ObservationIgnored var onChange: (@MainActor (UInt64) -> Void)?
     @ObservationIgnored private var objects: [UInt64: (revision: UInt64, items: [PageObjectItem])] = [:]
     @ObservationIgnored private var loading: [UInt64: UInt64] = [:]
+    /// Mots reconnus des pages scannées, par état de leur couche de texte.
+    @ObservationIgnored private var words: [UInt64: (revision: UInt64, items: [RecognizedWordItem])] = [:]
+    @ObservationIgnored private var loadingWords: [UInt64: UInt64] = [:]
 
     /// Nouveau document affiché : plus rien n'est connu ni sélectionné.
     func reset() {
         objects = [:]
         loading = [:]
+        words = [:]
+        loadingWords = [:]
         page = nil
         selected = []
         textTarget = nil
@@ -62,6 +67,7 @@ final class PageEditing {
     func pagesDidChange(_ pages: [DisplayPage]) {
         let ids = Set(pages.map(\.id))
         objects = objects.filter { ids.contains($0.key) }
+        words = words.filter { ids.contains($0.key) }
         if let page, !ids.contains(page) {
             self.page = nil
             selected = []
@@ -112,6 +118,34 @@ final class PageEditing {
                 self.selected.formIntersection(items.map(\.id))
             }
             self.objectsVersion += 1
+            self.onChange?(id)
+        }
+    }
+
+    // MARK: - Mots reconnus
+
+    /// Mots douteux de la page reconnue (confiance faible), à signaler ; vide
+    /// tant qu'ils se chargent et pour une page non reconnue.
+    func doubtfulWords(on page: DisplayPage) -> [RecognizedWordItem] {
+        guard page.textRevision != 0 else { return [] }
+        let known = words[page.id]
+        if known?.revision != page.textRevision {
+            loadWords(page)
+        }
+        return known?.revision == page.textRevision ? known?.items ?? [] : []
+    }
+
+    private func loadWords(_ page: DisplayPage) {
+        guard loadingWords[page.id] != page.textRevision, let session = model?.session else { return }
+        let (id, revision) = (page.id, page.textRevision)
+        loadingWords[id] = revision
+        Task { [weak self] in
+            let items = await Task.detached(priority: .userInitiated) {
+                (try? session.recognizedWords(page: id))?.filter(\.doubtful)
+            }.value
+            guard let self, self.loadingWords[id] == revision else { return }
+            self.loadingWords[id] = nil
+            self.words[id] = (revision, items ?? [])
             self.onChange?(id)
         }
     }

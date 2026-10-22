@@ -102,33 +102,71 @@ fn is_doubtful(words: &[RecognizedWord]) -> bool {
 
 /// Lit le texte de `image` avec `engine`.
 ///
-/// L'image est d'abord préparée selon `options` ; une page couchée est
-/// tournée d'un quart de tour, une page inclinée redressée. Si la lecture est
-/// douteuse, la page est relue à l'envers et la meilleure lecture retenue.
-/// Les mots sont rendus avec leur emprise dans `image`.
+/// L'image est d'abord préparée selon `options`. Une page qui semble couchée
+/// est lue dans les deux sens (tournée d'un quart de tour, et telle quelle) et
+/// la meilleure lecture retenue ; une page inclinée est redressée. Si la
+/// lecture reste douteuse, la page est relue à l'envers, puis dans les sens
+/// qui restent, et la meilleure lecture retenue. Les mots sont rendus avec
+/// leur emprise dans `image`.
 pub fn recognize(
     engine: &dyn OcrEngine,
     image: &GrayImage,
     options: &Options,
 ) -> Result<PageOcr, OcrError> {
-    let mut prepared = if options.flatten {
+    let mut cleaned = if options.flatten {
         preprocess::flatten_background(image, options.dpi)
     } else {
         image.clone()
     };
     if options.denoise {
-        prepared = preprocess::median3(&prepared);
+        cleaned = preprocess::median3(&cleaned);
     }
 
-    let mut turns = 0u8;
-    let mut to_source = Affine::IDENTITY;
-    if options.orientation && preprocess::is_sideways(&prepared, options.dpi) {
-        let (rotated, back) = prepared.rotate_quarters(1);
-        prepared = rotated;
-        to_source = back;
-        turns = 1;
+    let mut best = read(engine, &cleaned, 0, options)?;
+    if !options.orientation {
+        return Ok(best);
     }
+    let mut tried = vec![0u8];
+    let mut attempt = |turns: u8, best: &mut PageOcr| -> Result<(), OcrError> {
+        if !tried.contains(&turns) {
+            tried.push(turns);
+            let other = read(engine, &cleaned, turns, options)?;
+            if quality(&other.words) > quality(&best.words) {
+                *best = other;
+            }
+        }
+        Ok(())
+    };
+    // Des bords sombres ou une mise en page en colonnes peuvent faire croire
+    // à une page couchée : le moteur tranche entre les deux lectures.
+    if preprocess::is_sideways(&cleaned, options.dpi) {
+        attempt(1, &mut best)?;
+    }
+    if is_doubtful(&best.words) {
+        attempt((best.quarter_turns + 2) % 4, &mut best)?;
+    }
+    // Page couchée que la mesure n'a pas reconnue (tableau) : les deux
+    // derniers sens.
+    if is_doubtful(&best.words) {
+        attempt(1, &mut best)?;
+        attempt(3, &mut best)?;
+    }
+    Ok(best)
+}
 
+/// Lit `image` tournée de `turns` quarts de tour (sens horaire), redressée et
+/// binarisée selon `options` ; les mots sont rendus dans le repère de `image`.
+fn read(
+    engine: &dyn OcrEngine,
+    image: &GrayImage,
+    turns: u8,
+    options: &Options,
+) -> Result<PageOcr, OcrError> {
+    let (mut prepared, mut to_source) = if turns == 0 {
+        (image.clone(), Affine::IDENTITY)
+    } else {
+        image.rotate_quarters(turns)
+    };
     let mut skew = 0.0;
     if options.deskew {
         skew = preprocess::estimate_skew(&prepared, options.dpi);
@@ -138,27 +176,10 @@ pub fn recognize(
             to_source = back.then(&to_source);
         }
     }
-
     if options.binarize {
         prepared = preprocess::binarize(&prepared, options.dpi);
     }
-
     let mut words = engine.recognize(&prepared, &options.languages)?;
-    if options.orientation && is_doubtful(&words) {
-        let (upside_down, back) = prepared.rotate_quarters(2);
-        let other = engine.recognize(&upside_down, &options.languages)?;
-        if quality(&other) > quality(&words) {
-            words = other
-                .into_iter()
-                .map(|mut word| {
-                    word.quad = word.quad.map(|p| back.apply_point(p));
-                    word
-                })
-                .collect();
-            turns = (turns + 2) % 4;
-        }
-    }
-
     for word in &mut words {
         word.quad = word.quad.map(|p| to_source.apply_point(p));
     }

@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Menu Pages : organisation des pages visées (``DocumentViewModel/targetPositions`` :
 /// la sélection de la grille, ou en lecture la page lue) ; les insertions se font
-/// après elles. Chaque action s'annule par ⌘Z.
+/// après elles. Chaque action s'annule par ⌘Z, reconnaissance du texte comprise.
 struct PageCommands: Commands {
     @FocusedValue(\.documentModel) private var model
 
@@ -35,6 +35,15 @@ struct PageCommands: Commands {
                 .disabled(!hasTargets)
             Button("Scinder le document…") { model?.split() }
                 .disabled(!canEdit || (model?.pageCount ?? 0) < 2)
+            Divider()
+            Button("Reconnaître le texte des pages scannées") { model?.recognizeText(.scannedPages) }
+                .keyboardShortcut("o", modifiers: [.command, .option])
+                .disabled(!canEdit)
+            Button("Reconnaître le texte des pages sélectionnées") { model?.recognizeText(.selection) }
+                .disabled(!canEdit || model?.selection.isEmpty != false)
+            Button("Arrêter la reconnaissance du texte") { model?.stopRecognition() }
+                .keyboardShortcut(".", modifiers: .command)
+                .disabled(model?.recognition == nil)
         }
     }
 

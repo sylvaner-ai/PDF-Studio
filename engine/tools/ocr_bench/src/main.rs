@@ -11,7 +11,7 @@
 //!
 //! Usage :
 //!   ocr_bench [--engines vision,tesseract,ocrs] [--variants brut,préparé,binarisé]
-//!             [--profiles propre,dégradé,incliné,retourné,150] [--max-pages 1]
+//!             [--profiles propre,dégradé,incliné,retourné,couché,150] [--max-pages 1]
 //!             [--vision PROGRAMME] [--tesseract PROGRAMME] [--tessdata DOSSIER]
 //!             [--ocrs-models DOSSIER] [--out RAPPORT.md] [--csv DETAIL.csv]
 //!             FICHIER_OU_DOSSIER... [--private FICHIER_OU_DOSSIER...]
@@ -288,7 +288,7 @@ fn main() {
                     .collect();
                 let seed = (doc_index as u64) << 32 | (page as u64) << 8 | profile as u64;
                 let (scan, to_upright) = degrade::degrade(&image, profile, seed);
-                let expected_turns = if profile == Profile::UpsideDown { 2 } else { 0 };
+                let expected_turns = profile.expected_turns();
 
                 for engine in &available {
                     engine.set_dpi(dpi);
@@ -466,7 +466,7 @@ fn parse_args() -> Result<Options, String> {
             "-h" | "--help" => {
                 return Err("ocr_bench [--engines vision,tesseract,ocrs] \
                             [--variants brut,préparé,binarisé] \
-                            [--profiles propre,dégradé,incliné,retourné,150] [--max-pages 1] \
+                            [--profiles propre,dégradé,incliné,retourné,couché,150] [--max-pages 1] \
                             [--vision PROGRAMME] [--tesseract PROGRAMME] [--tessdata DOSSIER] \
                             [--ocrs-models DOSSIER] [--out RAPPORT.md] [--csv DETAIL.csv] \
                             FICHIER_OU_DOSSIER... [--private FICHIER_OU_DOSSIER...]"

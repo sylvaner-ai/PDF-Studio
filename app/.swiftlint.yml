@@ -2,6 +2,7 @@ included:
   - App
   - Views
   - ViewModels
+  - Recognition
   - Bridge
   - Tests
 excluded:

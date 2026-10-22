@@ -18,10 +18,10 @@ struct RecoveryContext {
 
 // MARK: - Récupération des modifications non enregistrées
 
-/// Tant que des modifications ne sont pas enregistrées, l'organisation des pages
-/// et les modifications de leur contenu sont retenues à chaque changement (cf. ``RecoveryStore``). Si l'application
-/// s'arrête ou est quittée entre-temps, elle est proposée à la prochaine ouverture
-/// du fichier. Les pages renvoient au fichier tel qu'il a été ouvert ; avant le
+/// Tant que des modifications ne sont pas enregistrées, l'organisation des pages,
+/// les modifications de leur contenu et le texte reconnu sont retenus à chaque
+/// changement (cf. ``RecoveryStore``). Si l'application s'arrête ou est quittée
+/// entre-temps, ils sont proposés à la prochaine ouverture du fichier. Les pages renvoient au fichier tel qu'il a été ouvert ; avant le
 /// premier enregistrement, qui le remplace, une copie en est conservée, comme
 /// des documents dont des pages sont insérées.
 extension DocumentViewModel {
@@ -73,7 +73,8 @@ extension DocumentViewModel {
             sources: recovery.extraSources,
             pages: pages.map { page in
                 let edits = page.editRevision == 0 ? [] : (try? session?.contentRecord(page: page.id)) ?? []
-                return RecoveryRecord.Page(page, edits: edits)
+                let layer = page.textRevision == 0 ? [] : session?.textLayerRecord(page: page.id) ?? []
+                return RecoveryRecord.Page(page, edits: edits, layer: layer)
             },
             date: Date()
         ))
@@ -178,7 +179,11 @@ extension DocumentViewModel {
         others.forEach { _ = addSource($0) }
         recovery.extraSources = record.sources
         let restored = perform {
-            try $0.restore(pages: record.pages.map(\.item), contents: record.pages.map(\.contentItems))
+            try $0.restore(
+                pages: record.pages.map(\.item),
+                contents: record.pages.map(\.contentItems),
+                layers: record.pages.map(\.layerItems)
+            )
         }
         guard restored else {
             abandon(record)

@@ -23,6 +23,10 @@ struct DocumentView: View {
             .overlay(alignment: .bottom) {
                 if let activity = model.activity {
                     ActivityBadge(text: activity)
+                } else if let progress = model.recognition {
+                    RecognitionBadge(progress: progress) { model.stopRecognition() }
+                } else if let notice = model.notice {
+                    NoticeBadge(text: notice)
                 }
             }
             .alert(
@@ -180,6 +184,9 @@ struct ReaderView: View {
             }
         }
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                RecognitionMenu(model: model)
+            }
             ToolbarItem(placement: .primaryAction) {
                 Picker("Présentation", selection: $model.workspace) {
                     Label("Lecture", systemImage: "doc.text").tag(Workspace.reading)

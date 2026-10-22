@@ -10,8 +10,10 @@ struct SearchHit: Equatable, Hashable, Sendable {
 /// Recherche plein texte dans le document, page par page et au fil de la frappe.
 ///
 /// Les résultats s'affichent dès qu'une page en contient ; une nouvelle saisie
-/// interrompt la recherche en cours, de même qu'une réorganisation des pages,
-/// après laquelle la recherche reprend sans déplacer la lecture. La première
+/// interrompt la recherche en cours, de même qu'une réorganisation des pages
+/// ou une reconnaissance du texte, après laquelle la recherche reprend sans
+/// déplacer la lecture. Le texte reconnu des pages scannées est cherché comme
+/// le texte des autres pages, avant même l'enregistrement. La première
 /// occurrence montrée est la première à partir de la page lue.
 @MainActor
 @Observable
@@ -33,12 +35,12 @@ final class SearchModel {
     @ObservationIgnored private var revealsFirstHit = true
     /// Occurrence montrée avant une réorganisation (identifiant de la page, rang).
     @ObservationIgnored private var resumedHit: (page: UInt64, index: Int)?
-    @ObservationIgnored private let sources: PageSources
+    @ObservationIgnored private let session: EditSession
     @ObservationIgnored private var pages: [DisplayPage]
     @ObservationIgnored private let canvas: CanvasController
 
-    init(sources: PageSources, pages: [DisplayPage], canvas: CanvasController) {
-        self.sources = sources
+    init(session: EditSession, pages: [DisplayPage], canvas: CanvasController) {
+        self.session = session
         self.pages = pages
         self.canvas = canvas
     }
@@ -105,17 +107,16 @@ final class SearchModel {
         }
         isSearching = true
         startPage = canvas.currentPage
-        let (sources, pages) = (sources, pages)
+        let (session, pages) = (session, pages)
         task = Task { [weak self] in
             // Laisse finir la frappe avant de lancer la recherche.
             try? await Task.sleep(for: .milliseconds(200))
             for (page, displayed) in pages.enumerated() {
                 guard !Task.isCancelled else { return }
-                guard let source = displayed.source, let document = sources.document(source.document) else {
-                    continue
-                }
+                guard !displayed.isBlank else { continue }
+                // Texte de la page et, si elle a été reconnue, sa couche de texte.
                 let found = await Task.detached(priority: .userInitiated) {
-                    (try? document.searchPage(index: UInt32(source.index), query: needle)) ?? []
+                    (try? session.searchPage(page: displayed.id, query: needle)) ?? []
                 }.value
                 guard let self, !Task.isCancelled else { return }
                 if !found.isEmpty {

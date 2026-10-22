@@ -6,7 +6,8 @@ import AppKit
 /// droite, sont tournées comme la page à l'écran. Un clic sélectionne le plus
 /// petit objet sous le pointeur (le fond de page est ignoré), ⇧-clic l'ajoute
 /// ou le retire, un glisser déplace la sélection ou trace un rectangle de
-/// sélection, un double-clic sur un texte ouvre sa saisie.
+/// sélection, un double-clic sur un texte ouvre sa saisie. Les mots reconnus
+/// douteux d'une page scannée sont surlignés en orange.
 @MainActor
 final class EditingOverlayView: NSView {
     weak var editing: PageEditing?
@@ -195,6 +196,7 @@ final class EditingOverlayView: NSView {
         let accent = NSColor.controlAccentColor
         let selected = editing.selectedObjects(on: page)
         let selectedIDs = Set(selected.map(\.id))
+        drawDoubtfulWords(editing.doubtfulWords(on: page), page: page, unit: unit)
 
         if drag == nil, let hovered, !selectedIDs.contains(hovered),
            let item = items.first(where: { $0.id == hovered }) {
@@ -232,6 +234,16 @@ final class EditingOverlayView: NSView {
 
         if let editor {
             stroke(editor.frame.insetBy(dx: -2 * unit, dy: -2 * unit), accent, width: 1.5 * unit)
+        }
+    }
+
+    /// Mots reconnus douteux, à vérifier.
+    private func drawDoubtfulWords(_ words: [RecognizedWordItem], page: DisplayPage, unit: CGFloat) {
+        for word in words {
+            let box = rotation.apply(to: word.bounds.cgRect, pageSize: page.baseSize)
+            NSColor.systemOrange.withAlphaComponent(0.18).setFill()
+            NSBezierPath(rect: box).fill()
+            stroke(box, .systemOrange, width: unit)
         }
     }
 

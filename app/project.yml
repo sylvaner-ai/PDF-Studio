@@ -34,6 +34,9 @@ targets:
       - App
       - Views
       - ViewModels
+      # Reconnaissance du texte par Vision ; VisionTextReader.swift est aussi
+      # compilé dans le programme du banc d'essai OCR (`make ocr-bench`).
+      - Recognition
       - Bridge/EngineBridge.swift
       # Liaisons générées par `make bindings` à partir du moteur Rust.
       - path: Bridge/Generated/pdfstudio_ffi.swift
@@ -100,6 +103,10 @@ targets:
     sources:
       - Tests
       - path: ../tests/fixtures
+        includes:
+          - "*.pdf"
+        buildPhase: resources
+      - path: ../tests/fixtures/ocr
         includes:
           - "*.pdf"
         buildPhase: resources
