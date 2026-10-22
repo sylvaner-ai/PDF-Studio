@@ -12,5 +12,6 @@ pub mod interp;
 pub mod layout;
 pub mod lexer;
 pub mod objects;
+pub mod resources;
 pub mod rewrite;
 pub mod writer;

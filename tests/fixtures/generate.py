@@ -331,6 +331,63 @@ def signature_factice() -> None:
         save(pdf, "signature_factice.pdf")
 
 
+EDITION_PARAGRAPHE = (
+    "Le chiffre d'affaires du trimestre progresse de 12 % par rapport à "
+    "l'an dernier, porté par les nouveaux contrats d'infogérance. La marge "
+    "brute reste stable malgré la hausse des coûts de l'énergie, et la "
+    "trésorerie couvre six mois d'activité."
+)
+
+
+def edition() -> None:
+    """Contenu à modifier (jalon 4) : titre et paragraphe justifié dans une
+    police TrueType intégrée en sous-ensemble (Vera), ligne en Helvetica non
+    intégrée, image, tracés ; seconde page tournée de 90°."""
+    from reportlab.lib.enums import TA_JUSTIFY
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    pdfmetrics.registerFont(TTFont("Vera", "Vera.ttf"))
+    pdfmetrics.registerFont(TTFont("VeraBd", "VeraBd.ttf"))
+    c = new_canvas("edition.pdf", title="Édition du contenu")
+    width, height = A4
+    c.setFont("VeraBd", 20)
+    c.drawString(2 * cm, height - 3 * cm, "Rapport trimestriel")
+    style = ParagraphStyle("corps", fontName="Vera", fontSize=11, leading=14,
+                           alignment=TA_JUSTIFY)
+    paragraph = Paragraph(EDITION_PARAGRAPHE, style)
+    _, used = paragraph.wrap(12 * cm, 10 * cm)
+    paragraph.drawOn(c, 2 * cm, height - 4.5 * cm - used)
+    c.setFont("Helvetica", 12)
+    c.setFillColor(colors.HexColor("#b3261e"))
+    c.drawString(2 * cm, height - 9 * cm, "Texte en Helvetica, police standard.")
+    c.setFillColor(colors.black)
+
+    image = Image.new("RGB", (60, 40), "#1f4e9c")
+    ImageDraw.Draw(image).ellipse((10, 5, 50, 35), fill="#f2c94c")
+    buffer = io.BytesIO()
+    image.save(buffer, "PNG")
+    buffer.seek(0)
+    from reportlab.lib.utils import ImageReader
+    c.drawImage(ImageReader(buffer), 2 * cm, height - 14 * cm, 4 * cm, 8 / 3 * cm)
+
+    c.setStrokeColor(colors.HexColor("#2e7d32"))
+    c.setLineWidth(2)
+    c.rect(10 * cm, height - 14 * cm, 5 * cm, 3 * cm, stroke=1, fill=0)
+    c.line(10 * cm, height - 15 * cm, 15 * cm, height - 15 * cm)
+    c.showPage()
+
+    c.setFont("Helvetica", 14)
+    c.drawString(2 * cm, height - 3 * cm, "Page tournée")
+    c.showPage()
+    c.save()
+
+    with pikepdf.open(OUT / "edition.pdf", allow_overwriting_input=True) as pdf:
+        pdf.pages[1].obj.Rotate = 90
+        save(pdf, "edition.pdf")
+
+
 def save(pdf: pikepdf.Pdf, name: str, **kwargs) -> None:
     pdf.save(OUT / name, static_id=True, deterministic_id=False, **kwargs)
 
@@ -376,6 +433,7 @@ def main() -> None:
     chiffre()
     pdf20()
     organisation()
+    edition()
     signature_factice()
     corrompu()
     pas_un_pdf()

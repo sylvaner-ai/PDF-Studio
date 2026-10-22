@@ -52,6 +52,8 @@ pub struct FontMetrics {
     pub widths: HashMap<u32, f64>,
     /// Texte de chaque code.
     pub unicode: HashMap<u32, String>,
+    /// Le programme de la police est intégré au document.
+    pub embedded: bool,
     /// Encodage d'une police composite (`None` : Identity, deux octets par code).
     pub cmap: Option<CMap>,
     /// Code de chaque texte, le plus petit quand plusieurs codes donnent le même.
@@ -95,6 +97,7 @@ impl FontMetrics {
             },
             widths,
             unicode,
+            embedded: false,
             cmap,
             reverse: HashMap::new(),
         };

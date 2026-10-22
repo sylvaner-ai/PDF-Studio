@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use std::sync::{mpsc, Arc};
 use std::thread;
 
+use edit::{FontChoice, PageEdits};
+
 use crate::document::{self, Document};
+use crate::editing::ObjectInfo;
 use crate::error::{PdfError, Result};
 use crate::outline::OutlineEntry;
 use crate::page::{PageContent, PageSize};
@@ -13,6 +16,10 @@ use crate::writer::SourceData;
 
 /// Nombre de pages dont le contenu préparé est gardé en mémoire.
 const CONTENT_CACHE_PAGES: usize = 48;
+
+/// Nombre de pages modifiées dont le contenu préparé est gardé en mémoire
+/// (une version par page).
+const EDITED_CACHE_PAGES: usize = 16;
 
 /// Nombre de pages dont le texte est gardé en mémoire pour la recherche
 /// (quelques dizaines de kilo-octets par page).
@@ -92,6 +99,7 @@ impl DocumentHandle {
                 let mut worker = Worker {
                     doc,
                     contents: Lru::new(CONTENT_CACHE_PAGES),
+                    edited: Lru::new(EDITED_CACHE_PAGES),
                     texts: Lru::new(TEXT_CACHE_PAGES),
                 };
                 for (wanted, job) in job_rx {
@@ -140,6 +148,46 @@ impl DocumentHandle {
         self.run(move |worker| worker.page_content(index))?
     }
 
+    /// Contenu préparé d'une page avec les modifications `edits` ; la dernière
+    /// version de chaque page est mise en cache.
+    pub fn edited_page_content(
+        &self,
+        index: u32,
+        edits: Arc<PageEdits>,
+    ) -> Result<Arc<PageContent>> {
+        if edits.is_empty() {
+            return self.page_content(index);
+        }
+        self.run(move |worker| worker.edited_page_content(index, &edits))?
+    }
+
+    /// Objets d'une page (blocs de texte, images, tracés…), modifications
+    /// `edits` comprises.
+    pub fn page_objects(
+        &self,
+        index: u32,
+        edits: Option<Arc<PageEdits>>,
+    ) -> Result<Vec<ObjectInfo>> {
+        self.run(move |worker| worker.doc.page_objects(index, edits.as_deref()))?
+    }
+
+    /// Police qui dessinera `text` à la place du bloc de texte `object` de la
+    /// page : police d'origine, police du Mac ou police standard.
+    pub fn choose_font(&self, index: u32, object: u32, text: &str) -> Result<FontChoice> {
+        let text = text.to_owned();
+        self.run(move |worker| worker.doc.choose_font(index, object, &text))?
+    }
+
+    /// Déplacement exprimé dans l'espace d'affichage d'une page (origine en
+    /// haut à gauche), converti dans l'espace de la page PDF.
+    pub fn page_offset(&self, index: u32, dx: f32, dy: f32) -> Result<(f32, f32)> {
+        self.run(move |worker| {
+            let model = worker.doc.page_model(index)?;
+            let (x, y) = model.display_to_page_offset(f64::from(dx), f64::from(dy));
+            Ok((x as f32, y as f32))
+        })?
+    }
+
     /// Plan du document (signets), aplati en parcours en profondeur.
     pub fn outline(&self) -> Result<Vec<OutlineEntry>> {
         self.run(|worker| worker.doc.outline())
@@ -179,6 +227,7 @@ impl DocumentHandle {
 struct Worker {
     doc: Document,
     contents: Lru<Arc<PageContent>>,
+    edited: Lru<(u64, Arc<PageContent>)>,
     texts: Lru<Arc<PageText>>,
 }
 
@@ -189,6 +238,18 @@ impl Worker {
         }
         let content = Arc::new(self.doc.page_content(index)?);
         self.contents.insert(index, Arc::clone(&content));
+        Ok(content)
+    }
+
+    fn edited_page_content(&mut self, index: u32, edits: &PageEdits) -> Result<Arc<PageContent>> {
+        if let Some((revision, content)) = self.edited.get(index) {
+            if revision == edits.revision() {
+                return Ok(content);
+            }
+        }
+        let content = Arc::new(self.doc.edited_page_content(index, edits)?);
+        self.edited
+            .insert(index, (edits.revision(), Arc::clone(&content)));
         Ok(content)
     }
 

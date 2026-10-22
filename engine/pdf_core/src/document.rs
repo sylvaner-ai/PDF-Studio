@@ -1,5 +1,11 @@
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
+use edit::{FontChoice, PageEdits};
+use mupdf::pdf::PdfDocument;
+
+use crate::editing::{self, EmbeddedFonts, FontProvider, ObjectInfo, PageModel, Scratch};
 use crate::error::{PdfError, Result};
 use crate::outline::{self, OutlineEntry};
 use crate::page::{PageContent, PageSize};
@@ -11,9 +17,23 @@ use crate::text::PageText;
 /// la suite travaille sur la copie en mémoire. Ce type n'est pas `Send` (contrainte
 /// de MuPDF) ; pour un usage multi-fil, passer par [`crate::DocumentHandle`].
 pub struct Document {
-    inner: mupdf::Document,
+    inner: PdfDocument,
     page_sizes: Vec<PageSize>,
     title: Option<String>,
+    editing: Editing,
+}
+
+/// Nombre de pages dont les objets sont gardés en mémoire.
+const MODEL_CACHE_PAGES: usize = 16;
+
+/// État de l'édition du contenu des pages : objets des pages, polices de
+/// substitution chargées et ajoutées au document pour l'aperçu.
+#[derive(Default)]
+struct Editing {
+    models: HashMap<u32, Arc<PageModel>>,
+    fonts: FontProvider,
+    embedded: EmbeddedFonts,
+    scratch: Scratch,
 }
 
 impl Document {
@@ -41,6 +61,7 @@ impl Document {
             }
         }
 
+        let inner = PdfDocument::try_from(inner).map_err(invalid)?;
         let count = inner.page_count().map_err(invalid)?;
         let page_sizes = (0..count)
             .map(|index| measure_page(&inner, index))
@@ -55,6 +76,7 @@ impl Document {
             inner,
             page_sizes,
             title,
+            editing: Editing::default(),
         })
     }
 
@@ -106,6 +128,71 @@ impl Document {
         let page = self.inner.load_page(index as i32)?;
         let text = page.to_text_page(mupdf::TextPageFlags::DEHYPHENATE)?;
         Ok(text.to_text()?)
+    }
+
+    /// Objets de la page, établis à partir de son contenu d'origine.
+    pub fn page_model(&mut self, index: u32) -> Result<Arc<PageModel>> {
+        self.page_size(index)?;
+        if let Some(model) = self.editing.models.get(&index) {
+            return Ok(Arc::clone(model));
+        }
+        let page = self.inner.find_page(index as i32)?;
+        let model = Arc::new(PageModel::load(&page)?);
+        if self.editing.models.len() >= MODEL_CACHE_PAGES {
+            self.editing.models.clear();
+        }
+        self.editing.models.insert(index, Arc::clone(&model));
+        Ok(model)
+    }
+
+    /// Objets de la page, modifications `edits` comprises.
+    pub fn page_objects(
+        &mut self,
+        index: u32,
+        edits: Option<&PageEdits>,
+    ) -> Result<Vec<ObjectInfo>> {
+        let model = self.page_model(index)?;
+        Ok(model.infos(edits, &mut self.editing.fonts))
+    }
+
+    /// Police qui dessinera `text` à la place du bloc de texte `object`.
+    pub fn choose_font(&mut self, index: u32, object: u32, text: &str) -> Result<FontChoice> {
+        let model = self.page_model(index)?;
+        editing::choose_font(
+            &mut self.inner,
+            index,
+            &model,
+            object,
+            text,
+            &mut self.editing.scratch,
+        )
+    }
+
+    /// Contenu affichable de la page avec les modifications `edits`.
+    pub fn edited_page_content(&mut self, index: u32, edits: &PageEdits) -> Result<PageContent> {
+        let size = self.page_size(index)?;
+        let model = self.page_model(index)?;
+        let page = self.inner.find_page(index as i32)?;
+        let editing = &mut self.editing;
+        let edited = editing::edit_page(
+            &mut self.inner,
+            &page,
+            &model,
+            edits,
+            &mut editing.fonts,
+            &mut editing.embedded,
+        )?;
+        editing::with_page_content(
+            &mut self.inner,
+            index,
+            &edited.content,
+            edited.resources.as_ref(),
+            &mut editing.scratch,
+            |doc| {
+                let list = doc.load_page(index as i32)?.to_display_list(true)?;
+                Ok(PageContent::new(list, size))
+            },
+        )
     }
 
     fn page_size(&self, index: u32) -> Result<PageSize> {

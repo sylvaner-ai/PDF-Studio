@@ -23,6 +23,8 @@ render = { path = "render" }
 # Les formats non PDF (EPUB, XPS, HTML…) et le moteur JavaScript sont désactivés.
 mupdf = { version = "0.8", default-features = false, features = ["base14-fonts", "system-fonts"] }
 thiserror = "2"
+# Recherche des polices installées (déjà utilisée par MuPDF, même version).
+font-kit = "0.14"
 unicode-normalization = "0.1"
 uniffi = "0.32"
 
