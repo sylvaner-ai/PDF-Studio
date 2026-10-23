@@ -127,6 +127,9 @@ final class PageTileView: NSView {
     /// Identifiant de la page affichée.
     var pageID: UInt64 { page.id }
 
+    /// Vrai une fois l'image de la page affichée (mesure du défilement).
+    var showsImage: Bool { baseView.image != nil }
+
     /// Mode Édition (`editing` non nul) ou lecture.
     func setEditing(_ editing: PageEditing?) {
         // En mode Édition, VoiceOver entre dans la page pour en parcourir les objets.
