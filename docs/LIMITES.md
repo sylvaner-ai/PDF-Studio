@@ -185,3 +185,36 @@ l'*inpainting* des scans (jalon 7).
 - **Banc d'essai :** les mesures à texte de référence portent sur des scans
   simulés (pages rendues puis dégradées comme par un scanner) ; les vrais scans
   sont mesurés sans référence (nombre de mots, confiance, temps).
+
+## Jalon 6
+
+- **Tableaux sans filet :** un tableau fait seulement d'alignements (aucun
+  filet tracé) n'est pas détecté ; son texte reste en blocs (D32).
+- **Tableaux à filets horizontaux seuls :** les limites des colonnes sont
+  déduites du texte ; la grille montrée (et l'alignement deviné d'un intitulé
+  d'en-tête) peut différer de celle qu'avait l'auteur, sans effet sur le rendu.
+- **Scans :** la structure d'une page scannée (tableaux, blocs) n'est pas
+  détectée ; elle demande l'effacement de l'image (*inpainting*) du jalon 7.
+- **Lignes qui ne grandissent pas :** un texte plus long que sa cellule est
+  remis à la ligne dans la cellule et déborde vers le bas sans repousser les
+  lignes suivantes ; le bandeau le signale. Une ligne supprimée resserre le
+  tableau, mais ce qui suit le tableau ne remonte pas.
+- **Opérations absentes :** ni ajout de ligne ou de colonne, ni fusion ou
+  scission de cellules, ni redimensionnement des lignes et colonnes (non
+  prévus au jalon 6). Une cellule fusionnée doit rester d'un seul tenant : un
+  déplacement qui la couperait est refusé, avec un message.
+- **Éléments à cheval :** une image ou un tracé qui couvre plusieurs cellules
+  d'une ligne supprimée suit la réorganisation point par point ou disparaît
+  avec la ligne ; un texte posé sur un filet (hors cellule) n'appartient pas au
+  tableau et ne bouge pas.
+- **Saisie d'une cellule vide :** elle reprend le style d'une cellule voisine
+  (D36) ; le texte d'une cellule déjà remplie se modifie comme un bloc, avec les
+  limites du jalon 4. Une cellule dont le texte a été supprimé ne peut pas être
+  remplie de nouveau (annuler la suppression).
+- **Récupération :** sur une page qui contient un tableau, les blocs de texte
+  sont découpés par cellule depuis ce jalon ; des modifications retenues avant
+  lui sur une telle page sont ignorées à la restauration (D33).
+- **Recherche :** elle porte sur le texte d'origine tant que le document n'est
+  pas enregistré puis rouvert ; l'ordre de lecture d'un tableau réorganisé reste
+  celui du flux de contenu (copie de texte dans un autre lecteur).
+

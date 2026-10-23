@@ -452,3 +452,104 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   seuil sera ajusté d'après la calibration de Vision (`OCR_BENCHMARK.md`).
   La confiance n'est pas enregistrée dans le PDF : après réouverture, les mots
   ne sont plus signalés (cf. `LIMITES.md`).
+
+## D31 — Bibliothèque `layout` : géométrie pure de la structure (jalon 6)
+
+- **Retenu :** la détection des tableaux et leur réorganisation vivent dans un
+  crate `layout` sans dépendance, qui ne connaît que des segments, des
+  rectangles et des boîtes de glyphes. `pdf_core` lui donne les sous-chemins
+  rectilignes des tracés et les glyphes, puis rattache le résultat aux objets
+  de la page.
+- **Alternatives :** garder la détection dans `pdf_core::content` ; un modèle
+  appris (ONNX) de détection de tableaux.
+- **Raisons :** testable sans PDF ni MuPDF, et réutilisable pour les scans
+  (jalon 7, où les filets viendront de l'image). Le cahier des charges prévoit
+  des heuristiques géométriques d'abord ; elles suffisent aux tableaux tracés
+  des documents natifs.
+
+## D32 — Tableaux détectés : quadrillages et tableaux à filets (jalon 6)
+
+- **Retenu :** les filets sont tirés des segments droits tracés, des bords des
+  rectangles et des rectangles pleins fins (2,5 pt au plus) ; un fond plein
+  plus épais compte par ses quatre bords. Les fonds de page sont ignorés.
+  - **Quadrillage :** les cellules sont les rectangles fermés par quatre filets
+    qui se croisent (tolérance de 2,5 pt, méthode de pdfplumber) ; les
+    cellules qui partagent un coin forment un tableau ; une cellule qui couvre
+    plusieurs lignes ou colonnes de la grille est une cellule fusionnée.
+  - **Tableau à filets horizontaux** (sans filet vertical) : au moins trois
+    filets semblables (recouvrement de 90 %) ; les colonnes sont déduites des
+    fragments de texte du corps (écart de plus de 0,75 cadratin), l'en-tête
+    étant souvent aligné autrement ; la limite de deux colonnes est placée dans
+    l'espace qu'aucun fragment ne recouvre.
+  - Une bande entre deux filets qui porte plusieurs lignes de texte réparties
+    en cellules est découpée en lignes virtuelles. Un tableau doit avoir au
+    moins deux lignes, deux colonnes et deux cellules avec du texte.
+- **Écarté :** les tableaux sans aucun filet (alignements seuls), trop proches
+  d'un texte en colonnes ou d'un encadré étiquettes / valeurs : leur texte
+  reste en blocs homogènes (D25).
+- **Raisons :** les filets sont un signal sûr, sans faux positif sur le jeu de
+  test (texte, encadré, colonnes, organisation) ; un tableau mal détecté
+  casserait les blocs de texte de la page.
+
+## D33 — Blocs de texte découpés par cellule (jalon 6)
+
+- **Retenu :** dans un tableau, une ligne de texte est coupée à la limite de
+  deux cellules et un bloc ne réunit que des lignes d'une même cellule.
+  L'alignement d'un bloc d'une ligne se déduit de ses marges dans la cellule ;
+  un nouveau texte est remis en page dans la largeur de la cellule (moins sa
+  marge), et le débordement est signalé quand il descend sous la cellule.
+- **Raisons :** chaque cellule s'édite seule (cahier des charges, §4.4). Les
+  blocs d'une page qui contient un tableau changent de découpage : une
+  modification retenue avant le jalon 6 sur une telle page ne retrouve plus
+  son objet et est ignorée à la récupération (empreinte, D22).
+
+## D34 — Lignes et colonnes supprimées ou déplacées : le tableau se resserre (jalon 6)
+
+- **Retenu :** une réorganisation est décrite par les lignes et les colonnes
+  d'origine conservées, dans leur nouvel ordre. Chaque élément du tableau la
+  suit : un bloc ou une image se déplace d'un bloc (ou disparaît avec sa
+  ligne) ; les tracés sont réécrits sous-chemin par sous-chemin, un filet
+  propre à une cellule suivant sa cellule, un filet qui traverse le tableau
+  étant raccourci point par point. Les limites gardent leur rang ; quand une
+  ligne disparaît, la limite qui reste est la plus marquée (celle qui borde le
+  plus de cellules et porte un filet), si bien que le cadre, le filet sous
+  l'en-tête et les bords d'un intitulé fusionné sont conservés. Le tableau se
+  resserre ; rien ne bouge autour de lui. Un déplacement doit garder chaque
+  cellule fusionnée d'un seul tenant (ses sous-colonnes peuvent échanger leur
+  place).
+- **Alternatives :** effacer la ligne en laissant un blanc dans le tableau ;
+  remonter aussi le contenu situé sous le tableau.
+- **Raisons :** le résultat est celui d'un traitement de texte, sans redessiner
+  le tableau (les filets, épaisseurs, couleurs et fonds d'origine sont
+  gardés) ; déplacer ce qui suit le tableau supposerait de connaître le flux de
+  la page, que le PDF ne décrit pas.
+
+## D35 — Objet Tableau, sélectionné d'un bloc (jalon 6)
+
+- **Retenu :** chaque tableau devient un objet de la page, numéroté après les
+  objets dessinés (les numéros des autres ne changent pas), avec ses blocs,
+  filets et fonds pour membres. En mode Édition, un clic sur le tableau le
+  sélectionne en entier et désigne sa cellule courante ; il se déplace et se
+  supprime comme un objet ; un double-clic (ou Retour) ouvre la saisie de la
+  cellule ; le menu Tableau et le menu contextuel suppriment ou déplacent la
+  ligne ou la colonne de la cellule courante. Ses modifications (`TableEdit`)
+  sont rangées sur l'objet Tableau, en termes de lignes et colonnes d'origine,
+  et chacune s'annule par ⌘Z.
+- **Raisons :** un tableau n'existe pas dans le flux de contenu ; le décrire
+  par ses bandes d'origine rend chaque modification indépendante des autres,
+  et l'aperçu comme l'enregistrement sont recalculés à partir du contenu
+  d'origine (D19).
+
+## D36 — Texte saisi dans une cellule vide : le style d'une cellule voisine (jalon 6)
+
+- **Retenu :** le texte d'une cellule vide reprend la police, le corps, la
+  couleur et l'alignement d'un bloc de référence : le plus proche de la même
+  colonne (hors en-tête), sinon de la même ligne, sinon du tableau. Il est
+  placé comme ce bloc dans sa cellule (même bord d'alignement, même distance au
+  haut de la cellule, ou centré verticalement comme lui) et dessiné après son
+  objet texte, avec son état graphique. La police suit D20 (police d'origine
+  si elle contient les caractères, sinon police du Mac, sinon police
+  standard).
+- **Raisons :** une valeur saisie dans une colonne de montants doit ressembler
+  aux autres montants ; l'en-tête, souvent en gras, n'est pris qu'en dernier
+  recours.
