@@ -543,6 +543,253 @@ def corrompu() -> None:
     (OUT / "corrompu.pdf").write_bytes(data[: len(data) // 2])
 
 
+
+# MARK: - Documents de référence de l'OCR (jalon 5)
+#
+# Documents natifs dont le texte, connu, sert de référence au banc d'essai de
+# la reconnaissance de texte : le banc les rastérise, les dégrade comme un
+# scanner (flou, bruit, compression, inclinaison) puis compare la lecture de
+# chaque moteur au texte d'origine. Textes originaux, écrits pour ce jeu.
+
+OCR = OUT / "ocr"
+
+OCR_LETTRE = [
+    "Madame, Monsieur,",
+    "Suite à notre entretien du 14 mars dernier, je vous confirme l'accord "
+    "conclu pour la rénovation des locaux situés au deuxième étage. Les travaux "
+    "débuteront le lundi 7 avril et s'achèveront au plus tard le 30 mai, sous "
+    "réserve des délais de livraison des matériaux.",
+    "Le coût total s'élève à 18 450,00 € hors taxes, soit 22 140,00 € TTC. Un "
+    "acompte de 30 % sera versé à la signature du devis ; le solde sera réglé "
+    "à la réception des travaux, après la levée d'éventuelles réserves.",
+    "Je reste à votre disposition pour toute précision complémentaire et vous "
+    "prie d'agréer, Madame, Monsieur, l'expression de mes salutations "
+    "distinguées.",
+]
+
+OCR_ARTICLE = (
+    "La numérisation des archives d'une entreprise ne se limite pas à produire "
+    "des images : encore faut-il pouvoir y retrouver une information. "
+    "Reconnaître le texte d'une page scannée exige d'abord de la redresser, puis "
+    "de distinguer le papier de l'encre, enfin de lire chaque ligne. Les "
+    "caractères accentués, les ligatures et les chiffres mettent les moteurs à "
+    "l'épreuve ; une virgule mal lue dans un montant suffit à fausser un total. "
+    "C'est pourquoi chaque mot reçoit une note de confiance, qui signale à "
+    "l'utilisateur les passages à vérifier. Un œil exercé repère vite ces "
+    "hésitations : « 1 » pris pour « l », « 0 » pour « O », ou « é » privé de "
+    "son accent. "
+)
+
+OCR_ANGLAIS = [
+    "Quarterly Operations Review",
+    "Revenue for the third quarter reached $4.2 million, up 12% compared with "
+    "the same period last year. Gross margin improved to 41.5%, driven by "
+    "higher utilisation of the support team and a lower cost of hardware.",
+    "Two new framework agreements were signed in September, with delivery "
+    "scheduled between October 15 and December 20. Headcount grew from 58 to "
+    "63 employees; attrition remained below 5% on a rolling twelve-month basis.",
+    "Key risks include supplier lead times, currency exposure on imported "
+    "equipment, and the pending renewal of the main data-centre lease.",
+]
+
+
+def ocr_paragraphs(name: str, title: str, paragraphs, font: str, size: float,
+                   heading: str | None = None, ttf: str | None = None) -> None:
+    from reportlab.lib.enums import TA_JUSTIFY
+    from reportlab.lib.styles import ParagraphStyle
+    if ttf:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        pdfmetrics.registerFont(TTFont(font, ttf))
+    doc = SimpleDocTemplate(str(OCR / name), pagesize=A4, title=title,
+                            author="PDF Studio — jeu de test", invariant=1,
+                            leftMargin=2.5 * cm, rightMargin=2.5 * cm)
+    body = ParagraphStyle("corps", fontName=font, fontSize=size, leading=size * 1.35,
+                          alignment=TA_JUSTIFY, spaceAfter=size * 0.8)
+    story = []
+    if heading:
+        story.append(Paragraph(heading, ParagraphStyle("titre", fontName=font,
+                                                       fontSize=size * 1.6,
+                                                       leading=size * 2, spaceAfter=size)))
+    story += [Paragraph(text, body) for text in paragraphs]
+    doc.build(story)
+
+
+def ocr_lettre() -> None:
+    """Lettre en Times 12 pt : scan propre de référence."""
+    OCR.mkdir(exist_ok=True)
+    c = new_canvas("ocr/lettre.pdf", title="Lettre")
+    width, height = A4
+    c.setFont("Times-Bold", 12)
+    c.drawString(2.5 * cm, height - 2.5 * cm, "Société Durand & Fils")
+    c.setFont("Times-Roman", 11)
+    for i, line in enumerate(["12, rue des Lilas", "69003 Lyon", "Tél. 04 78 12 34 56"]):
+        c.drawString(2.5 * cm, height - 3.1 * cm - i * 0.5 * cm, line)
+    c.drawRightString(width - 2.5 * cm, height - 5.5 * cm, "Lyon, le 2 avril 2026")
+    c.setFont("Times-Bold", 12)
+    c.drawString(2.5 * cm, height - 7 * cm, "Objet : confirmation de commande n° 2026-0412")
+    from reportlab.lib.enums import TA_JUSTIFY
+    from reportlab.lib.styles import ParagraphStyle
+    style = ParagraphStyle("corps", fontName="Times-Roman", fontSize=12, leading=16,
+                           alignment=TA_JUSTIFY, spaceAfter=10)
+    y = height - 8.2 * cm
+    for text in OCR_LETTRE:
+        paragraph = Paragraph(text, style)
+        _, used = paragraph.wrap(width - 5 * cm, height)
+        y -= used
+        paragraph.drawOn(c, 2.5 * cm, y)
+        y -= 10
+    c.drawString(width - 8 * cm, y - 1.5 * cm, "Claire Martin")
+    c.drawString(width - 8 * cm, y - 2.1 * cm, "Directrice administrative")
+    c.showPage()
+    c.save()
+
+
+def ocr_facture() -> None:
+    """Facture : en-tête d'étiquettes et de valeurs, tableau, totaux."""
+    OCR.mkdir(exist_ok=True)
+    doc = SimpleDocTemplate(str(OCR / "facture.pdf"), pagesize=A4, title="Facture",
+                            author="PDF Studio — jeu de test", invariant=1)
+    styles = getSampleStyleSheet()
+    entete = Table([
+        ["Facture n°", "F-2026-0387", "Client", "Atelier Lefèvre"],
+        ["Date", "15/03/2026", "Adresse", "8, place de l'Église"],
+        ["Échéance", "14/04/2026", "Ville", "33000 Bordeaux"],
+    ], colWidths=[3 * cm, 4 * cm, 3 * cm, 6 * cm])
+    entete.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+    ]))
+    lignes = [["Réf.", "Désignation", "Qté", "P.U. HT", "Montant HT"]]
+    articles = [
+        ("A-104", "Câble réseau catégorie 6, 3 m", 24, 4.90),
+        ("B-221", "Commutateur 24 ports administrable", 2, 389.00),
+        ("C-017", "Onduleur 1 500 VA", 1, 612.50),
+        ("D-330", "Installation et paramétrage (heure)", 6, 85.00),
+        ("E-008", "Déplacement forfaitaire", 1, 45.00),
+    ]
+    total = 0.0
+    for ref, label, qty, price in articles:
+        amount = qty * price
+        total += amount
+        lignes.append([ref, label, str(qty), f"{price:,.2f} €".replace(",", " ").replace(".", ","),
+                       f"{amount:,.2f} €".replace(",", " ").replace(".", ",")])
+    tva = total * 0.2
+    def eur(v):
+        return f"{v:,.2f} €".replace(",", " ").replace(".", ",")
+    lignes += [["", "", "", "Total HT", eur(total)],
+               ["", "", "", "TVA 20 %", eur(tva)],
+               ["", "", "", "Total TTC", eur(total + tva)]]
+    table = Table(lignes, colWidths=[1.8 * cm, 7.2 * cm, 1.4 * cm, 2.8 * cm, 3 * cm])
+    table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -4), 0.5, colors.grey),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8ecf4")),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (3, -1), (-1, -1), "Helvetica-Bold"),
+        ("ALIGN", (2, 1), (-1, -1), "RIGHT"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+    ]))
+    pied = Paragraph("Paiement par virement à réception de facture. Pénalités de retard : "
+                     "trois fois le taux d'intérêt légal. Indemnité forfaitaire pour frais de "
+                     "recouvrement : 40 €.", styles["Normal"])
+    doc.build([Paragraph("Facture", styles["Title"]), entete, Spacer(1, cm), table,
+               Spacer(1, cm), pied])
+
+
+def ocr_colonnes() -> None:
+    """Article sur deux colonnes, Helvetica 10 pt."""
+    OCR.mkdir(exist_ok=True)
+    from reportlab.lib.enums import TA_JUSTIFY
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import BaseDocTemplate, Frame, PageTemplate
+    width, height = A4
+    doc = BaseDocTemplate(str(OCR / "colonnes.pdf"), pagesize=A4, title="Deux colonnes",
+                          author="PDF Studio — jeu de test", invariant=1)
+    gap, margin = 0.8 * cm, 2 * cm
+    column = (width - 2 * margin - gap) / 2
+    frames = [Frame(margin, margin, column, height - 2 * margin, id="gauche"),
+              Frame(margin + column + gap, margin, column, height - 2 * margin, id="droite")]
+    doc.addPageTemplates([PageTemplate(id="deux", frames=frames)])
+    body = ParagraphStyle("corps", fontName="Helvetica", fontSize=10, leading=13.5,
+                          alignment=TA_JUSTIFY, spaceAfter=8)
+    titre = ParagraphStyle("titre", fontName="Helvetica-Bold", fontSize=14, leading=18,
+                           spaceAfter=10)
+    story = [Paragraph("Archives : du papier au texte", titre)]
+    for i in range(5):
+        story.append(Paragraph(f"{i + 1}. " + OCR_ARTICLE, body))
+    doc.build(story[:6])
+
+
+def ocr_tableau_dense() -> None:
+    """Tableau de dates, références et montants en petits caractères."""
+    OCR.mkdir(exist_ok=True)
+    rng = random.Random(SEED + 5)
+    doc = SimpleDocTemplate(str(OCR / "tableau_dense.pdf"), pagesize=A4, title="Relevé",
+                            author="PDF Studio — jeu de test", invariant=1)
+    styles = getSampleStyleSheet()
+    libelles = ["Prélèvement assurance", "Virement reçu", "Carte bancaire", "Frais de tenue",
+                "Remise de chèque", "Échéance de prêt", "Retrait espèces", "Abonnement télécom"]
+    rows = [["Date", "Opération", "Référence", "Débit", "Crédit"]]
+    for i in range(28):
+        day = 1 + i
+        amount = rng.randrange(500, 250000) / 100
+        label = libelles[rng.randrange(len(libelles))]
+        ref = f"{rng.randrange(10**7, 10**8)}"
+        debit, credit = (f"{amount:,.2f}".replace(",", " ").replace(".", ","), "")
+        if label.startswith(("Virement", "Remise")):
+            debit, credit = credit, debit
+        rows.append([f"{day:02d}/02/2026", label, ref, debit, credit])
+    table = Table(rows, colWidths=[2.2 * cm, 5.8 * cm, 2.8 * cm, 2.6 * cm, 2.6 * cm])
+    table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+        ("ALIGN", (3, 1), (-1, -1), "RIGHT"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f2f2f2")]),
+    ]))
+    doc.build([Paragraph("Relevé de compte — février 2026", styles["Heading2"]), table])
+
+
+def ocr_petits_caracteres() -> None:
+    """Conditions générales en 8 pt, police TrueType intégrée (DejaVu Sans)."""
+    texts = [
+        f"Article {n}. " + text for n, text in enumerate([
+            "Les présentes conditions s'appliquent à toute commande passée auprès du "
+            "prestataire, quel qu'en soit le montant, sauf accord écrit contraire.",
+            "Les prix s'entendent hors taxes, en euros, frais de port non compris ; ils "
+            "peuvent être révisés au 1er janvier de chaque année, dans la limite de 4 %.",
+            "Le délai de paiement est fixé à trente jours fin de mois à compter de la date "
+            "d'émission de la facture. Aucun escompte n'est accordé pour paiement anticipé.",
+            "La garantie couvre les défauts de fabrication pendant vingt-quatre mois ; elle "
+            "exclut l'usure normale, les chocs et toute intervention d'un tiers non agréé.",
+            "Tout litige relève de la compétence exclusive du tribunal de commerce du siège "
+            "du prestataire, même en cas d'appel en garantie ou de pluralité de défendeurs.",
+            "Conformément au règlement général sur la protection des données, le client "
+            "dispose d'un droit d'accès, de rectification et d'effacement de ses données.",
+        ] * 2, start=1)
+    ]
+    ocr_paragraphs("petits_caracteres.pdf", "Conditions générales", texts, "DejaVuSans", 8,
+                   heading="Conditions générales de vente",
+                   ttf="/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+
+
+def ocr_anglais() -> None:
+    """Texte anglais en Helvetica 11 pt."""
+    ocr_paragraphs("anglais.pdf", "Quarterly review", OCR_ANGLAIS[1:], "Helvetica", 11,
+                   heading=OCR_ANGLAIS[0])
+
+
+def ocr_documents() -> None:
+    OCR.mkdir(exist_ok=True)
+    ocr_lettre()
+    ocr_facture()
+    ocr_colonnes()
+    ocr_tableau_dense()
+    ocr_petits_caracteres()
+    ocr_anglais()
+
+
 def pas_un_pdf() -> None:
     (OUT / "pas_un_pdf.pdf").write_text("Ceci est un fichier texte, pas un PDF.\n", encoding="utf-8")
 
@@ -565,6 +812,7 @@ def main() -> None:
     signature_factice()
     corrompu()
     pas_un_pdf()
+    ocr_documents()
     for f in sorted(OUT.glob("*.pdf")):
         print(f"{f.name:24} {f.stat().st_size / 1024:8.1f} Kio")
 

@@ -19,7 +19,8 @@ préférées à qualité équivalente.
 | `font-kit` | polices installées sur le Mac (par MuPDF, et depuis le jalon 4 pour intégrer une police au texte modifié) | MIT ou Apache-2.0 |
 | `uniffi` | pont Swift ↔ Rust | MPL-2.0 |
 | `thiserror` | erreurs Rust | MIT ou Apache-2.0 |
-| `unicode-normalization` | repli des accents pour la recherche | MIT ou Apache-2.0 |
+| `unicode-normalization` | repli des accents pour la recherche, comparaison des textes reconnus | MIT ou Apache-2.0 |
+| Vision (framework de macOS) | reconnaissance du texte des scans (jalon 5) | fourni avec macOS |
 
 **AGPL-3.0 (MuPDF, jbig2dec) :** cette licence oblige à fournir le code source à
 quiconque reçoit le logiciel ou l'utilise à travers un réseau. Pour un usage
@@ -33,12 +34,21 @@ soit une licence commerciale d'Artifex, soit le passage à PDFium (BSD).
 |---|---|---|
 | PDFium (binaire `bblanchon/pdfium-binaries`) | banc d'essai uniquement | BSD-3-Clause |
 | `pdfium-render` | banc d'essai uniquement | MIT ou Apache-2.0 |
-| `image` | banc d'essai (export PNG) | MIT ou Apache-2.0 |
+| `image` | bancs d'essai (export PNG, scans simulés) | MIT ou Apache-2.0 |
+| Tesseract 5 (commande `tesseract`, Homebrew) | banc d'essai OCR uniquement | Apache-2.0 |
+| Modèles Tesseract `fra`, `eng`, `osd` (dépôt `tesseract-ocr/tessdata`) | banc d'essai OCR uniquement | Apache-2.0 |
+| `ocrs` 0.13, `rten` 0.26 | banc d'essai OCR uniquement | MIT ou Apache-2.0 |
+| Modèles d'`ocrs` (`text-detection.rten`, `text-recognition.rten`) | banc d'essai OCR uniquement | non vérifiée (téléchargés à la volée, jamais versionnés) |
+| `serde_json` | banc d'essai OCR (réponse du programme Vision) | MIT ou Apache-2.0 |
 | XcodeGen | génération du projet Xcode | MIT |
 | SwiftLint | analyse du code Swift | MIT |
 | reportlab, pikepdf, Pillow, fontTools | génération du jeu de test | BSD, MPL-2.0, HPND, MIT |
 
 ## Polices embarquées
 
-Aucune à ce jour. Les polices libres (OFL) prévues pour l'appariement de polices
+Aucune à ce jour. La couche de texte invisible des pages reconnues (jalon 5)
+utilise une police jamais peinte, « GlyphLessFont », construite par le code du
+moteur (`pdf_core/src/textlayer.rs`) : elle ne reprend aucune police existante.
+Le jeu de test OCR intègre DejaVu Sans (licence Bitstream Vera, libre) dans
+`tests/fixtures/ocr/petits_caracteres.pdf`. Les polices libres (OFL) prévues pour l'appariement de polices
 des scans seront listées ici au jalon 7.

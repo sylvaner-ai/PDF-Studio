@@ -1,0 +1,14 @@
+[package]
+name = "ocr"
+description = "Reconnaissance de texte : prétraitement des images, moteurs interchangeables, mesure de la qualité."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+unicode-normalization.workspace = true
+
+[lints]
+workspace = true

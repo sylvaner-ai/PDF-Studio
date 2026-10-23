@@ -45,7 +45,9 @@ final class RecoveryStoreTests: XCTestCase {
         var pages = session.pages().reversed().map { RecoveryRecord.Page(DisplayPage($0, sizes: sizes)) }
         pages.append(RecoveryRecord.Page(source: nil, index: 0, width: 300, height: 400, quarterTurns: 5))
 
-        try session.restore(pages: pages.map(\.item), contents: pages.map(\.contentItems))
+        try session.restore(
+            pages: pages.map(\.item), contents: pages.map(\.contentItems), layers: pages.map(\.layerItems)
+        )
         let restored = session.pages().map { DisplayPage($0, sizes: sizes) }
         XCTAssertEqual(restored.compactMap(\.source?.index), [4, 3, 2, 1, 0])
         XCTAssertEqual(restored.last?.baseSize, CGSize(width: 300, height: 400))

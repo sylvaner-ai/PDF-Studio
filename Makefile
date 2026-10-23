@@ -4,6 +4,7 @@
 #   make test      tests du moteur (cargo) puis de l'application (XCTest)
 #   make lint      clippy, rustfmt et SwiftLint
 #   make bench     banc d'essai des moteurs de rendu (cf. docs/RENDER_BENCHMARK.md)
+#   make ocr-bench banc d'essai des moteurs OCR (cf. docs/OCR_BENCHMARK.md)
 #   make fixtures  régénère le jeu de PDF de test
 #
 # Le chemin du dépôt peut contenir des espaces et se trouver dans un dossier
@@ -31,7 +32,7 @@ APP_NAME      := PDF Studio.app
 PDFIUM_URL    := https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz
 PDFIUM_DIR    := .tools/pdfium
 
-.PHONY: build engine bindings project test test-engine test-app lint bench fixtures clean
+.PHONY: build engine bindings project test test-engine test-app lint bench ocr-bench fixtures clean
 
 build: project
 	xcodebuild -project "$(XCODE_PROJECT)" -scheme PDFStudio -configuration Release \
@@ -91,6 +92,36 @@ bench:
 	@if ls tests/fixtures/private/*.pdf >/dev/null 2>&1; then \
 		"$(CARGO_TARGET_DIR)/release/render_bench" --pdfium "$(PDFIUM_DIR)/lib" --out "$(BENCH_OUT)/private" \
 			--anonymize $(BENCH_FLAGS) tests/fixtures/private; fi
+
+# Banc d'essai OCR : Vision, Tesseract et ocrs, sur des scans simulés à partir
+# de documents dont le texte est connu (cf. docs/OCR_BENCHMARK.md). Tesseract
+# (Homebrew), ses modèles français et anglais et ceux d'ocrs ne servent qu'à
+# cette mesure : l'application n'utilise que Vision. Vision est appelé par un
+# petit programme qui compile le code de l'application. Les documents privés
+# n'apparaissent dans le rapport que sous un nom anonyme, avec leurs mesures.
+OCR_OUT      := $(PDFSTUDIO_BUILD_ROOT)/ocr-bench
+OCRS_MODELS  := https://ocrs-models.s3-accelerate.amazonaws.com
+TESSDATA_URL := https://github.com/tesseract-ocr/tessdata/raw/main
+OCR_DOCUMENTS := tests/fixtures/ocr tests/fixtures/texte_simple.pdf tests/fixtures/tableau.pdf \
+	tests/fixtures/edition.pdf tests/fixtures/encadre.pdf tests/fixtures/scan_simule.pdf
+
+ocr-bench:
+	@command -v tesseract >/dev/null || brew install tesseract
+	mkdir -p "$(OCR_OUT)/ocrs" "$(OCR_OUT)/tessdata"
+	@for model in text-detection text-recognition; do \
+		[ -f "$(OCR_OUT)/ocrs/$$model.rten" ] || \
+			curl -sSfL "$(OCRS_MODELS)/$$model.rten" -o "$(OCR_OUT)/ocrs/$$model.rten"; done
+	@for lang in fra eng osd; do \
+		[ -f "$(OCR_OUT)/tessdata/$$lang.traineddata" ] || \
+			curl -sSfL "$(TESSDATA_URL)/$$lang.traineddata" -o "$(OCR_OUT)/tessdata/$$lang.traineddata"; done
+	swiftc -O -o "$(OCR_OUT)/vision_ocr" app/Recognition/VisionTextReader.swift \
+		engine/tools/ocr_bench/vision/main.swift
+	$(CARGO) build $(CARGO_FLAGS) --release -p ocr_bench
+	"$(CARGO_TARGET_DIR)/release/ocr_bench" --vision "$(OCR_OUT)/vision_ocr" \
+		--tessdata "$(OCR_OUT)/tessdata" --ocrs-models "$(OCR_OUT)/ocrs" \
+		--out "$(OCR_OUT)/rapport.md" --csv "$(OCR_OUT)/detail.csv" $(OCR_BENCH_FLAGS) $(OCR_DOCUMENTS) \
+		$$(ls tests/fixtures/private/*.pdf >/dev/null 2>&1 && echo --private tests/fixtures/private)
+	@echo "Rapport : $(OCR_OUT)/rapport.md"
 
 fixtures:
 	python3 tests/fixtures/generate.py

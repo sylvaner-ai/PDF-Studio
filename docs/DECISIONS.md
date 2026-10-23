@@ -346,3 +346,109 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   (en-tête de facture), les étiquettes forment un bloc et les valeurs un autre ;
   modifier une valeur ne bouleverse plus la mise en page. Une colonne de tableau
   n'est plus prise pour un paragraphe.
+
+## D26 — Moteur OCR de l'application : Vision, derrière un trait (jalon 5)
+
+- **Retenu :** le framework Vision de macOS (`VNRecognizeTextRequest`, niveau
+  « précis », correction linguistique, français puis anglais). Le moteur Rust
+  ne connaît que le trait `ocr::OcrEngine` ; l'application lui fournit Vision par
+  le trait UniFFI `TextRecognizer`, implémenté en Swift et appelé depuis Rust.
+  Le code qui interroge Vision (`VisionTextReader.swift`) est le même dans
+  l'application et dans le banc d'essai.
+- **Alternatives :**
+  - Tesseract 5 (Apache-2.0), que MuPDF sait aussi piloter : très bon sur les
+    scans propres, mais il faudrait compiler et embarquer la bibliothèque C++ et
+    ses modèles (une quinzaine de Mo par langue), et il lit mal les tableaux
+    (cf. `OCR_BENCHMARK.md`) ;
+  - `ocrs` (Rust pur, MIT/Apache) : rapide et sans dépendance système, mais son
+    alphabet n'a pas d'accents (le français plafonne vers 90 % de caractères
+    corrects) et il ne donne aucune confiance par mot.
+- **Raisons :** Vision est fourni par macOS (aucune dépendance, aucun modèle à
+  embarquer, aucune connexion réseau), accéléré par le Neural Engine des puces
+  Apple, et lit le français et l'anglais. Le trait permet de changer de moteur
+  sans toucher au reste. **Confirmé par les mesures sur le Mac** (22 octobre
+  2026, `OCR_BENCHMARK.md`) : 98,6 % à 99,7 % de caractères corrects sur les
+  scans propres en français (documents publics) et 0,4 s par page.
+
+## D27 — Préparation de l'image avant la lecture (jalon 5, provisoire)
+
+- **Retenu, par défaut :** égalisation du fond et étirement du contraste,
+  redressement de l'inclinaison, correction de l'orientation ; ni filtre médian
+  ni binarisation, disponibles comme réglages (`RecognitionSettings`).
+  - **Fond :** pour chaque carré d'un quart de pouce, le niveau que dépassent
+    ses 10 % de pixels les plus clairs (et non le plus clair : le bruit le
+    fausserait), au moins la médiane des carrés voisins (un carré couvert
+    d'encre), interpolé ; chaque pixel est divisé par ce fond.
+  - **Inclinaison :** angle (de −10° à 10°) qui rend le plus net le profil de
+    projection des pixels d'encre ; corrigée au-delà de 0,1°.
+  - **Orientation :** une page semble couchée quand le profil des colonnes varie
+    plus que celui des lignes, en ne comptant que les taches de la taille d'un
+    caractère ou d'un mot (ni filets de tableau, ni bords sombres, ni images) ;
+    elle est alors lue dans les deux sens et le moteur tranche. Une lecture
+    douteuse (moins de trois mots, ou confiance moyenne inférieure à 0,6) est
+    reprise à l'envers, puis dans les deux autres sens ; la meilleure (somme des
+    caractères pondérés par leur confiance) est retenue.
+- **Alternative :** binariser systématiquement, comme le recommande Tesseract.
+- **Raisons :** sur le banc, la binarisation fait perdre des caractères à
+  Tesseract et à `ocrs` sur les scans à 150 ppp et n'apporte rien sur les scans
+  propres ; les moteurs neuronaux lisent mieux les niveaux de gris. Le premier
+  passage du banc a montré que les bords sombres d'un scan et un fond mal
+  égalisé faisaient croire à une page couchée : d'où le filtre des taches et la
+  confirmation par le moteur. Réglages par défaut à confirmer par les mesures de
+  Vision.
+
+## D28 — Couche de texte invisible : police Type0 jamais peinte (jalon 5)
+
+- **Retenu :** à l'enregistrement, les mots reconnus sont ajoutés au flux de
+  contenu de la page, après le contenu d'origine (entouré de `q … Q`), dans un
+  bloc marqué `/PDFStudioOCR BMC … EMC`. Chaque mot est écrit en rendu invisible
+  (`3 Tr`) dans une police Type0 (Identity-H) construite par le code : un
+  TrueType minimal dont tous les caractères renvoient à un même glyphe de
+  largeur fixe (un rectangle de la hauteur du cadratin, jamais peint), avec
+  une table ToUnicode identité. Comme chez Tesseract, chaque ligne reçoit une seule matrice (position et angle de la ligne), une taille et
+  une ligne de pied communes (médianes de ses mots) ; les mots suivants sont
+  placés par des déplacements `Td` le long de la ligne. `Tz` étire chaque mot
+  exactement sur sa largeur ; une espace étirée le relie au mot suivant, pour
+  que la copie et la recherche voient des espaces. Une première version plaçait
+  chaque mot par sa propre matrice et à sa propre hauteur : Aperçu ne regroupait
+  pas les mots en lignes et sélectionnait le texte en colonnes. Le défaut
+  tenait surtout au glyphe, d'abord vide : PDFKit mesure les caractères par
+  leur dessin, et donnait à chacun une hauteur nulle (mots non regroupés en
+  lignes, sélection impossible).
+- **Alternatives :** une police standard (Helvetica) en rendu invisible :
+  limitée à l'encodage WinAnsi, avec des chasses variables qui ne coïncident
+  pas avec l'image ; ou ajouter la couche dans un objet de formulaire séparé.
+- **Raisons :** tout caractère Unicode (accents, €, œ, ligatures) est encodé
+  sans police à intégrer ; une largeur fixe rend l'étirement exact, donc la
+  sélection et le surlignage tombent sur les mots de l'image ; le bloc marqué
+  permet de retrouver la couche. Vérifié avec MuPDF et `pdftotext` (Poppler) :
+  « L'œuvre coûte 12,50 € » est extrait tel quel, l'image est inchangée au
+  pixel près.
+
+## D29 — Reconnaissance : une étape d'annulation, pages figées (jalon 5)
+
+- **Retenu :** les pages sont lues une à une, hors du fil principal, sans
+  modifier le document ; le résultat de toutes les pages lues est appliqué à la
+  fin en une seule étape d'annulation (« la reconnaissance du texte »). Pendant
+  la lecture, les pages sont figées comme pendant une exportation. « Arrêter »
+  laisse finir la page en cours et applique les pages déjà lues. Une page lue
+  couchée ou à l'envers reçoit la rotation qui la remet à l'endroit (celle de
+  l'organisation, enregistrée dans le fichier) ; une rotation choisie sur une
+  page droite est gardée. Les mots qui recouvrent un texte déjà présent dans
+  la page sont écartés, pour ne pas doubler un texte cherchable.
+- **Alternative :** appliquer chaque page dès sa lecture (une étape
+  d'annulation par page), en laissant les pages modifiables pendant la lecture.
+- **Raisons :** une seule annulation défait toute la reconnaissance ; une page
+  modifiée ou déplacée pendant sa lecture recevrait une couche périmée.
+
+## D30 — Mots douteux : confiance inférieure à 0,5 (jalon 5, provisoire)
+
+- **Retenu :** un mot est douteux si sa confiance est inférieure à 0,5 ; il est
+  surligné en orange en mode Édition, et le bilan de la reconnaissance en donne
+  le nombre. Vision ne donne qu'une confiance par ligne : celle d'un mot est la
+  confiance de sa ligne, réduite de moitié au plus quand les autres lectures
+  proposées par Vision (jusqu'à trois) ne contiennent pas ce mot.
+- **Raisons :** sur le banc, le seuil de 0,5 signale peu de mots justes ; le
+  seuil sera ajusté d'après la calibration de Vision (`OCR_BENCHMARK.md`).
+  La confiance n'est pas enregistrée dans le PDF : après réouverture, les mots
+  ne sont plus signalés (cf. `LIMITES.md`).

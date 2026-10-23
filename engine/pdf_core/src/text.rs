@@ -23,7 +23,7 @@ pub struct PageRect {
 }
 
 impl PageRect {
-    fn from_quad(quad: mupdf::Quad) -> Self {
+    pub(crate) fn from_quad(quad: mupdf::Quad) -> Self {
         let xs = [quad.ul.x, quad.ur.x, quad.ll.x, quad.lr.x];
         let ys = [quad.ul.y, quad.ur.y, quad.ll.y, quad.lr.y];
         let x0 = xs.iter().copied().fold(f32::INFINITY, f32::min);
@@ -38,7 +38,7 @@ impl PageRect {
         }
     }
 
-    fn union(self, other: Self) -> Self {
+    pub(crate) fn union(self, other: Self) -> Self {
         let x0 = self.x.min(other.x);
         let y0 = self.y.min(other.y);
         let x1 = (self.x + self.width).max(other.x + other.width);
@@ -50,6 +50,15 @@ impl PageRect {
             height: y1 - y0,
         }
     }
+}
+
+/// Une ligne de texte de la page et son emprise.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextLine {
+    /// Texte de la ligne.
+    pub text: String,
+    /// Emprise, dans l'espace d'affichage de la page.
+    pub rect: PageRect,
 }
 
 /// Une occurrence trouvée sur une page : un rectangle par ligne de texte touchée.
@@ -69,7 +78,7 @@ struct Glyph {
 }
 
 /// Texte d'une page, préparé pour la recherche.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct PageText {
     glyphs: Vec<Glyph>,
     folded: String,
@@ -99,6 +108,45 @@ impl PageText {
     /// Vrai si la page ne contient aucun texte natif (page scannée, par exemple).
     pub fn is_empty(&self) -> bool {
         self.glyphs.is_empty()
+    }
+
+    /// Ce texte suivi de lignes lues par la reconnaissance de texte : chaque
+    /// ligne est une suite de mots avec leur emprise. Les caractères d'un mot
+    /// se partagent sa largeur.
+    pub fn with_lines(&self, lines: &[Vec<(String, PageRect)>]) -> PageText {
+        let mut builder = Builder {
+            text: self.clone(),
+            line: self.glyphs.last().map_or(0, |glyph| glyph.line),
+            ..Builder::default()
+        };
+        for line in lines {
+            builder.start_line();
+            let mut previous: Option<PageRect> = None;
+            for (word, rect) in line {
+                if let Some(before) = previous {
+                    let x = before.x + before.width;
+                    let gap = PageRect {
+                        x,
+                        y: rect.y,
+                        width: (rect.x - x).max(0.0),
+                        height: rect.height,
+                    };
+                    builder.push(' ', gap);
+                }
+                let count = word.chars().count().max(1) as f32;
+                for (k, c) in word.chars().enumerate() {
+                    let width = rect.width / count;
+                    let glyph = PageRect {
+                        x: rect.x + width * k as f32,
+                        width,
+                        ..*rect
+                    };
+                    builder.push(c, glyph);
+                }
+                previous = Some(*rect);
+            }
+        }
+        builder.finish()
     }
 
     /// Cherche toutes les occurrences de `query`, sans tenir compte de la casse,
@@ -360,5 +408,33 @@ mod tests {
             "la ligature entière est surlignée"
         );
         assert_eq!(found[0].rects[0].width, 2.0);
+    }
+
+    #[test]
+    fn recherche_dans_une_couche_reconnue() {
+        let native = page(&["Titre"]);
+        let word = |text: &str, x: f32| {
+            (
+                text.to_owned(),
+                PageRect {
+                    x,
+                    y: 50.0,
+                    width: 30.0,
+                    height: 10.0,
+                },
+            )
+        };
+        let text = native.with_lines(&[vec![word("Facture", 0.0), word("n°", 40.0)]]);
+        assert_eq!(text.search("titre").len(), 1);
+        let found = text.search("facture n");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].rects.len(), 1);
+        assert_eq!(found[0].rects[0].x, 0.0);
+        // « n » : premier des deux caractères de « n° ».
+        assert_eq!(found[0].rects[0].width, 55.0);
+        assert!(
+            text.search("titre facture").len() == 1,
+            "lignes séparées par une espace"
+        );
     }
 }

@@ -119,9 +119,10 @@ final class EngineBridgeTests: XCTestCase {
     func testRechercheDansToutLeDocument() async throws {
         let document = try PdfDocument.open(path: fixture("multipage_100"), password: nil)
         let sizes = [document.pageSizes().map(\.cgSize)]
-        let pages = EditSession(document: document).pages().map { DisplayPage($0, sizes: sizes) }
+        let session = EditSession(document: document)
+        let pages = session.pages().map { DisplayPage($0, sizes: sizes) }
         let canvas = CanvasController(pages: pages)
-        let search = SearchModel(sources: PageSources(document), pages: pages, canvas: canvas)
+        let search = SearchModel(session: session, pages: pages, canvas: canvas)
         search.update(query: "Page 50 sur")
         let deadline = Date().addingTimeInterval(10)
         while search.isSearching, Date() < deadline {
