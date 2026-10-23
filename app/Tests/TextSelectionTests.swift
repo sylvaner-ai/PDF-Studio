@@ -107,16 +107,37 @@ final class TextSelectionTests: XCTestCase {
 
     // MARK: - Dans le canevas
 
+    private var directory: URL?
+
+    override func tearDown() {
+        if let directory {
+            try? FileManager.default.removeItem(at: directory)
+        }
+        super.tearDown()
+    }
+
+    /// Ouvre une copie du document de test : le fichier du bundle garde sa propre
+    /// copie de récupération d'un essai à l'autre, qui bloquerait les modifications.
     private func open(_ name: String) async throws -> DocumentViewModel {
-        // Un fichier du bundle de test ne peut pas recevoir de signet de sécurité.
-        let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: name, withExtension: "pdf"))
+        let source = try XCTUnwrap(Bundle(for: Self.self).url(forResource: name, withExtension: "pdf"))
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("sélection-\(UUID())")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        directory = folder
+        let url = folder.appendingPathComponent("\(name).pdf")
+        try FileManager.default.copyItem(at: source, to: url)
+        // Un fichier hors du bundle ne reçoit pas non plus de signet de sécurité.
         let model = DocumentViewModel(reference: try DocumentReference(url: url, securityScoped: false))
         await model.open()
         XCTAssertEqual(model.phase, .ready, name)
         return model
     }
 
-    private func show(_ model: DocumentViewModel) throws -> (NSWindow, PageCanvasView) {
+    private func close(_ window: NSWindow, _ model: DocumentViewModel) {
+        window.close()
+        model.close()
+    }
+
+    private func show(_ model: DocumentViewModel) async throws -> (NSWindow, PageCanvasView) {
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 1080, height: 760),
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false
@@ -125,7 +146,10 @@ final class TextSelectionTests: XCTestCase {
         window.contentView = NSHostingView(rootView: DocumentView(model: model))
         window.makeKeyAndOrderFront(nil)
         var canvas: PageCanvasView?
-        wait { canvas = self.find(PageCanvasView.self, in: window.contentView); return canvas != nil }
+        await wait {
+            canvas = self.find(PageCanvasView.self, in: window.contentView)
+            return canvas != nil
+        }
         return (window, try XCTUnwrap(canvas))
     }
 
@@ -134,11 +158,13 @@ final class TextSelectionTests: XCTestCase {
         return view as? T ?? view.subviews.lazy.compactMap { self.find(type, in: $0) }.first
     }
 
-    private func wait(upTo seconds: TimeInterval = 10, until condition: () -> Bool) {
+    /// Attend sans bloquer le fil principal : la lecture du texte et la copie s'y exécutent.
+    private func wait(upTo seconds: TimeInterval = 10, until condition: () -> Bool) async {
         let deadline = Date().addingTimeInterval(seconds)
         while !condition(), Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            try? await Task.sleep(for: .milliseconds(25))
         }
+    }
     }
 
     /// Point de la vue des pages qui correspond à `point` sur la première page (page droite, non tournée).
@@ -156,11 +182,8 @@ final class TextSelectionTests: XCTestCase {
 
     func testSelectionneEtCopieLeTexteReconnuDUnScan() async throws {
         let model = try await open("scan_simule")
-        let (window, canvas) = try show(model)
-        defer {
-            window.close()
-            model.close()
-        }
+        let (window, canvas) = try await show(model)
+        defer { close(window, model) }
         let text = canvas.pagesView.text
         let page = try XCTUnwrap(model.pages.first)
         XCTAssertTrue(text.lineBounds(on: page).isEmpty, "une page scannée n'a pas de texte avant la lecture")
@@ -183,7 +206,7 @@ final class TextSelectionTests: XCTestCase {
         }
         let recognized = try XCTUnwrap(model.pages.first)
         XCTAssertNotEqual(recognized.textRevision, 0)
-        wait { text.lineBounds(on: recognized).count == 2 }
+        await wait { text.lineBounds(on: recognized).count == 2 }
         XCTAssertEqual(text.lineBounds(on: recognized).count, 2)
 
         // Du début de la première ligne à la fin de la seconde.
@@ -219,14 +242,11 @@ final class TextSelectionTests: XCTestCase {
 
     func testSelectionneLeTexteNatifEtSuitLesModifications() async throws {
         let model = try await open("texte_simple")
-        let (window, canvas) = try show(model)
-        defer {
-            window.close()
-            model.close()
-        }
+        let (window, canvas) = try await show(model)
+        defer { close(window, model) }
         let text = canvas.pagesView.text
         let page = try XCTUnwrap(model.pages.first)
-        wait { !text.lineBounds(on: page).isEmpty }
+        await wait { !text.lineBounds(on: page).isEmpty }
         let first = try XCTUnwrap(text.lineBounds(on: page).first)
 
         // Triple-clic : la première ligne de la page, telle que la lit le moteur.
@@ -249,7 +269,7 @@ final class TextSelectionTests: XCTestCase {
 
     /// ⌘C (la commande Copier du menu Édition) place la sélection dans le presse-papiers.
     private func assertCopies(
-        _ text: TextSelection, from view: PagesDocumentView, expecting expected: String
+        _ text: PDFStudio.TextSelection, from view: PagesDocumentView, expecting expected: String
     ) async throws {
         let pasteboard = NSPasteboard.general
         let previous = pasteboard.string(forType: .string)
@@ -262,7 +282,7 @@ final class TextSelectionTests: XCTestCase {
         let item = NSMenuItem(title: "Copier", action: #selector(PagesDocumentView.copy(_:)), keyEquivalent: "c")
         XCTAssertTrue(view.validateMenuItem(item))
         view.copy(nil)
-        wait { pasteboard.string(forType: .string) == expected }
+        await wait { pasteboard.string(forType: .string) == expected }
         XCTAssertEqual(pasteboard.string(forType: .string), expected)
 
         text.clear()
