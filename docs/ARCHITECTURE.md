@@ -10,23 +10,26 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
 │               DocumentWindowBridge (fermeture), ExportOptions, SearchField ; │
 │               EditingBadge, RecognitionViews (bouton et avancement OCR) ;    │
 │               Canvas/ : PageCanvasView (AppKit),                             │
-│               PageTileView, EditingOverlayView ;                             │
+│               PageTileView, EditingOverlayView (+Tables),                    │
+│               InlineTextEditor ;                                             │
 │               Grid/ : PageGrid, PageGridCoordinator, PageGridItem (AppKit)   │
 │ ViewModels/   DocumentViewModel (+Saving, +Recovery, +Inserting,             │
 │               +Exporting, +Recognizing), DisplayPage, CanvasController,      │
 │               SearchModel, OutlineTree, PageLayout, PageRenderer,            │
-│               FileSaver, RecoveryStore, PageExporter, PageEditing            │
+│               FileSaver, RecoveryStore, PageExporter,                        │
+│               PageEditing (+Tables)                                          │
 │ Recognition/  VisionTextReader (Vision), VisionTextRecognizer (pour Rust)    │
-│ App/          PDFStudioApp, ViewerCommands et PageCommands (menus),          │
+│ App/          PDFStudioApp, ViewerCommands, PageCommands et TableCommands    │
+│               (menus),                                                       │
 │               DocumentOpener, DocumentReference (signets de sécurité)        │
 │ Bridge/       EngineBridge.swift + Generated/ (liaisons UniFFI générées)     │
 └───────────────────────────────┬──────────────────────────────────────────────┘
                                 │ UniFFI : PdfDocument, EditSession, PageItem,
                                 │          RenderedPage, OutlineItem, SearchMatch,
                                 │          PageRect, PageObjectItem, ContentEdits,
-                                │          ObjectEditItem, TextRecognizer (trait
-                                │          implémenté en Swift), PageRecognition,
-                                │          EngineError
+                                │          ObjectEditItem, TableGridItem, TableAxis,
+                                │          TextRecognizer (trait implémenté en
+                                │          Swift), PageRecognition, EngineError
 ┌───────────────────────────────▼──────────── Moteur Rust (engine/) ───────────┐
 │ ffi/        interface pour Swift (seule couche contenant du code unsafe :    │
 │             macros UniFFI et deux appels système de qualité de service)      │
@@ -35,6 +38,8 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
 │ ocr/        trait OcrEngine, préparation de l'image (fond, bruit,            │
 │             binarisation, inclinaison, orientation), mesure de la lecture    │
 │ render/     rastérisation RGBA : page entière ou zone, rotation d'affichage  │
+│ layout/     géométrie de la structure : filets, quadrillages, tableaux à     │
+│             filets, réorganisation des lignes et colonnes (sans dépendance)  │
 │ pdf_core/   ouverture, pages, métadonnées, plan, texte et recherche ;        │
 │             écriture d'un PDF réorganisé ; fil dédié par document ;          │
 │             choix des polices standard ; content/ : lecture du flux de       │
@@ -45,9 +50,8 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Les crates `layout` et `fonts` prévus par le cahier des charges seront créés aux
-jalons qui les utilisent (6 et 7) ; `edit` l'a été au jalon 3, `ocr` au jalon 5. Au
-jalon 4, la mise en page du texte modifié et le choix de sa police sont restés
+Le crate `fonts` prévu par le cahier des charges sera créé au jalon 7 ; `edit`
+l'a été au jalon 3, `ocr` au jalon 5, `layout` au jalon 6 (D31). Au jalon 4, la mise en page du texte modifié et le choix de sa police sont restés
 dans `pdf_core` (`content::layout`, `editing`), car ils reposent sur
 l'interprétation du flux de contenu et sur MuPDF.
 
@@ -160,6 +164,29 @@ l'interprétation du flux de contenu et sur MuPDF.
   traduit souris et clavier en modifications (D23), toujours exprimées sur la page
   droite, rotation d'affichage et quarts de tour de l'organisation retirés.
 
+## Tableaux
+
+- **Détection.** À la construction des objets d'une page, `objects::tables`
+  donne au crate `layout` les sous-chemins rectilignes des tracés (relevés par
+  `interp`, dans l'espace de la page) et les glyphes ; `layout::detect` en tire
+  les filets, puis les quadrillages et les tableaux à filets horizontaux (D32).
+  Les lignes de texte sont coupées aux limites des cellules et les blocs
+  regroupés par cellule (D33). Chaque tableau devient un objet `Table`, numéroté
+  après les autres, dont les blocs, filets et fonds sont les membres (D35).
+- **Modifications.** `TableEdit` (crate `edit`) range, sur l'objet Tableau, les
+  lignes et colonnes d'origine conservées dans leur ordre et les textes saisis
+  dans des cellules vides. `editing` les traduit objet par objet
+  (`PageModel::derive`) : déplacement ou suppression des blocs et des images
+  (`layout::Restructure`, D34), déformation des tracés sous-chemin par
+  sous-chemin (`rewrite::Reshape`), texte des cellules vides mis en page dans
+  le style d'un bloc voisin (`rewrite::Insertion`, D36). La grille modifiée est
+  rendue à l'application (`TableGridItem`).
+- **Interface.** L'`EditSession` supprime ou déplace des lignes et des colonnes
+  (`delete_table_bands`, `move_table_band`, numéros actuels) et saisit le
+  texte d'une cellule (`set_cell_text`). `PageEditing+Tables` garde la cellule
+  courante ; `EditingOverlayView+Tables` dessine la grille, désigne la cellule
+  et propose le menu contextuel ; `TableCommands` donne le menu Tableau.
+
 ## Reconnaissance du texte (OCR)
 
 - **Moteurs interchangeables.** Le crate `ocr` définit le trait `OcrEngine`
@@ -258,5 +285,6 @@ lancé depuis Xcode reste donc à jour.
   `edition.pdf` (titre en police intégrée, paragraphe justifié, ligne en
   Helvetica, image, tracés, page tournée) pour le jalon 4, `ocr/` (lettre,
   facture, colonnes, tableau dense, petits caractères, texte anglais) pour le
-  jalon 5 ;
+  jalon 5, `tableaux.pdf` (cellules fusionnées, cellules vides, fonds de
+  cellule, tableau à filets horizontaux) pour le jalon 6 ;
   `tests/fixtures/private/` reçoit les documents personnels, jamais versionnés.

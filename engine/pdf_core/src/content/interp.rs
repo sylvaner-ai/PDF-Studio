@@ -181,6 +181,46 @@ pub enum UnitKind {
     Shading,
 }
 
+/// Opération de construction d'un tracé et ses points.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PathOp {
+    /// Indice de l'opération (`m`, `l`, `c`, `v`, `y` ou `re`).
+    pub op: usize,
+    /// Points de l'opération dans l'espace de la page : extrémité (et points
+    /// de contrôle) ; pour `re`, les quatre coins, depuis l'origine du
+    /// rectangle.
+    pub points: Vec<Point>,
+}
+
+/// Sous-chemin d'un tracé : un `re`, ou un `m` suivi de segments.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Subpath {
+    /// Opérations de construction, `h` compris.
+    pub ops: Range<usize>,
+    /// Opérations qui portent des points, dans l'ordre.
+    pub items: Vec<PathOp>,
+    /// Rectangle `re`.
+    pub rect: bool,
+    /// Fermé (`re` ou `h`).
+    pub closed: bool,
+    /// Fait seulement de segments de droite (ni courbe).
+    pub straight: bool,
+}
+
+impl Subpath {
+    /// Points du sous-chemin, dans l'espace de la page.
+    pub fn points(&self) -> impl Iterator<Item = Point> + '_ {
+        self.items
+            .iter()
+            .flat_map(|item| item.points.iter().copied())
+    }
+
+    /// Emprise des points.
+    pub fn bbox(&self) -> Rect {
+        Rect::bounding(self.points())
+    }
+}
+
 /// Élément dessiné autre que du texte.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Unit {
@@ -192,6 +232,12 @@ pub struct Unit {
     pub bbox: Rect,
     /// Le tracé sert aussi de détourage (`W` ou `W*` avant la peinture).
     pub clips: bool,
+    /// Sous-chemins d'un tracé.
+    pub subpaths: Vec<Subpath>,
+    /// Le tracé est rempli.
+    pub filled: bool,
+    /// Le tracé est dessiné au trait.
+    pub stroked: bool,
 }
 
 /// Résultat de l'interprétation d'une page.
@@ -249,12 +295,54 @@ struct TextState {
     object: usize,
 }
 
-/// Tracé en cours de construction.
+/// Tracé en cours de construction (points dans l'espace utilisateur).
 struct PathState {
     start: usize,
     points: Vec<Point>,
     current: Point,
     subpath_start: Point,
+    subpaths: Vec<Subpath>,
+    /// Le dernier sous-chemin peut être prolongé (ni `re` ni fermé).
+    open: bool,
+}
+
+impl PathState {
+    fn new(start: usize, current: Point) -> Self {
+        PathState {
+            start,
+            points: Vec::new(),
+            current,
+            subpath_start: current,
+            subpaths: Vec::new(),
+            open: false,
+        }
+    }
+
+    /// Ajoute l'opération `op` et ses points au sous-chemin en cours, ou à un
+    /// nouveau sous-chemin qui part du point courant.
+    fn record(&mut self, op: usize, points: &[Point], curve: bool) {
+        if !self.open {
+            self.subpaths.push(Subpath {
+                ops: op..op,
+                items: vec![PathOp {
+                    op,
+                    points: vec![self.current],
+                }],
+                rect: false,
+                closed: false,
+                straight: true,
+            });
+            self.open = true;
+        }
+        if let Some(subpath) = self.subpaths.last_mut() {
+            subpath.ops.end = op + 1;
+            subpath.items.push(PathOp {
+                op,
+                points: points.to_vec(),
+            });
+            subpath.straight &= !curve;
+        }
+    }
 }
 
 struct Run<'a> {
@@ -354,27 +442,36 @@ impl Run<'_> {
             // Tracés.
             b"m" => {
                 let p = self.point(op, 0);
-                let path = self.path.get_or_insert_with(|| PathState {
-                    start: index,
-                    points: Vec::new(),
-                    current: p,
-                    subpath_start: p,
-                });
+                let path = self.path.get_or_insert_with(|| PathState::new(index, p));
                 path.points.push(p);
                 path.current = p;
                 path.subpath_start = p;
+                path.subpaths.push(Subpath {
+                    ops: index..index + 1,
+                    items: vec![PathOp {
+                        op: index,
+                        points: vec![p],
+                    }],
+                    rect: false,
+                    closed: false,
+                    straight: true,
+                });
+                path.open = true;
             }
             b"l" => {
                 let p = self.point(op, 0);
                 self.extend_path(index, &[p]);
+                self.record(index, &[p], false);
             }
             b"c" => {
                 let points = [self.point(op, 0), self.point(op, 2), self.point(op, 4)];
                 self.extend_path(index, &points);
+                self.record(index, &points, true);
             }
             b"v" | b"y" => {
                 let points = [self.point(op, 0), self.point(op, 2)];
                 self.extend_path(index, &points);
+                self.record(index, &points, true);
             }
             b"re" => {
                 let (x, y, w, h) = (op.number(0), op.number(1), op.number(2), op.number(3));
@@ -388,11 +485,29 @@ impl Run<'_> {
                 if let Some(path) = &mut self.path {
                     path.current = corners[0];
                     path.subpath_start = corners[0];
+                    path.subpaths.push(Subpath {
+                        ops: index..index + 1,
+                        items: vec![PathOp {
+                            op: index,
+                            points: corners.to_vec(),
+                        }],
+                        rect: true,
+                        closed: true,
+                        straight: true,
+                    });
+                    path.open = false;
                 }
             }
             b"h" => {
                 if let Some(path) = &mut self.path {
                     path.current = path.subpath_start;
+                    if path.open {
+                        if let Some(subpath) = path.subpaths.last_mut() {
+                            subpath.ops.end = index + 1;
+                            subpath.closed = true;
+                        }
+                        path.open = false;
+                    }
                 }
             }
             b"W" | b"W*" => {
@@ -557,15 +672,20 @@ impl Run<'_> {
     }
 
     fn extend_path(&mut self, index: usize, points: &[Point]) {
-        let path = self.path.get_or_insert_with(|| PathState {
-            start: index,
-            points: Vec::new(),
-            current: Point::default(),
-            subpath_start: Point::default(),
-        });
+        let path = self
+            .path
+            .get_or_insert_with(|| PathState::new(index, Point::default()));
         path.points.extend_from_slice(points);
-        if let Some(&last) = points.last() {
-            path.current = last;
+    }
+
+    /// Retient l'opération dans le sous-chemin en cours, puis avance le point
+    /// courant.
+    fn record(&mut self, index: usize, points: &[Point], curve: bool) {
+        if let Some(path) = &mut self.path {
+            path.record(index, points, curve);
+            if let Some(&last) = points.last() {
+                path.current = last;
+            }
         }
     }
 
@@ -582,7 +702,23 @@ impl Run<'_> {
         }
         if fill || stroke {
             let shown = bbox.intersect(&self.state.clip);
-            self.push_unit(UnitKind::Path, path.start..index + 1, shown, clips);
+            let mut subpaths = path.subpaths;
+            for subpath in &mut subpaths {
+                for item in &mut subpath.items {
+                    for point in &mut item.points {
+                        *point = ctm.apply(*point);
+                    }
+                }
+            }
+            self.out.units.push(Unit {
+                kind: UnitKind::Path,
+                ops: path.start..index + 1,
+                bbox: shown,
+                clips,
+                subpaths,
+                filled: fill,
+                stroked: stroke,
+            });
         }
         if clips {
             self.state.clip = self.state.clip.intersect(&bbox);
@@ -603,6 +739,9 @@ impl Run<'_> {
             ops,
             bbox,
             clips,
+            subpaths: Vec::new(),
+            filled: false,
+            stroked: false,
         });
     }
 
@@ -822,6 +961,27 @@ pub(crate) mod tests {
         assert_eq!(out.units[2].kind, UnitKind::Form);
         assert_eq!(out.units[2].bbox.x1, 100.0);
         assert_eq!(out.units[3].ops, 14..16);
+    }
+
+    #[test]
+    fn sous_chemins_d_un_trace() {
+        let out =
+            run(b"q 2 0 0 2 0 0 cm 0 0 m 10 0 l 10 5 l h 20 20 5 5 re 30 30 l 1 1 2 2 3 3 c S Q");
+        let unit = &out.units[0];
+        assert!(unit.stroked && !unit.filled);
+        assert_eq!(unit.subpaths.len(), 3);
+        let triangle = &unit.subpaths[0];
+        assert_eq!(triangle.ops, 2..6);
+        assert!(triangle.closed && triangle.straight && !triangle.rect);
+        assert_eq!(triangle.items[1].points, [Point::new(20.0, 0.0)]);
+        let rect = &unit.subpaths[1];
+        assert!(rect.rect);
+        assert_eq!(rect.bbox(), Rect::new(40.0, 40.0, 50.0, 50.0));
+        // Après un rectangle, un segment part de son origine.
+        let tail = &unit.subpaths[2];
+        assert_eq!(tail.ops, 7..9);
+        assert_eq!(tail.items[0].points, [Point::new(40.0, 40.0)]);
+        assert!(!tail.straight);
     }
 
     #[test]

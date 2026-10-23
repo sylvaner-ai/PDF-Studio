@@ -11,7 +11,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use edit::{FontChoice, PageEdits, TextReplacement};
+use edit::{FontChoice, PageEdits, TableEdit, TextReplacement};
+use layout::{Cell, Restructure};
 use mupdf::path::PathWalker;
 use mupdf::pdf::{PdfDocument, PdfObject};
 use mupdf::text::Text;
@@ -21,11 +22,11 @@ use crate::content::encodings::BaseEncoding;
 use crate::content::font::{code_bytes, FontKind, FontMetrics};
 use crate::content::geometry::{Matrix, Rect};
 use crate::content::interp::{interpret, GraphicsState, Interpretation};
-use crate::content::layout::{layout, Layout, Shaper};
+use crate::content::layout::{layout_in, Layout, Shaper};
 use crate::content::lexer::{self, Operation};
-use crate::content::objects::{self, ObjectKind, PageObject};
+use crate::content::objects::{self, Alignment, ObjectKind, PageObject};
 use crate::content::resources::PageResources;
-use crate::content::rewrite::{rewrite, Change, NewText};
+use crate::content::rewrite::{rewrite, Change, Insertion, NewText, Reshape, ReshapeStep};
 use crate::error::Result;
 use crate::text::PageRect;
 
@@ -74,6 +75,142 @@ pub struct ObjectInfo {
     /// Empreinte de l'objet d'origine (nature et emprise), qui permet de
     /// vérifier qu'une modification retrouvée vise toujours le même objet.
     pub fingerprint: String,
+    /// Tableau dont l'objet fait partie.
+    pub table: Option<u32>,
+    /// Grille d'un tableau, modifications comprises.
+    pub grid: Option<TableInfo>,
+}
+
+/// Grille d'un tableau, telle que l'affiche l'application.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TableInfo {
+    /// Nombre de lignes.
+    pub rows: u32,
+    /// Nombre de colonnes.
+    pub columns: u32,
+    /// Lignes d'origine, dans l'ordre actuel.
+    pub row_order: Vec<u32>,
+    /// Colonnes d'origine, dans l'ordre actuel.
+    pub column_order: Vec<u32>,
+    /// Nombre de lignes du tableau d'origine.
+    pub source_rows: u32,
+    /// Nombre de colonnes du tableau d'origine.
+    pub source_columns: u32,
+    /// Cellules, ligne par ligne.
+    pub cells: Vec<CellInfo>,
+}
+
+/// Une cellule d'un tableau.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CellInfo {
+    /// Ligne de son coin supérieur gauche.
+    pub row: u32,
+    /// Colonne de son coin supérieur gauche.
+    pub column: u32,
+    /// Nombre de lignes couvertes.
+    pub row_span: u32,
+    /// Nombre de colonnes couvertes.
+    pub column_span: u32,
+    /// Ligne d'origine de son coin supérieur gauche.
+    pub source_row: u32,
+    /// Colonne d'origine de son coin supérieur gauche.
+    pub source_column: u32,
+    /// Emprise, dans l'espace d'affichage de la page.
+    pub bounds: PageRect,
+    /// Blocs de texte de la cellule.
+    pub objects: Vec<u32>,
+    /// Texte saisi dans la cellule, vide à l'origine.
+    pub text: Option<String>,
+    /// Bloc dont reprend le style un texte saisi dans la cellule ; `None` si
+    /// la cellule avait un texte, ou si le tableau n'en a aucun.
+    pub reference: Option<u32>,
+    /// Le texte saisi ne tient pas dans la cellule.
+    pub overflow: bool,
+}
+
+/// Marge de l'emprise d'un tableau pour ce qui lui appartient, en points.
+const TABLE_MARGIN: f64 = 1.5;
+
+/// Tableau de la page et ses modifications.
+struct TableState<'a> {
+    object: &'a PageObject,
+    table: &'a layout::Table,
+    edit: Option<&'a TableEdit>,
+    /// Supprimé, ou vidé de toutes ses lignes ou colonnes.
+    deleted: bool,
+    offset: (f64, f64),
+    restructure: Option<Restructure>,
+}
+
+impl TableState<'_> {
+    fn area(&self) -> Rect {
+        self.object.bbox.inflate(TABLE_MARGIN)
+    }
+
+    fn changed(&self) -> bool {
+        self.deleted || self.offset != (0.0, 0.0) || self.restructure.is_some()
+    }
+
+    /// Déplacement de ce qui occupe `rect` dans le tableau (une cellule, une
+    /// image) ; `None` s'il disparaît.
+    fn follow(&self, rect: Rect) -> Option<(f64, f64)> {
+        if self.deleted {
+            return None;
+        }
+        let mut offset = self.offset;
+        if let Some(restructure) = &self.restructure {
+            let rect = layout::Rect::from(rect);
+            if restructure.removes(&rect) {
+                return None;
+            }
+            let (dx, dy) = restructure.offset(&rect);
+            offset = (offset.0 + dx, offset.1 + dy);
+        }
+        Some(offset)
+    }
+
+    /// Effet du tableau sur les tracés compris dans son emprise.
+    fn step(&self) -> ReshapeStep {
+        ReshapeStep {
+            area: self.area(),
+            deleted: self.deleted,
+            restructure: self.restructure.clone(),
+            offset: self.offset,
+        }
+    }
+}
+
+/// Effet des modifications sur un objet : les siennes et celles de son
+/// tableau, ou des tableaux que ses tracés traversent.
+#[derive(Clone, Debug, Default)]
+struct Effect<'a> {
+    deleted: bool,
+    offset: (f64, f64),
+    text: Option<&'a TextReplacement>,
+    reshape: Option<Reshape>,
+}
+
+/// Texte saisi dans une cellule vide.
+struct CellText<'a> {
+    /// Tableau.
+    table: u32,
+    /// Indice de la cellule dans le tableau d'origine.
+    cell: usize,
+    /// Bloc dont le texte reprend le style.
+    reference: u32,
+    /// Cellule où mettre le texte en page, ramenée à la place du bloc de
+    /// référence.
+    frame: Rect,
+    /// Déplacement de la mise en page jusqu'à sa place sur la page.
+    offset: (f64, f64),
+    replacement: &'a TextReplacement,
+}
+
+/// Modifications d'une page traduites objet par objet.
+struct Derived<'a> {
+    effects: BTreeMap<u32, Effect<'a>>,
+    tables: BTreeMap<u32, TableState<'a>>,
+    cells: Vec<CellText<'a>>,
 }
 
 impl PageModel {
@@ -140,16 +277,52 @@ impl PageModel {
         };
         let mut out = String::new();
         for object in &self.objects {
+            if let Some(table) = &object.structure {
+                let b = object.bbox;
+                let merged = table
+                    .cells
+                    .iter()
+                    .filter(|c| c.row_span > 1 || c.column_span > 1)
+                    .count();
+                let members = self
+                    .objects
+                    .iter()
+                    .filter(|o| o.table == Some(object.id))
+                    .count();
+                let _ = writeln!(
+                    out,
+                    "tableau {} [{:.1} {:.1} {:.1} {:.1}] {:?} {} lignes × {} colonnes, {} cellules \
+                     dont {} fusionnées, {} objets, limites sans filet {}",
+                    object.id,
+                    b.x0,
+                    b.y0,
+                    b.x1,
+                    b.y1,
+                    table.kind,
+                    table.row_count(),
+                    table.column_count(),
+                    table.cells.len(),
+                    merged,
+                    members,
+                    table.ruled_rows.iter().filter(|r| !**r).count()
+                );
+                continue;
+            }
             let Some(block) = &object.text else {
                 continue;
             };
             let b = object.bbox;
+            let cell = if object.table.is_some() {
+                format!(" cellule du tableau {}", object.table.unwrap_or(0))
+            } else {
+                String::new()
+            };
             let _ =
                 writeln!(
                 out,
-                "bloc {} [{:.1} {:.1} {:.1} {:.1}] {:?} interligne {:.2} corps {:.2} modifiable {}",
+                "bloc {} [{:.1} {:.1} {:.1} {:.1}] {:?} interligne {:.2} corps {:.2} modifiable {}{}",
                 object.id, b.x0, b.y0, b.x1, b.y1, block.alignment, block.leading, block.size,
-                object.editable
+                object.editable, cell
             );
             for line in &block.lines {
                 let first = &self.run.glyphs[line.style];
@@ -210,22 +383,33 @@ impl PageModel {
         replacement: &TextReplacement,
         fonts: &mut FontProvider,
     ) -> Option<Plan> {
+        let cell = object.text.as_ref()?.cell;
+        self.plan_in(object, replacement, fonts, cell)
+    }
+
+    /// Mise en page d'un texte dans le style du bloc `object`, dans la
+    /// cellule `cell` s'il y en a une.
+    fn plan_in(
+        &self,
+        object: &PageObject,
+        replacement: &TextReplacement,
+        fonts: &mut FontProvider,
+        cell: Option<Rect>,
+    ) -> Option<Plan> {
         let block = object.text.as_ref()?;
         let state = self.first_state(object)?;
         let metrics = state.font.as_ref()?;
         let (choice, font) = fonts.resolve(&replacement.font, metrics);
+        let text = &replacement.text;
         let laid = match (&choice, &font) {
-            (FontChoice::Original, _) | (_, None) => layout(
-                &self.run,
-                block,
-                &replacement.text,
-                &OriginalShaper(metrics),
-            ),
+            (FontChoice::Original, _) | (_, None) => {
+                layout_in(&self.run, block, text, &OriginalShaper(metrics), cell)
+            }
             (FontChoice::Standard { .. }, Some(font)) => {
-                layout(&self.run, block, &replacement.text, &WinAnsiShaper(font))
+                layout_in(&self.run, block, text, &WinAnsiShaper(font), cell)
             }
             (FontChoice::Installed { .. }, Some(font)) => {
-                layout(&self.run, block, &replacement.text, &GlyphIdShaper(font))
+                layout_in(&self.run, block, text, &GlyphIdShaper(font), cell)
             }
         };
         let choice = if font.is_some() {
@@ -240,6 +424,234 @@ impl PageModel {
         })
     }
 
+    /// Traduit les modifications `edits` objet par objet : celles d'un
+    /// tableau s'appliquent aux blocs de ses cellules, à ses filets et à ses
+    /// fonds.
+    fn derive<'a>(&'a self, edits: Option<&'a PageEdits>) -> Derived<'a> {
+        let edit_of = |id: u32| edits.and_then(|edits| edits.get(id));
+        let mut tables = BTreeMap::new();
+        for object in &self.objects {
+            let Some(table) = &object.structure else {
+                continue;
+            };
+            let edit = edit_of(object.id);
+            let table_edit = edit.and_then(|edit| edit.table.as_ref());
+            let restructure = table_edit
+                .filter(|t| t.rows.is_some() || t.columns.is_some())
+                .map(|t| {
+                    Restructure::new(
+                        table,
+                        &order(t.rows.as_deref(), table.row_count()),
+                        &order(t.columns.as_deref(), table.column_count()),
+                    )
+                })
+                .filter(|restructure| !restructure.is_identity());
+            let emptied = restructure
+                .as_ref()
+                .is_some_and(|restructure| restructure.table().is_none());
+            tables.insert(
+                object.id,
+                TableState {
+                    object,
+                    table,
+                    edit: table_edit,
+                    deleted: edit.is_some_and(|edit| edit.deleted) || emptied,
+                    offset: edit
+                        .map_or((0.0, 0.0), |edit| (f64::from(edit.dx), f64::from(edit.dy))),
+                    restructure,
+                },
+            );
+        }
+
+        let mut effects = BTreeMap::new();
+        for object in &self.objects {
+            if object.structure.is_some() {
+                continue;
+            }
+            let edit = edit_of(object.id);
+            let mut effect = Effect {
+                deleted: edit.is_some_and(|edit| edit.deleted),
+                offset: edit.map_or((0.0, 0.0), |edit| (f64::from(edit.dx), f64::from(edit.dy))),
+                text: edit
+                    .and_then(|edit| edit.text.as_ref())
+                    .filter(|_| object.editable),
+                reshape: None,
+            };
+            let member = object
+                .table
+                .and_then(|table| tables.get(&table))
+                .filter(|state| state.changed());
+            if let Some(state) = member {
+                if object.kind == ObjectKind::Path && state.restructure.is_some() && !state.deleted
+                {
+                    effect.reshape = Some(Reshape {
+                        steps: vec![state.step()],
+                    });
+                } else {
+                    let anchor = object
+                        .text
+                        .as_ref()
+                        .and_then(|block| block.cell)
+                        .unwrap_or(object.bbox);
+                    match state.follow(anchor) {
+                        Some((dx, dy)) => {
+                            effect.offset = (effect.offset.0 + dx, effect.offset.1 + dy);
+                        }
+                        None => effect.deleted = true,
+                    }
+                }
+            } else if object.kind == ObjectKind::Path && object.table.is_none() {
+                // Tracés qui touchent un tableau sans en faire partie (cadre
+                // de la page relié à la grille) : seuls leurs sous-chemins
+                // compris dans le tableau suivent ses modifications.
+                let steps: Vec<ReshapeStep> = tables
+                    .values()
+                    .filter(|state| {
+                        state.changed() && !state.area().intersect(&object.bbox).is_empty()
+                    })
+                    .map(TableState::step)
+                    .collect();
+                if !steps.is_empty() {
+                    effect.reshape = Some(Reshape { steps });
+                }
+            }
+            let unchanged = !effect.deleted
+                && effect.offset == (0.0, 0.0)
+                && effect.text.is_none()
+                && effect.reshape.is_none();
+            if !unchanged {
+                effects.insert(object.id, effect);
+            }
+        }
+
+        let mut cells = Vec::new();
+        for state in tables.values() {
+            let Some(edit) = state.edit.filter(|_| !state.deleted) else {
+                continue;
+            };
+            let blocks = self.cell_blocks(state.object);
+            for (&(row, column), replacement) in &edit.cells {
+                let Some(cell) = state
+                    .table
+                    .cells
+                    .iter()
+                    .position(|c| c.row == row as usize && c.column == column as usize)
+                else {
+                    continue;
+                };
+                if !blocks[cell].is_empty() {
+                    continue;
+                }
+                let Some(reference) = self.reference_block(state.object, &blocks, cell) else {
+                    continue;
+                };
+                let target = Rect::from(state.table.cell_rect(&state.table.cells[cell]));
+                let Some(follow) = state.follow(target) else {
+                    continue;
+                };
+                let delta = self.reference_delta(reference, target);
+                cells.push(CellText {
+                    table: state.object.id,
+                    cell,
+                    reference,
+                    frame: target.offset(-delta.0, -delta.1),
+                    offset: (delta.0 + follow.0, delta.1 + follow.1),
+                    replacement,
+                });
+            }
+        }
+        Derived {
+            effects,
+            tables,
+            cells,
+        }
+    }
+
+    /// Blocs de texte de chaque cellule du tableau `table` (indices du
+    /// tableau d'origine).
+    fn cell_blocks(&self, table: &PageObject) -> Vec<Vec<u32>> {
+        let Some(structure) = &table.structure else {
+            return Vec::new();
+        };
+        let mut blocks = vec![Vec::new(); structure.cells.len()];
+        for object in &self.objects {
+            if object.table != Some(table.id) {
+                continue;
+            }
+            let Some(cell) = object.text.as_ref().and_then(|block| block.cell) else {
+                continue;
+            };
+            let (x, y) = ((cell.x0 + cell.x1) / 2.0, (cell.y0 + cell.y1) / 2.0);
+            if let Some(index) = structure.cell_at(x, y) {
+                blocks[index].push(object.id);
+            }
+        }
+        blocks
+    }
+
+    /// Bloc dont reprend le style un texte saisi dans la cellule vide
+    /// `target` : le plus proche de la même colonne (hors en-tête), sinon de
+    /// la même ligne, sinon du tableau.
+    fn reference_block(
+        &self,
+        table: &PageObject,
+        blocks: &[Vec<u32>],
+        target: usize,
+    ) -> Option<u32> {
+        let structure = table.structure.as_ref()?;
+        let goal = structure.cells.get(target)?;
+        let mut best: Option<((u8, usize), u32)> = None;
+        for (index, ids) in blocks.iter().enumerate() {
+            let cell = &structure.cells[index];
+            for &id in ids {
+                if !self.objects[id as usize].editable {
+                    continue;
+                }
+                let rank = if cell.column == goal.column
+                    && cell.column_span == goal.column_span
+                    && (cell.row != 0 || goal.row == 0)
+                {
+                    (0, cell.row.abs_diff(goal.row))
+                } else if cell.row == goal.row {
+                    (1, cell.column.abs_diff(goal.column))
+                } else {
+                    (
+                        2,
+                        cell.row.abs_diff(goal.row) + cell.column.abs_diff(goal.column),
+                    )
+                };
+                if best.is_none_or(|(r, _)| rank < r) {
+                    best = Some((rank, id));
+                }
+            }
+        }
+        best.map(|(_, id)| id)
+    }
+
+    /// Déplacement du bloc de référence `reference` jusqu'à la cellule
+    /// `target` : même place par rapport au bord d'alignement, même distance
+    /// au haut de la cellule (ou centré verticalement, comme lui).
+    fn reference_delta(&self, reference: u32, target: Rect) -> (f64, f64) {
+        let object = &self.objects[reference as usize];
+        let Some(block) = &object.text else {
+            return (0.0, 0.0);
+        };
+        let source = block.cell.unwrap_or(object.bbox);
+        let center = |r: &Rect| ((r.x0 + r.x1) / 2.0, (r.y0 + r.y1) / 2.0);
+        let dx = match block.alignment {
+            Alignment::Right => target.x1 - source.x1,
+            Alignment::Center => center(&target).0 - center(&source).0,
+            Alignment::Left | Alignment::Justified => target.x0 - source.x0,
+        };
+        let (above, below) = (source.y1 - object.bbox.y1, object.bbox.y0 - source.y0);
+        let dy = if (above - below).abs() <= 1.0 {
+            center(&target).1 - center(&source).1
+        } else {
+            target.y1 - source.y1
+        };
+        (dx, dy)
+    }
+
     /// Objets de la page, modifications `edits` comprises : les objets
     /// supprimés n'y figurent pas.
     pub(crate) fn infos(
@@ -247,10 +659,15 @@ impl PageModel {
         edits: Option<&PageEdits>,
         fonts: &mut FontProvider,
     ) -> Vec<ObjectInfo> {
+        let derived = self.derive(edits);
         let mut infos = Vec::with_capacity(self.objects.len());
         for object in &self.objects {
-            let edit = edits.and_then(|edits| edits.get(object.id));
-            if edit.is_some_and(|edit| edit.deleted) {
+            if let Some(state) = derived.tables.get(&object.id) {
+                infos.extend(self.table_info(state, &derived, fonts));
+                continue;
+            }
+            let effect = derived.effects.get(&object.id);
+            if effect.is_some_and(|effect| effect.deleted) {
                 continue;
             }
             let state = self.first_state(object);
@@ -261,10 +678,7 @@ impl PageModel {
             let font_size = object.text.as_ref().map_or(0.0, |block| block.size as f32);
             let (mut bbox, mut substituted, mut overflow, mut missing) =
                 (object.bbox, false, false, String::new());
-            if let Some(replacement) = edit
-                .and_then(|edit| edit.text.as_ref())
-                .filter(|_| object.editable)
-            {
+            if let Some(replacement) = effect.and_then(|effect| effect.text) {
                 if let Some(plan) = self.plan(object, replacement, fonts) {
                     if !plan.layout.bbox.is_empty() {
                         bbox = plan.layout.bbox;
@@ -285,8 +699,15 @@ impl PageModel {
                     }
                 }
             }
-            if let Some(edit) = edit.filter(|edit| edit.is_moved()) {
-                bbox = bbox.offset(f64::from(edit.dx), f64::from(edit.dy));
+            if let Some(reshape) = effect.and_then(|effect| effect.reshape.as_ref()) {
+                bbox = reshape.bbox(&self.run, &object.units);
+                // Tous ses tracés ont disparu avec des lignes ou des colonnes.
+                if bbox.is_empty() {
+                    continue;
+                }
+            }
+            if let Some((dx, dy)) = effect.map(|effect| effect.offset) {
+                bbox = bbox.offset(dx, dy);
             }
             infos.push(ObjectInfo {
                 id: object.id,
@@ -302,9 +723,114 @@ impl PageModel {
                 overflow,
                 missing,
                 fingerprint: fingerprint(object),
+                table: object.table,
+                grid: None,
             });
         }
         infos
+    }
+
+    /// Le tableau `state`, modifications comprises ; `None` s'il est supprimé.
+    fn table_info(
+        &self,
+        state: &TableState,
+        derived: &Derived,
+        fonts: &mut FontProvider,
+    ) -> Option<ObjectInfo> {
+        if state.deleted {
+            return None;
+        }
+        let restructured = state.restructure.as_ref().and_then(Restructure::table);
+        let table = restructured.as_ref().unwrap_or(state.table);
+        let cells: Vec<(usize, Cell)> = match &state.restructure {
+            Some(restructure) => restructure.cells(),
+            None => state.table.cells.iter().copied().enumerate().collect(),
+        };
+        let blocks = self.cell_blocks(state.object);
+        let (dx, dy) = state.offset;
+        let mut missing = String::new();
+        let mut infos = Vec::with_capacity(cells.len());
+        for (source, cell) in cells {
+            let origin = &state.table.cells[source];
+            let rect = Rect::from(table.cell_rect(&cell)).offset(dx, dy);
+            let inserted = derived
+                .cells
+                .iter()
+                .find(|c| c.table == state.object.id && c.cell == source);
+            let mut overflow = false;
+            if let Some(inserted) = inserted {
+                let reference = &self.objects[inserted.reference as usize];
+                if let Some(plan) =
+                    self.plan_in(reference, inserted.replacement, fonts, Some(inserted.frame))
+                {
+                    overflow = plan.layout.overflow;
+                    for c in plan.layout.missing {
+                        if !missing.contains(c) {
+                            missing.push(c);
+                        }
+                    }
+                }
+            }
+            let reference = if blocks[source].is_empty() {
+                self.reference_block(state.object, &blocks, source)
+            } else {
+                None
+            };
+            infos.push(CellInfo {
+                row: cell.row as u32,
+                column: cell.column as u32,
+                row_span: cell.row_span as u32,
+                column_span: cell.column_span as u32,
+                source_row: origin.row as u32,
+                source_column: origin.column as u32,
+                bounds: self.display_rect(rect),
+                objects: blocks[source]
+                    .iter()
+                    .copied()
+                    .filter(|id| !derived.effects.get(id).is_some_and(|e| e.deleted))
+                    .collect(),
+                text: inserted.map(|inserted| inserted.replacement.text.clone()),
+                reference,
+                overflow,
+            });
+        }
+        let orders = |given: Option<&[u32]>, count: usize| -> Vec<u32> {
+            order(given, count).into_iter().map(|b| b as u32).collect()
+        };
+        let edit = state.edit;
+        let grid = TableInfo {
+            rows: table.row_count() as u32,
+            columns: table.column_count() as u32,
+            row_order: orders(
+                edit.and_then(|e| e.rows.as_deref()),
+                state.table.row_count(),
+            ),
+            column_order: orders(
+                edit.and_then(|e| e.columns.as_deref()),
+                state.table.column_count(),
+            ),
+            source_rows: state.table.row_count() as u32,
+            source_columns: state.table.column_count() as u32,
+            cells: infos,
+        };
+        let object = state.object;
+        Some(ObjectInfo {
+            id: object.id,
+            kind: object.kind,
+            bounds: self.display_rect(Rect::from(table.bbox()).offset(dx, dy)),
+            movable: object.movable,
+            editable: false,
+            background: false,
+            text: None,
+            font_name: None,
+            font_size: 0.0,
+            substituted: false,
+            overflow: grid.cells.iter().any(|cell| cell.overflow),
+            missing,
+            fingerprint: fingerprint(object),
+            table: None,
+            grid: Some(grid),
+        })
     }
 
     fn display_rect(&self, rect: Rect) -> PageRect {
@@ -318,17 +844,29 @@ impl PageModel {
     }
 }
 
-/// Empreinte d'un objet : nature et emprise arrondie au point.
+/// Empreinte d'un objet : nature et emprise arrondie au point ; pour un
+/// tableau, le nombre de ses lignes et de ses colonnes.
 fn fingerprint(object: &PageObject) -> String {
     let b = object.bbox;
+    let grid = object.structure.as_ref().map_or(String::new(), |table| {
+        format!(":{}x{}", table.row_count(), table.column_count())
+    });
     format!(
-        "{:?}:{}:{}:{}:{}",
+        "{:?}:{}:{}:{}:{}{grid}",
         object.kind,
         b.x0.round(),
         b.y0.round(),
         b.x1.round(),
         b.y1.round()
     )
+}
+
+/// Bandes d'origine conservées, dans leur ordre : `given`, ou toutes.
+fn order(given: Option<&[u32]>, count: usize) -> Vec<usize> {
+    match given {
+        Some(order) => order.iter().map(|&b| b as usize).collect(),
+        None => (0..count).collect(),
+    }
 }
 
 /// Contenu de la page : ses flux, mis bout à bout.
@@ -843,43 +1381,27 @@ pub(crate) fn edit_page(
         }
     }
 
+    let mut names = FontNames {
+        taken,
+        names: HashMap::new(),
+        added: Vec::new(),
+        embedded,
+    };
+    let derived = model.derive(Some(edits));
     let mut changes: BTreeMap<u32, Change> = BTreeMap::new();
-    let mut added: Vec<(Vec<u8>, PdfObject)> = Vec::new();
-    let mut names: HashMap<FontChoice, Vec<u8>> = HashMap::new();
-    for (id, edit) in edits.iter() {
+    for (&id, effect) in &derived.effects {
         let Some(object) = model.objects.get(id as usize) else {
             continue;
         };
         let mut change = Change {
-            deleted: edit.deleted,
-            offset: (f64::from(edit.dx), f64::from(edit.dy)),
+            deleted: effect.deleted,
+            offset: effect.offset,
             text: None,
+            reshape: effect.reshape.clone(),
         };
-        if let (Some(replacement), false) = (&edit.text, edit.deleted) {
+        if let (Some(replacement), false) = (effect.text, effect.deleted) {
             if let Some(plan) = model.plan(object, replacement, fonts) {
-                let resource = match (&plan.choice, &plan.font) {
-                    (FontChoice::Original, _) | (_, None) => model
-                        .first_state(object)
-                        .and_then(|state| state.font_name.clone()),
-                    (choice, Some(font)) => match names.get(choice) {
-                        Some(name) => Some(name.clone()),
-                        None => {
-                            let reference = match embedded.get(choice) {
-                                Some(reference) => reference.try_clone()?,
-                                None => {
-                                    let reference = add_font(doc, choice, font)?;
-                                    embedded.insert(choice.clone(), reference.try_clone()?);
-                                    reference
-                                }
-                            };
-                            let name = unique_name(&mut taken);
-                            names.insert(choice.clone(), name.clone());
-                            added.push((name.clone(), reference));
-                            Some(name)
-                        }
-                    },
-                };
-                if let Some(font) = resource {
+                if let Some(font) = names.resource(doc, model, object, &plan)? {
                     change.text = Some(NewText {
                         layout: plan.layout,
                         font,
@@ -889,13 +1411,35 @@ pub(crate) fn edit_page(
         }
         changes.insert(id, change);
     }
+    let mut insertions = Vec::new();
+    for cell in &derived.cells {
+        let object = &model.objects[cell.reference as usize];
+        let Some(block) = &object.text else {
+            continue;
+        };
+        let Some(plan) = model.plan_in(object, cell.replacement, fonts, Some(cell.frame)) else {
+            continue;
+        };
+        if let Some(font) = names.resource(doc, model, object, &plan)? {
+            insertions.push(Insertion {
+                text_object: model.run.glyphs[block.lines[0].style].text_object,
+                text: NewText {
+                    layout: plan.layout,
+                    font,
+                },
+                offset: cell.offset,
+            });
+        }
+    }
     let content = rewrite(
         &model.source,
         &model.ops,
         &model.run,
         &model.objects,
         &changes,
+        &insertions,
     );
+    let added = names.added;
 
     let resources = if added.is_empty() {
         None
@@ -915,6 +1459,51 @@ pub(crate) fn edit_page(
         Some(copy)
     };
     Ok(EditedPage { content, resources })
+}
+
+/// Noms de ressource des polices qui dessinent les nouveaux textes d'une page.
+struct FontNames<'a> {
+    taken: HashSet<Vec<u8>>,
+    names: HashMap<FontChoice, Vec<u8>>,
+    /// Polices ajoutées aux ressources de la page.
+    added: Vec<(Vec<u8>, PdfObject)>,
+    embedded: &'a mut EmbeddedFonts,
+}
+
+impl FontNames<'_> {
+    /// Nom de ressource de la police du texte mis en page `plan` dans le style
+    /// du bloc `object`.
+    fn resource(
+        &mut self,
+        doc: &mut PdfDocument,
+        model: &PageModel,
+        object: &PageObject,
+        plan: &Plan,
+    ) -> Result<Option<Vec<u8>>> {
+        let (choice, font) = match (&plan.choice, &plan.font) {
+            (FontChoice::Original, _) | (_, None) => {
+                return Ok(model
+                    .first_state(object)
+                    .and_then(|state| state.font_name.clone()));
+            }
+            (choice, Some(font)) => (choice, font),
+        };
+        if let Some(name) = self.names.get(choice) {
+            return Ok(Some(name.clone()));
+        }
+        let reference = match self.embedded.get(choice) {
+            Some(reference) => reference.try_clone()?,
+            None => {
+                let reference = add_font(doc, choice, font)?;
+                self.embedded.insert(choice.clone(), reference.try_clone()?);
+                reference
+            }
+        };
+        let name = unique_name(&mut self.taken);
+        self.names.insert(choice.clone(), name.clone());
+        self.added.push((name.clone(), reference));
+        Ok(Some(name))
+    }
 }
 
 /// Nom de ressource libre pour une police ajoutée.

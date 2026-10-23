@@ -4,9 +4,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use edit::{FontChoice, ObjectEdit, PageEdits, TextReplacement};
+use edit::{FontChoice, ObjectEdit, PageEdits, TableEdit, TextReplacement};
 use pdf_core::content::objects::ObjectKind;
-use pdf_core::ObjectInfo;
+use pdf_core::{CellInfo, ObjectInfo, TableInfo};
 
 use crate::PageRect;
 
@@ -23,6 +23,8 @@ pub enum PageObjectKind {
     Form,
     /// Dégradé.
     Shading,
+    /// Tableau : le texte de ses cellules, ses filets et ses fonds.
+    Table,
 }
 
 impl From<ObjectKind> for PageObjectKind {
@@ -33,6 +35,7 @@ impl From<ObjectKind> for PageObjectKind {
             ObjectKind::Path => PageObjectKind::Path,
             ObjectKind::Form => PageObjectKind::Form,
             ObjectKind::Shading => PageObjectKind::Shading,
+            ObjectKind::Table => PageObjectKind::Table,
         }
     }
 }
@@ -65,6 +68,79 @@ pub struct PageObjectItem {
     pub overflow: bool,
     /// Caractères qu'aucune police disponible ne contient (omis).
     pub missing: String,
+    /// Tableau dont l'objet fait partie (bloc d'une cellule, filet, fond).
+    pub table: Option<u32>,
+    /// Grille d'un tableau.
+    pub grid: Option<TableGridItem>,
+}
+
+/// Grille d'un tableau, modifications comprises.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct TableGridItem {
+    /// Nombre de lignes.
+    pub rows: u32,
+    /// Nombre de colonnes.
+    pub columns: u32,
+    /// Cellules, ligne par ligne.
+    pub cells: Vec<TableCellItem>,
+}
+
+/// Une cellule d'un tableau.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct TableCellItem {
+    /// Ligne de son coin supérieur gauche.
+    pub row: u32,
+    /// Colonne de son coin supérieur gauche.
+    pub column: u32,
+    /// Nombre de lignes couvertes.
+    pub row_span: u32,
+    /// Nombre de colonnes couvertes.
+    pub column_span: u32,
+    /// Emprise sur la page droite, en points, origine en haut à gauche.
+    pub bounds: PageRect,
+    /// Blocs de texte de la cellule.
+    pub objects: Vec<u32>,
+    /// Texte saisi dans la cellule, vide à l'origine.
+    pub text: Option<String>,
+    /// Un texte peut être saisi dans la cellule (vide à l'origine).
+    pub fillable: bool,
+    /// Le texte saisi ne tient pas dans la cellule.
+    pub overflow: bool,
+}
+
+impl From<TableInfo> for TableGridItem {
+    fn from(grid: TableInfo) -> Self {
+        TableGridItem {
+            rows: grid.rows,
+            columns: grid.columns,
+            cells: grid.cells.into_iter().map(TableCellItem::from).collect(),
+        }
+    }
+}
+
+impl From<CellInfo> for TableCellItem {
+    fn from(cell: CellInfo) -> Self {
+        TableCellItem {
+            row: cell.row,
+            column: cell.column,
+            row_span: cell.row_span,
+            column_span: cell.column_span,
+            bounds: rect(cell.bounds),
+            objects: cell.objects,
+            text: cell.text,
+            fillable: cell.reference.is_some(),
+            overflow: cell.overflow,
+        }
+    }
+}
+
+fn rect(rect: pdf_core::PageRect) -> PageRect {
+    PageRect {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+    }
 }
 
 impl From<ObjectInfo> for PageObjectItem {
@@ -72,12 +148,7 @@ impl From<ObjectInfo> for PageObjectItem {
         PageObjectItem {
             id: info.id,
             kind: info.kind.into(),
-            bounds: PageRect {
-                x: info.bounds.x,
-                y: info.bounds.y,
-                width: info.bounds.width,
-                height: info.bounds.height,
-            },
+            bounds: rect(info.bounds),
             movable: info.movable,
             editable: info.editable,
             background: info.background,
@@ -87,6 +158,8 @@ impl From<ObjectInfo> for PageObjectItem {
             substituted: info.substituted,
             overflow: info.overflow,
             missing: info.missing,
+            table: info.table,
+            grid: info.grid.map(TableGridItem::from),
         }
     }
 }
@@ -148,6 +221,73 @@ pub struct ObjectEditItem {
     /// Empreinte de l'objet d'origine : une modification dont l'objet ne
     /// correspond plus est ignorée à la restauration.
     pub fingerprint: String,
+    /// Modifications d'un tableau.
+    pub table: Option<TableEditItem>,
+}
+
+/// Modifications d'un tableau, telles que les conserve la récupération.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct TableEditItem {
+    /// Lignes d'origine conservées, dans leur ordre (`None` : toutes).
+    pub rows: Option<Vec<u32>>,
+    /// Colonnes d'origine conservées, dans leur ordre (`None` : toutes).
+    pub columns: Option<Vec<u32>>,
+    /// Textes saisis dans des cellules vides.
+    pub cells: Vec<CellTextItem>,
+}
+
+/// Texte saisi dans une cellule vide.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct CellTextItem {
+    /// Ligne d'origine de la cellule.
+    pub row: u32,
+    /// Colonne d'origine de la cellule.
+    pub column: u32,
+    /// Texte.
+    pub text: String,
+    /// Police du texte.
+    pub font: TextFont,
+}
+
+impl From<&TableEdit> for TableEditItem {
+    fn from(edit: &TableEdit) -> Self {
+        TableEditItem {
+            rows: edit.rows.clone(),
+            columns: edit.columns.clone(),
+            cells: edit
+                .cells
+                .iter()
+                .map(|(&(row, column), text)| CellTextItem {
+                    row,
+                    column,
+                    text: text.text.clone(),
+                    font: TextFont::from(&text.font),
+                })
+                .collect(),
+        }
+    }
+}
+
+impl From<&TableEditItem> for TableEdit {
+    fn from(item: &TableEditItem) -> Self {
+        TableEdit {
+            rows: item.rows.clone(),
+            columns: item.columns.clone(),
+            cells: item
+                .cells
+                .iter()
+                .map(|cell| {
+                    (
+                        (cell.row, cell.column),
+                        TextReplacement {
+                            text: cell.text.clone(),
+                            font: FontChoice::from(cell.font.clone()),
+                        },
+                    )
+                })
+                .collect(),
+        }
+    }
 }
 
 impl ObjectEditItem {
@@ -160,6 +300,7 @@ impl ObjectEditItem {
             text: edit.text.as_ref().map(|text| text.text.clone()),
             font: edit.text.as_ref().map(|text| TextFont::from(&text.font)),
             fingerprint,
+            table: edit.table.as_ref().map(TableEditItem::from),
         }
     }
 
@@ -175,6 +316,7 @@ impl ObjectEditItem {
                     .clone()
                     .map_or(FontChoice::Original, FontChoice::from),
             }),
+            table: self.table.as_ref().map(TableEdit::from),
         }
     }
 }

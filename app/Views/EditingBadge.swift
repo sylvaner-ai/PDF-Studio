@@ -32,13 +32,13 @@ struct EditingBadge: View {
     }
 
     private var summary: String {
-        if editing.textTarget != nil {
+        if editing.textTarget != nil || editing.cellTarget != nil {
             return String(localized: "Retour pour valider, ⇧Retour pour passer à la ligne, Échap pour annuler.")
         }
         let items = editing.selectedItems
         switch items.count {
         case 0:
-            return String(localized: "Cliquez sur un texte, une image ou un tracé pour le sélectionner.")
+            return String(localized: "Cliquez sur un texte, une image, un tracé ou un tableau pour le sélectionner.")
         case 1:
             return Self.name(of: items[0])
         default:
@@ -47,7 +47,7 @@ struct EditingBadge: View {
     }
 
     private var detail: String? {
-        guard editing.textTarget == nil else { return nil }
+        guard editing.textTarget == nil, editing.cellTarget == nil else { return nil }
         let items = editing.selectedItems
         guard let item = items.first, items.count == 1 else {
             return items.isEmpty
@@ -56,6 +56,9 @@ struct EditingBadge: View {
         }
         guard item.movable else {
             return String(localized: "Cet objet ne peut pas être modifié.")
+        }
+        if let grid = item.grid {
+            return Self.tableDetail(grid, cell: editing.currentCell)
         }
         var parts: [String] = []
         if item.kind == .text {
@@ -79,6 +82,21 @@ struct EditingBadge: View {
         case .path: return String(localized: "Tracé")
         case .form: return String(localized: "Groupe d'objets")
         case .shading: return String(localized: "Dégradé")
+        case .table: return String(localized: "Tableau")
         }
+    }
+
+    /// Taille du tableau, cellule courante et marche à suivre.
+    private static func tableDetail(_ grid: TableGridItem, cell: TableCellItem?) -> String {
+        var parts = [String(localized: "\(grid.rows) lignes × \(grid.columns) colonnes")]
+        if let cell {
+            parts.append(String(localized: "cellule ligne \(cell.row + 1), colonne \(cell.column + 1)"))
+            if cell.overflow {
+                parts.append(String(localized: "le texte saisi dépasse de la cellule"))
+            }
+        }
+        let help = String(localized: "double-clic pour modifier une cellule, menu Tableau pour ses lignes et colonnes")
+        parts.append(help)
+        return parts.joined(separator: " · ")
     }
 }

@@ -56,6 +56,24 @@ struct RecoveryRecord: Codable, Equatable, Sendable {
         let text: String?
         let font: RecoveryTextFont?
         let fingerprint: String
+        /// Modifications d'un tableau (absentes des enregistrements antérieurs
+        /// à l'édition des tableaux).
+        var table: Table?
+    }
+
+    /// Modifications d'un tableau (cf. ``TableEditItem``).
+    struct Table: Codable, Equatable, Sendable {
+        let rows: [UInt32]?
+        let columns: [UInt32]?
+        let cells: [CellText]
+    }
+
+    /// Texte saisi dans une cellule vide (cf. ``CellTextItem``).
+    struct CellText: Codable, Equatable, Sendable {
+        let row: UInt32
+        let column: UInt32
+        let text: String
+        let font: RecoveryTextFont
     }
 
     var version = 1
@@ -120,12 +138,32 @@ extension RecoveryRecord.ObjectEdit {
         text = item.text
         font = item.font.map { RecoveryTextFont($0) }
         fingerprint = item.fingerprint
+        table = item.table.map { table in
+            RecoveryRecord.Table(
+                rows: table.rows,
+                columns: table.columns,
+                cells: table.cells.map {
+                    RecoveryRecord.CellText(
+                        row: $0.row, column: $0.column, text: $0.text, font: RecoveryTextFont($0.font)
+                    )
+                }
+            )
+        }
     }
 
     var item: ObjectEditItem {
         ObjectEditItem(
             object: object, deleted: deleted, dx: offsetX, dy: offsetY,
-            text: text, font: font?.engine, fingerprint: fingerprint
+            text: text, font: font?.engine, fingerprint: fingerprint,
+            table: table.map { table in
+                TableEditItem(
+                    rows: table.rows,
+                    columns: table.columns,
+                    cells: table.cells.map {
+                        CellTextItem(row: $0.row, column: $0.column, text: $0.text, font: $0.font.engine)
+                    }
+                )
+            }
         )
     }
 }

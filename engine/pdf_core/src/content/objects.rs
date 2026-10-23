@@ -6,11 +6,16 @@
 //! interligne régulier, lignes alignées) : un paragraphe forme un bloc, que
 //! l'on peut modifier d'un seul tenant. Les tracés qui se touchent et se suivent dans le
 //! flux forment un seul objet (un logo, la grille d'un tableau).
+//!
+//! Les tableaux sont détectés d'abord (crate `layout`), d'après les filets des
+//! tracés et la position des glyphes : une ligne de texte ne passe pas d'une
+//! cellule à l'autre et un bloc reste dans sa cellule. Chaque tableau forme un
+//! objet de plus, qui réunit les objets de ses cellules.
 
 use std::ops::Range;
 
 use super::geometry::{Point, Rect};
-use super::interp::{Glyph, Interpretation, ShowItem, UnitKind};
+use super::interp::{Glyph, Interpretation, ShowItem, Subpath, UnitKind};
 use super::lexer::Operation;
 
 /// Nature d'un objet.
@@ -26,6 +31,8 @@ pub enum ObjectKind {
     Form,
     /// Dégradé.
     Shading,
+    /// Tableau : réunit le texte de ses cellules, ses filets et ses fonds.
+    Table,
 }
 
 /// Alignement des lignes d'un bloc de texte.
@@ -95,6 +102,9 @@ pub struct TextBlock {
     /// Texte du bloc : retours à la ligne voulus conservés, coupures de mots
     /// en fin de ligne recollées.
     pub text: String,
+    /// Emprise de la cellule de tableau qui contient le bloc, dans l'espace
+    /// de la page.
+    pub cell: Option<Rect>,
 }
 
 /// Objet éditable d'une page.
@@ -120,15 +130,24 @@ pub struct PageObject {
     pub editable: bool,
     /// Fond qui couvre presque toute la page : pas sélectionné par un clic.
     pub background: bool,
+    /// Numéro de l'objet tableau dont l'objet occupe une cellule.
+    pub table: Option<u32>,
+    /// Structure du tableau, pour un objet tableau.
+    pub structure: Option<layout::Table>,
 }
 
 /// Part de la page au-delà de laquelle un objet est un fond.
 const BACKGROUND_SHARE: f64 = 0.9;
 
+/// Cellule de chaque glyphe : (tableau, cellule), par indice de glyphe.
+type GlyphCells = Vec<Option<(usize, usize)>>;
+
 /// Établit les objets d'une page interprétée.
 pub fn build(ops: &[Operation], run: &Interpretation, page_box: Rect) -> Vec<PageObject> {
+    let tables = tables(run, page_box);
+    let cells = glyph_cells(run, &tables);
     let mut objects = Vec::new();
-    for block in blocks(run) {
+    for block in blocks_with(run, &cells, &tables) {
         let glyphs: Vec<usize> = block
             .lines
             .iter()
@@ -152,6 +171,8 @@ pub fn build(ops: &[Operation], run: &Interpretation, page_box: Rect) -> Vec<Pag
             movable,
             editable,
             background: false,
+            table: None,
+            structure: None,
         });
     }
     for units in unit_groups(run, page_box) {
@@ -176,6 +197,8 @@ pub fn build(ops: &[Operation], run: &Interpretation, page_box: Rect) -> Vec<Pag
             movable: true,
             editable: false,
             background: false,
+            table: None,
+            structure: None,
         });
     }
     objects.sort_by_key(|object| {
@@ -195,7 +218,174 @@ pub fn build(ops: &[Operation], run: &Interpretation, page_box: Rect) -> Vec<Pag
             && object.bbox.area() >= BACKGROUND_SHARE * page_area;
     }
     assign_segments(ops, run, &mut objects);
+    add_tables(&cells, tables, &mut objects);
     objects
+}
+
+/// Ajoute un objet par tableau, après les objets dessinés, et lui rattache
+/// les objets de ses cellules : les blocs de texte de ses cellules et les
+/// autres objets compris dans son emprise.
+fn add_tables(cells: &GlyphCells, tables: Vec<layout::Table>, objects: &mut Vec<PageObject>) {
+    for (index, table) in tables.into_iter().enumerate() {
+        let id = objects.len() as u32;
+        let bbox = Rect::from(table.bbox());
+        let area = bbox.inflate(1.5);
+        let mut members = Vec::new();
+        for object in objects.iter_mut() {
+            let inside = match &object.text {
+                Some(block) => block_cell(cells, block).is_some_and(|(t, _)| t == index),
+                None => {
+                    object.kind != ObjectKind::Table
+                        && !object.background
+                        && !object.bbox.is_empty()
+                        && object.bbox.x0 >= area.x0
+                        && object.bbox.x1 <= area.x1
+                        && object.bbox.y0 >= area.y0
+                        && object.bbox.y1 <= area.y1
+                }
+            };
+            if inside && object.table.is_none() {
+                object.table = Some(id);
+                members.push(object.id as usize);
+            }
+        }
+        let movable = members.iter().all(|&m| objects[m].movable);
+        let first_op = members
+            .iter()
+            .map(|&m| objects[m].first_op)
+            .min()
+            .unwrap_or(0);
+        objects.push(PageObject {
+            id,
+            kind: ObjectKind::Table,
+            bbox,
+            first_op,
+            text: None,
+            units: Vec::new(),
+            segments: Vec::new(),
+            movable,
+            editable: false,
+            background: false,
+            table: None,
+            structure: Some(table),
+        });
+    }
+}
+
+// MARK: - Tableaux
+
+/// Écart maximal d'un rectangle plein à un filet, en points : au-delà, ses
+/// quatre bords comptent (fond d'une cellule).
+const THIN_RULE: f64 = 2.5;
+
+/// Tableaux de la page, d'après les filets de ses tracés et ses glyphes.
+pub fn tables(run: &Interpretation, page_box: Rect) -> Vec<layout::Table> {
+    let page_area = page_box.area();
+    let mut segments: Vec<layout::Segment> = Vec::new();
+    let point = |p: Point| (p.x, p.y);
+    for unit in &run.units {
+        if unit.kind != UnitKind::Path
+            || unit.bbox.is_empty()
+            || (page_area > 0.0 && unit.bbox.area() >= BACKGROUND_SHARE * page_area)
+        {
+            continue;
+        }
+        for subpath in unit.subpaths.iter().filter(|s| s.straight) {
+            let points: Vec<Point> = subpath.points().collect();
+            if points.len() < 2 {
+                continue;
+            }
+            if unit.stroked {
+                if subpath.rect {
+                    segments.extend(layout::Segment::edges(&subpath.bbox().into()));
+                    continue;
+                }
+                for pair in points.windows(2) {
+                    segments.push(layout::Segment::new(point(pair[0]), point(pair[1])));
+                }
+                if subpath.closed {
+                    segments.push(layout::Segment::new(
+                        point(points[points.len() - 1]),
+                        point(points[0]),
+                    ));
+                }
+            } else if unit.filled && is_box(subpath, &points) {
+                let rect = subpath.bbox();
+                if rect.width().min(rect.height()) <= THIN_RULE {
+                    let (cx, cy) = ((rect.x0 + rect.x1) / 2.0, (rect.y0 + rect.y1) / 2.0);
+                    segments.push(if rect.width() >= rect.height() {
+                        layout::Segment::new((rect.x0, cy), (rect.x1, cy))
+                    } else {
+                        layout::Segment::new((cx, rect.y0), (cx, rect.y1))
+                    });
+                } else {
+                    segments.extend(layout::Segment::edges(&rect.into()));
+                }
+            }
+        }
+    }
+    let boxes: Vec<layout::TextBox> = run
+        .glyphs
+        .iter()
+        .filter(|glyph| glyph.visible && is_ink(glyph) && !glyph.bbox.is_empty())
+        .filter(|glyph| glyph.trm.b.abs() <= 0.035 * glyph.trm.a.abs() && glyph.trm.a > 0.0)
+        .map(|glyph| layout::TextBox {
+            bbox: glyph.bbox.into(),
+            baseline: glyph.baseline.y,
+            size: glyph.trm.vertical_scale(),
+        })
+        .collect();
+    if segments.is_empty() {
+        return Vec::new();
+    }
+    layout::detect(&segments, &boxes)
+}
+
+/// Vrai si le sous-chemin est un rectangle aux côtés parallèles aux axes.
+fn is_box(subpath: &Subpath, points: &[Point]) -> bool {
+    if subpath.rect {
+        return true;
+    }
+    let rect = subpath.bbox();
+    let on_edge = |p: &Point| {
+        let near = |a: f64, b: f64| (a - b).abs() <= 0.5;
+        (near(p.x, rect.x0) || near(p.x, rect.x1)) && (near(p.y, rect.y0) || near(p.y, rect.y1))
+    };
+    (4..=5).contains(&points.len()) && points.iter().all(on_edge)
+}
+
+/// Cellule de chaque glyphe visible, d'après son centre.
+fn glyph_cells(run: &Interpretation, tables: &[layout::Table]) -> GlyphCells {
+    if tables.is_empty() {
+        return Vec::new();
+    }
+    let boxes: Vec<layout::Rect> = tables.iter().map(layout::Table::bbox).collect();
+    run.glyphs
+        .iter()
+        .map(|glyph| {
+            if !glyph.visible || glyph.bbox.is_empty() {
+                return None;
+            }
+            let (x, y) = (
+                (glyph.bbox.x0 + glyph.bbox.x1) / 2.0,
+                (glyph.bbox.y0 + glyph.bbox.y1) / 2.0,
+            );
+            tables.iter().enumerate().find_map(|(index, table)| {
+                if !boxes[index].contains(x, y) {
+                    return None;
+                }
+                table.cell_at(x, y).map(|cell| (index, cell))
+            })
+        })
+        .collect()
+}
+
+/// Cellule d'un bloc : celle du glyphe de son style.
+fn block_cell(cells: &GlyphCells, block: &TextBlock) -> Option<(usize, usize)> {
+    block
+        .lines
+        .first()
+        .and_then(|line| cells.get(line.style).copied().flatten())
 }
 
 /// Vrai si le glyphe peut être déplacé ou effacé sans fausser le reste :
@@ -223,6 +413,13 @@ fn unit_vector(x: f64, y: f64) -> (f64, f64) {
 
 /// Lignes de texte, dans l'ordre du flux.
 pub fn lines(run: &Interpretation) -> Vec<TextLine> {
+    lines_with(run, &Vec::new())
+}
+
+/// Lignes de texte, dans l'ordre du flux ; une ligne ne passe pas d'une
+/// cellule de tableau à une autre.
+fn lines_with(run: &Interpretation, cells: &GlyphCells) -> Vec<TextLine> {
+    let cell = |g: usize| cells.get(g).copied().flatten();
     let mut lines: Vec<TextLine> = Vec::new();
     let mut current: Option<TextLine> = None;
     for (index, glyph) in run.glyphs.iter().enumerate() {
@@ -253,8 +450,17 @@ pub fn lines(run: &Interpretation) -> Vec<TextLine> {
                             && line.along(glyph.origin) - line.along(run.glyphs[ink].end)
                                 > reference
                     });
+            // Le texte d'une autre cellule commence une autre ligne.
+            let crosses = is_ink(glyph)
+                && line
+                    .glyphs
+                    .iter()
+                    .rev()
+                    .find(|&&g| is_ink(&run.glyphs[g]))
+                    .is_some_and(|&ink| cell(ink) != cell(index));
             if same_direction
                 && !restyled
+                && !crosses
                 && shift <= 0.3 * reference
                 && gap <= 1.5 * reference
                 && gap >= -0.5 * reference
@@ -345,15 +551,28 @@ const OPEN_BLOCKS: usize = 8;
 /// Une ligne rejoint, parmi les blocs encore ouverts qu'elle peut continuer,
 /// celui dont elle est le mieux alignée ; à égalité, le plus récent.
 pub fn blocks(run: &Interpretation) -> Vec<TextBlock> {
+    blocks_with(run, &Vec::new(), &[])
+}
+
+/// Blocs de texte ; un bloc ne réunit que des lignes d'une même cellule.
+fn blocks_with(
+    run: &Interpretation,
+    cells: &GlyphCells,
+    tables: &[layout::Table],
+) -> Vec<TextBlock> {
+    let cell = |line: &TextLine| cells.get(line.style).copied().flatten();
     let mut groups: Vec<Vec<TextLine>> = Vec::new();
     // Une ligne faite d'espaces ne dessine rien : elle ne forme pas de bloc.
-    let visible = lines(run)
+    let visible = lines_with(run, cells)
         .into_iter()
         .filter(|line| line.glyphs.iter().any(|&g| is_ink(&run.glyphs[g])));
     for line in visible {
         let open = groups.len().saturating_sub(OPEN_BLOCKS);
         let mut best: Option<(usize, f64)> = None;
         for index in (open..groups.len()).rev() {
+            if cell(&groups[index][0]) != cell(&line) {
+                continue;
+            }
             if let Some(score) = joins(run, &groups[index], &line) {
                 if best.is_none_or(|(_, top)| score < top) {
                     best = Some((index, score));
@@ -367,7 +586,13 @@ pub fn blocks(run: &Interpretation) -> Vec<TextBlock> {
     }
     groups
         .into_iter()
-        .map(|lines| finish_block(run, lines))
+        .map(|lines| {
+            let rect = cell(&lines[0]).map(|(table, index)| {
+                let table = &tables[table];
+                Rect::from(table.cell_rect(&table.cells[index]))
+            });
+            finish_block(run, lines, rect)
+        })
         .collect()
 }
 
@@ -426,7 +651,7 @@ fn joins(run: &Interpretation, group: &[TextLine], line: &TextLine) -> Option<f6
     indented.then_some(tolerance + indent.abs())
 }
 
-fn finish_block(run: &Interpretation, lines: Vec<TextLine>) -> TextBlock {
+fn finish_block(run: &Interpretation, lines: Vec<TextLine>, cell: Option<Rect>) -> TextBlock {
     let first = &lines[0];
     let size = first.size;
     let leading = if lines.len() >= 2 {
@@ -438,7 +663,10 @@ fn finish_block(run: &Interpretation, lines: Vec<TextLine>) -> TextBlock {
     } else {
         0.0
     };
-    let alignment = alignment(&lines);
+    let alignment = match cell {
+        Some(rect) if lines.len() == 1 => alignment_in_cell(first, rect),
+        _ => alignment(&lines),
+    };
     let text = block_text(run, &lines, alignment);
     TextBlock {
         lines,
@@ -446,6 +674,22 @@ fn finish_block(run: &Interpretation, lines: Vec<TextLine>) -> TextBlock {
         leading,
         size,
         text,
+        cell,
+    }
+}
+
+/// Alignement d'une ligne seule dans sa cellule, d'après les marges qu'elle
+/// y laisse à gauche et à droite.
+fn alignment_in_cell(line: &TextLine, cell: Rect) -> Alignment {
+    let left = line.left.x - cell.x0;
+    let right = cell.x1 - line.right.x;
+    let tolerance = (0.1 * (left + right)).max(1.5);
+    if (left - right).abs() <= tolerance && left > 1.0 && right > 1.0 {
+        Alignment::Center
+    } else if right < left {
+        Alignment::Right
+    } else {
+        Alignment::Left
     }
 }
 

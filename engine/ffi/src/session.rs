@@ -16,6 +16,7 @@ use crate::recognition::{
     RecognizedWordItem, TextRecognizer, DOUBTFUL_BELOW,
 };
 use crate::{search_matches, EngineError, PageSize, PdfDocument, SearchMatch};
+use pdf_core::TableInfo;
 
 /// Contenu d'une page de la session.
 #[derive(Debug, Clone, Copy, PartialEq, uniffi::Enum)]
@@ -32,6 +33,15 @@ pub enum PageKind {
         /// Format de la page, en points.
         size: PageSize,
     },
+}
+
+/// Axe d'un tableau.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum TableAxis {
+    /// Lignes.
+    Rows,
+    /// Colonnes.
+    Columns,
 }
 
 /// Une page de la session, dans l'ordre du document.
@@ -360,6 +370,142 @@ impl EditSession {
             .ok_or_else(|| invalid("objet inexistant"))
     }
 
+    /// Supprime des lignes ou des colonnes (numéros actuels) du tableau
+    /// `table` de la page `page` ; le tableau se resserre. Les supprimer toutes
+    /// supprime le tableau.
+    pub fn delete_table_bands(
+        &self,
+        page: u64,
+        table: u32,
+        axis: TableAxis,
+        bands: Vec<u32>,
+    ) -> Result<(), EngineError> {
+        let grid = self.table_grid(page, table)?;
+        let (order, count) = band_order(&grid, axis);
+        let kept: Vec<u32> = order
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !bands.contains(&(*index as u32)))
+            .map(|(_, &band)| band)
+            .collect();
+        if kept.len() == order.len() {
+            return Err(invalid("aucune ligne ni colonne désignée"));
+        }
+        let mut state = self.lock();
+        if kept.is_empty() {
+            return Ok(state.editor.delete_objects(page, &[table])?);
+        }
+        let several = order.len() - kept.len() > 1;
+        let name = match (axis, several) {
+            (TableAxis::Rows, false) => "la suppression de la ligne",
+            (TableAxis::Rows, true) => "la suppression des lignes",
+            (TableAxis::Columns, false) => "la suppression de la colonne",
+            (TableAxis::Columns, true) => "la suppression des colonnes",
+        };
+        let value = normalized(kept, count);
+        Ok(state
+            .editor
+            .edit_table(page, table, name, |edit| match axis {
+                TableAxis::Rows => edit.rows = value.clone(),
+                TableAxis::Columns => edit.columns = value.clone(),
+            })?)
+    }
+
+    /// Déplace la ligne ou la colonne `from` (numéro actuel) du tableau
+    /// `table` à la place `to`. Une cellule fusionnée doit rester d'un seul
+    /// tenant.
+    pub fn move_table_band(
+        &self,
+        page: u64,
+        table: u32,
+        axis: TableAxis,
+        from: u32,
+        to: u32,
+    ) -> Result<(), EngineError> {
+        let grid = self.table_grid(page, table)?;
+        let (order, count) = band_order(&grid, axis);
+        let (from, to) = (from as usize, to as usize);
+        if from >= order.len() || to >= order.len() {
+            return Err(invalid("ligne ou colonne inexistante"));
+        }
+        if from == to {
+            return Ok(());
+        }
+        let mut display: Vec<usize> = (0..order.len()).collect();
+        let band = display.remove(from);
+        display.insert(to, band);
+        if !keeps_merged_cells(&grid, axis, &display) {
+            let what = match axis {
+                TableAxis::Rows => "Cette ligne",
+                TableAxis::Columns => "Cette colonne",
+            };
+            return Err(EngineError::Failed {
+                message: format!(
+                    "{what} ne peut pas être déplacée ici : une cellule fusionnée serait coupée."
+                ),
+                detail: "cellule fusionnée".to_owned(),
+            });
+        }
+        let moved: Vec<u32> = display.iter().map(|&index| order[index]).collect();
+        let name = match axis {
+            TableAxis::Rows => "le déplacement de la ligne",
+            TableAxis::Columns => "le déplacement de la colonne",
+        };
+        let value = normalized(moved, count);
+        Ok(self
+            .lock()
+            .editor
+            .edit_table(page, table, name, |edit| match axis {
+                TableAxis::Rows => edit.rows = value.clone(),
+                TableAxis::Columns => edit.columns = value.clone(),
+            })?)
+    }
+
+    /// Saisit le texte d'une cellule vide à l'origine (ligne et colonne
+    /// actuelles de son coin supérieur gauche), dans le style des autres
+    /// cellules ; un texte vide la vide de nouveau. Renvoie le tableau modifié.
+    pub fn set_cell_text(
+        &self,
+        page: u64,
+        table: u32,
+        row: u32,
+        column: u32,
+        text: String,
+    ) -> Result<PageObjectItem, EngineError> {
+        let grid = self.table_grid(page, table)?;
+        let cell = grid
+            .cells
+            .iter()
+            .find(|cell| cell.row == row && cell.column == column)
+            .ok_or_else(|| invalid("cellule inexistante"))?;
+        let reference = cell
+            .reference
+            .ok_or_else(|| invalid("cellule non vide ou tableau sans texte"))?;
+        let key = (cell.source_row, cell.source_column);
+        let replacement = if text.trim().is_empty() {
+            None
+        } else {
+            let (document, index, _) = self.page_source(page)?;
+            let document = document.ok_or_else(|| invalid("page vierge"))?;
+            let font = document.handle.choose_font(index, reference, &text)?;
+            Some(TextReplacement { text, font })
+        };
+        self.lock()
+            .editor
+            .edit_table(page, table, "la saisie", |edit| match &replacement {
+                Some(replacement) => {
+                    edit.cells.insert(key, replacement.clone());
+                }
+                None => {
+                    edit.cells.remove(&key);
+                }
+            })?;
+        self.page_objects(page)?
+            .into_iter()
+            .find(|item| item.id == table)
+            .ok_or_else(|| invalid("tableau inexistant"))
+    }
+
     /// Modifications du contenu de la page `page`, pour la rendre ; `None` si
     /// son contenu est celui d'origine.
     pub fn content_edits(&self, page: u64) -> Option<Arc<ContentEdits>> {
@@ -644,6 +790,19 @@ impl EditSession {
         })
     }
 
+    /// Grille actuelle du tableau `table` de la page `page`.
+    fn table_grid(&self, page: u64, table: u32) -> Result<TableInfo, EngineError> {
+        let (document, index, edits) = self.page_source(page)?;
+        let document = document.ok_or_else(|| invalid("page vierge"))?;
+        document
+            .handle
+            .page_objects(index, edits)?
+            .into_iter()
+            .find(|object| object.id == table)
+            .and_then(|object| object.grid)
+            .ok_or_else(|| invalid("tableau inexistant"))
+    }
+
     fn lock(&self) -> MutexGuard<'_, State> {
         // Les opérations ne paniquent pas en laissant l'état à moitié modifié :
         // un verrou empoisonné reste utilisable.
@@ -758,6 +917,39 @@ fn changed() -> EngineError {
         message: "Les pages ont changé pendant l'opération : recommencez-la.".to_owned(),
         detail: "page inexistante".to_owned(),
     }
+}
+
+/// Bandes d'origine d'un axe dans leur ordre actuel, et leur nombre à
+/// l'origine.
+fn band_order(grid: &TableInfo, axis: TableAxis) -> (Vec<u32>, usize) {
+    match axis {
+        TableAxis::Rows => (grid.row_order.clone(), grid.source_rows as usize),
+        TableAxis::Columns => (grid.column_order.clone(), grid.source_columns as usize),
+    }
+}
+
+/// Ordre à enregistrer : `None` s'il est celui d'origine.
+fn normalized(order: Vec<u32>, count: usize) -> Option<Vec<u32>> {
+    let identity = order.len() == count && order.iter().enumerate().all(|(i, &b)| b as usize == i);
+    (!identity).then_some(order)
+}
+
+/// Vrai si le nouvel ordre `display` (bandes actuelles) garde chaque cellule
+/// fusionnée de la grille d'un seul tenant (comme `layout::keeps_merged_cells`).
+fn keeps_merged_cells(grid: &TableInfo, axis: TableAxis, display: &[usize]) -> bool {
+    let mut position = vec![0; display.len()];
+    for (index, &band) in display.iter().enumerate() {
+        position[band] = index;
+    }
+    grid.cells.iter().all(|cell| {
+        let (start, span) = match axis {
+            TableAxis::Rows => (cell.row as usize, cell.row_span as usize),
+            TableAxis::Columns => (cell.column as usize, cell.column_span as usize),
+        };
+        let mut places: Vec<usize> = (start..start + span).map(|band| position[band]).collect();
+        places.sort_unstable();
+        places.windows(2).all(|w| w[1] == w[0] + 1)
+    })
 }
 
 fn usizes(values: &[u32]) -> Vec<usize> {
@@ -1002,6 +1194,116 @@ mod tests {
         assert_eq!(session.pages()[0].edit_revision, 0);
         assert!(session.content_edits(first).is_none());
         assert_eq!(session.page_objects(first).unwrap().len(), 6);
+    }
+
+    #[test]
+    fn edite_un_tableau() {
+        use crate::content::PageObjectKind;
+        let session = EditSession::new(open("tableaux.pdf"));
+        let page = session.pages()[0].id;
+        let grid_of = |session: &EditSession| {
+            let table = session
+                .page_objects(page)
+                .unwrap()
+                .into_iter()
+                .find(|o| o.kind == PageObjectKind::Table && o.grid.as_ref().unwrap().columns >= 4)
+                .unwrap();
+            (table.id, table.grid.unwrap())
+        };
+        let (table, grid) = grid_of(&session);
+        assert_eq!((grid.rows, grid.columns), (6, 5));
+
+        // Ligne « T2 » supprimée, puis « T4 » remontée en tête du corps.
+        session
+            .delete_table_bands(page, table, TableAxis::Rows, vec![3])
+            .unwrap();
+        assert_eq!(
+            session.undo_name().as_deref(),
+            Some("la suppression de la ligne")
+        );
+        assert_eq!(grid_of(&session).1.rows, 5);
+        session
+            .move_table_band(page, table, TableAxis::Rows, 4, 2)
+            .unwrap();
+        let (_, grid) = grid_of(&session);
+        let t4 = session
+            .page_objects(page)
+            .unwrap()
+            .into_iter()
+            .find(|o| o.text.as_deref() == Some("T4"))
+            .unwrap();
+        let first = grid
+            .cells
+            .iter()
+            .find(|c| c.row == 2 && c.column == 0)
+            .unwrap();
+        assert_eq!(first.objects, vec![t4.id]);
+
+        // « Export » ne peut pas sortir de « Ventes », mais passe avant
+        // « France ».
+        let err = session
+            .move_table_band(page, table, TableAxis::Columns, 2, 4)
+            .unwrap_err();
+        assert!(matches!(err, EngineError::Failed { .. }));
+        // Une ligne de l'en-tête sur deux lignes non plus.
+        assert!(session
+            .move_table_band(page, table, TableAxis::Rows, 1, 3)
+            .is_err());
+        session
+            .move_table_band(page, table, TableAxis::Columns, 2, 1)
+            .unwrap();
+
+        // Saisie dans la cellule vide « T3 / France » (désormais colonne 2).
+        let t3 = grid_of(&session)
+            .1
+            .cells
+            .into_iter()
+            .find(|c| c.row == 4 && c.column == 2)
+            .unwrap();
+        assert!(t3.fillable && t3.objects.is_empty());
+        let item = session
+            .set_cell_text(page, table, 4, 2, "128".to_owned())
+            .unwrap();
+        let filled = item
+            .grid
+            .unwrap()
+            .cells
+            .into_iter()
+            .find(|c| c.row == 4 && c.column == 2)
+            .unwrap();
+        assert_eq!(filled.text.as_deref(), Some("128"));
+        assert_eq!(session.undo_name().as_deref(), Some("la saisie"));
+
+        // Récupération : le tableau retrouve ses modifications.
+        let record = session.content_record(page).unwrap();
+        assert_eq!(record.len(), 1);
+        assert!(record[0].table.is_some());
+        let restored = EditSession::new(open("tableaux.pdf"));
+        restored
+            .restore(session.pages(), vec![record], Vec::new())
+            .unwrap();
+        let restored_page = restored.pages()[0].id;
+        assert_eq!(
+            restored.content_record(restored_page).unwrap()[0].table,
+            session.content_record(page).unwrap()[0].table
+        );
+
+        let exported = session.export_pdf().unwrap();
+        let doc = PdfDocument::from_data(exported.bytes, None).unwrap();
+        let text = doc.plain_text(0).unwrap();
+        assert!(text.contains("128") && !text.contains("135"));
+
+        // Toutes les lignes supprimées : le tableau l'est.
+        session
+            .delete_table_bands(page, table, TableAxis::Rows, (0..5).collect())
+            .unwrap();
+        assert!(!session
+            .page_objects(page)
+            .unwrap()
+            .iter()
+            .any(|o| o.id == table));
+        while session.undo() {}
+        assert_eq!(grid_of(&session).1.rows, 6);
     }
 
     #[test]

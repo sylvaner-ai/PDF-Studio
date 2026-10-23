@@ -37,6 +37,30 @@ pub struct TextReplacement {
     pub font: FontChoice,
 }
 
+/// Modifications d'un tableau : lignes et colonnes supprimées ou déplacées,
+/// texte saisi dans des cellules vides.
+///
+/// Lignes et colonnes sont désignées par leur numéro dans le tableau d'origine,
+/// tel que `pdf_core` le détecte.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TableEdit {
+    /// Lignes d'origine conservées, dans leur nouvel ordre ; `None` : toutes,
+    /// dans l'ordre d'origine.
+    pub rows: Option<Vec<u32>>,
+    /// Colonnes d'origine conservées, dans leur nouvel ordre.
+    pub columns: Option<Vec<u32>>,
+    /// Texte saisi dans des cellules vides, par cellule d'origine (ligne et
+    /// colonne de son coin supérieur gauche).
+    pub cells: BTreeMap<(u32, u32), TextReplacement>,
+}
+
+impl TableEdit {
+    /// Vrai si le tableau est intact.
+    pub fn is_unchanged(&self) -> bool {
+        self.rows.is_none() && self.columns.is_none() && self.cells.is_empty()
+    }
+}
+
 /// État modifié d'un objet ; un objet absent des modifications est intact.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ObjectEdit {
@@ -49,6 +73,8 @@ pub struct ObjectEdit {
     pub dy: f32,
     /// Nouveau texte, pour un bloc de texte.
     pub text: Option<TextReplacement>,
+    /// Modifications d'un tableau.
+    pub table: Option<TableEdit>,
 }
 
 impl ObjectEdit {
@@ -59,7 +85,10 @@ impl ObjectEdit {
 
     /// Vrai si l'objet est inchangé.
     pub fn is_unchanged(&self) -> bool {
-        !self.deleted && !self.is_moved() && self.text.is_none()
+        !self.deleted
+            && !self.is_moved()
+            && self.text.is_none()
+            && self.table.as_ref().is_none_or(TableEdit::is_unchanged)
     }
 }
 

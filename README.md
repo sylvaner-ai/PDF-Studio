@@ -15,7 +15,9 @@ locale, hors ligne, sans compte ni télémétrie.
 | 2. Lecture complète | zoom, vignettes, recherche, signets, PDF chiffrés | terminé |
 | 3. Organisation des pages | §4.5 et enregistrement sécurisé | terminé |
 | 4. Édition des PDF natifs | sélection, déplacement, suppression, texte modifiable | terminé (à valider) |
-| 5 à 9 | OCR, structure, scans, design, durcissement | à faire |
+| 5. OCR | reconnaissance du texte des scans (Vision), couche de texte invisible | terminé |
+| 6. Structure | détection des tableaux, édition des tableaux | terminé (à valider) |
+| 7 à 9 | scans, design, durcissement | à faire |
 
 ## Organiser les pages
 
@@ -45,6 +47,12 @@ locale, hors ligne, sans compte ni télémétrie.
   la ligne, Échap annule. Le texte garde sa police si elle contient tous les
   caractères ; sinon la même police installée sur le Mac est intégrée, ou une
   police standard la remplace (le bandeau du bas le signale).
+- **Tableaux :** un tableau tracé (quadrillage, ou filets horizontaux) se
+  sélectionne d'un clic, qui désigne aussi la cellule courante ; il se déplace et
+  se supprime comme un objet. Double-clic ou Retour modifie le texte de la
+  cellule (une cellule vide prend le style de ses voisines) ; le **menu Tableau**
+  et le clic droit suppriment, montent ou descendent la ligne, suppriment ou
+  déplacent la colonne. Le tableau se resserre, ses filets et ses fonds suivent.
 - Tout s'annule par ⌘Z, avec l'organisation des pages ; les limites sont décrites
   dans [docs/LIMITES.md](docs/LIMITES.md).
 

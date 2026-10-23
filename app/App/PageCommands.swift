@@ -73,6 +73,33 @@ struct PageCommands: Commands {
     }
 }
 
+/// Menu Tableau, en mode Édition : ligne et colonne de la cellule courante du
+/// tableau sélectionné, et le tableau entier. Chaque action s'annule par ⌘Z.
+struct TableCommands: Commands {
+    @FocusedValue(\.documentModel) private var model
+
+    var body: some Commands {
+        CommandMenu("Tableau") {
+            ForEach(PageEditing.TableAction.allCases, id: \.self) { action in
+                if action == .moveRowUp || action == .moveColumnLeft {
+                    Divider()
+                }
+                Button(action.title) { editing?.perform(action) }
+                    .disabled(editing?.canPerform(action) != true)
+            }
+            Divider()
+            Button("Supprimer le tableau") { editing?.deleteSelection() }
+                .disabled(editing?.selectedTable?.movable != true)
+        }
+    }
+
+    /// Édition du document actif, en mode Édition seulement.
+    private var editing: PageEditing? {
+        guard let model, model.canEdit, model.workspace == .editing else { return nil }
+        return model.editing
+    }
+}
+
 /// Menu Fichier : Enregistrer et Enregistrer sous, après « Fermer », puis les
 /// exportations en images et en texte.
 struct SaveCommands: Commands {
