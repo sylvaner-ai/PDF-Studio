@@ -163,8 +163,17 @@ struct ReaderView: View {
                 PageCanvas(renderer: renderer, controller: model.canvas)
                     .accessibilityLabel(Text("Pages du document"))
                     .overlay(alignment: .bottom) {
-                        if model.workspace == .editing {
+                        if model.isComparing {
+                            ComparisonBadge()
+                        } else if model.workspace == .editing {
                             EditingBadge(editing: model.editing)
+                        }
+                    }
+                    .overlay(alignment: .topLeading) {
+                        if model.workspace == .editing, !model.isComparing,
+                           let line = model.editing.selectedScanLine, let scan = line.scan {
+                            ScanRetouchPanel(editing: model.editing, scan: scan)
+                                .id(line.id)
                         }
                     }
                     .overlay(alignment: .topTrailing) {
@@ -185,6 +194,13 @@ struct ReaderView: View {
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
+                Toggle(isOn: $model.isComparing) {
+                    Label("Comparer avec l'original", systemImage: "square.split.2x1")
+                }
+                .help(Text("Montrer les pages sans leurs modifications, pour les comparer (⌥⌘K)"))
+                .disabled(!model.canCompare && !model.isComparing)
+            }
+            ToolbarItem(placement: .primaryAction) {
                 RecognitionMenu(model: model)
             }
             ToolbarItem(placement: .primaryAction) {
@@ -198,6 +214,19 @@ struct ReaderView: View {
                 .help(Text("Lecture (⌘1), organisation des pages (⌘2) ou édition du contenu (⌘3)"))
             }
         }
+    }
+}
+
+/// Bandeau de la comparaison avec l'original.
+struct ComparisonBadge: View {
+    var body: some View {
+        Label("Pages d'origine, sans les modifications. ⌥⌘K pour revenir aux pages modifiées.",
+              systemImage: "square.split.2x1")
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(.regularMaterial, in: Capsule())
+            .padding(.bottom, 16)
+            .allowsHitTesting(false)
     }
 }
 

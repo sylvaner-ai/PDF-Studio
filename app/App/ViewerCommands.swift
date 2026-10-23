@@ -42,6 +42,10 @@ struct ViewerCommands: Commands {
                 .keyboardShortcut("3")
                 .disabled(canvas == nil)
             Divider()
+            Toggle("Comparer avec l'original", isOn: comparing)
+                .keyboardShortcut("k", modifiers: [.command, .option])
+                .disabled(model?.canCompare != true && model?.isComparing != true)
+            Divider()
             Button("Taille réelle") { reading?.actualSize() }
                 .keyboardShortcut("0")
                 .disabled(reading == nil)
@@ -111,6 +115,14 @@ struct ViewerCommands: Commands {
         return Binding(
             get: { model?.workspace == workspace },
             set: { if $0 { model?.workspace = workspace } }
+        )
+    }
+
+    private var comparing: Binding<Bool> {
+        let model = self.model
+        return Binding(
+            get: { model?.isComparing == true },
+            set: { model?.isComparing = $0 }
         )
     }
 

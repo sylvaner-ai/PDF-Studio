@@ -1,8 +1,7 @@
 # Limites connues
 
-Ce document recense honnêtement ce qui ne fonctionne pas, ou pas encore. Il sera
-complété à chaque jalon, en particulier pour l'appariement de polices et
-l'*inpainting* des scans (jalon 7).
+Ce document recense honnêtement ce qui ne fonctionne pas, ou pas encore. Il est
+complété à chaque jalon.
 
 ## Jalon 1
 
@@ -193,8 +192,8 @@ l'*inpainting* des scans (jalon 7).
 - **Tableaux à filets horizontaux seuls :** les limites des colonnes sont
   déduites du texte ; la grille montrée (et l'alignement deviné d'un intitulé
   d'en-tête) peut différer de celle qu'avait l'auteur, sans effet sur le rendu.
-- **Scans :** la structure d'une page scannée (tableaux, blocs) n'est pas
-  détectée ; elle demande l'effacement de l'image (*inpainting*) du jalon 7.
+- **Scans :** depuis le jalon 7, les tableaux d'une page scannée sont retrouvés,
+  mais leurs lignes et colonnes ne se réorganisent pas (voir ci-dessous).
 - **Lignes qui ne grandissent pas :** un texte plus long que sa cellule est
   remis à la ligne dans la cellule et déborde vers le bas sans repousser les
   lignes suivantes ; le bandeau le signale. Une ligne supprimée resserre le
@@ -218,3 +217,51 @@ l'*inpainting* des scans (jalon 7).
   pas enregistré puis rouvert ; l'ordre de lecture d'un tableau réorganisé reste
   celui du flux de contenu (copie de texte dans un autre lecteur).
 
+
+## Jalon 7
+
+- **Ce n'est pas un caviardage :** une retouche est une rustine posée sur
+  l'image d'origine (D37). Les pixels effacés restent dans le fichier et
+  peuvent être extraits par un outil PDF. Ne pas retoucher un scan pour cacher
+  une information confidentielle.
+- **Retouche limitée à la session de reconnaissance :** une page n'est
+  retouchable que si sa couche de texte a été reconnue dans la session. Une
+  fois le document enregistré puis rouvert, ou pour un scan qui porte déjà le
+  texte d'un autre logiciel (scanner, Acrobat), la page n'est plus reconnue
+  (limite du jalon 5) et ne se retouche donc plus comme un scan. Reprendre la
+  couche de texte existante est une évolution possible.
+- **Pages concernées :** une page est traitée comme un scan si elle n'a aucun
+  texte natif et qu'une image en couvre au moins la moitié. Une page mixte
+  (scan avec un en-tête vectoriel, par exemple) n'est pas retouchable comme un
+  scan ; les tracés vectoriels posés sur le scan sont recouverts par les
+  rustines qui les touchent.
+- **Police retrouvée :** le choix se fait parmi les polices fournies (Carlito,
+  Caladea) et une liste de familles bureautiques installées sur le Mac
+  (`fonts::catalog::DOCUMENT_FAMILIES`). Une police absente de cette liste
+  (police d'entreprise, Calibri ou Cambria non installées) est remplacée par la
+  plus proche, avec un score de ressemblance plus bas. Sur la facture de test
+  (200 ppp, tests du moteur), Caladea est retrouvée avec 84 % de ressemblance,
+  Carlito gras avec 91 %, Carlito avec 81 %.
+- **Graisse :** le nouveau texte peut paraître très légèrement plus gras que
+  l'original ; le curseur « Graisse » corrige l'écart.
+- **Fond texturé :** sur papier uni, l'effacement est invisible ; sur un fond
+  tramé, texturé, ou sous un tampon, une trace légère peut rester visible là
+  où un logo ou une signature a été effacé.
+- **Texte réécrit plus long :** la fin de la ligne est décalée, sans retour à
+  la ligne ; un texte qui dépasse le bord de la page ou de la cellule n'est pas
+  remis à la ligne.
+- **Couleurs :** les couleurs sont lues en RGB, sans profil ICC ; un scan en
+  CMJN ou à profil particulier peut donner une encre légèrement différente
+  (curseur « Couleur »).
+- **Tableaux scannés :** ils se déplacent et se suppriment d'un bloc, et le
+  texte de leurs cellules se réécrit, mais leurs lignes et colonnes ne se
+  suppriment ni ne se déplacent (menu Tableau désactivé).
+- **Annotations :** les annotations (commentaires, surlignages) ne suivent pas
+  les objets déplacés dans le scan.
+- **Écriture manuscrite :** une signature ou une écriture manuscrite se
+  déplace ou s'efface comme un élément ; réécrite, elle prend une police
+  d'imprimerie (l'écriture n'est pas imitée).
+- **Temps de réponse :** la première modification d'une ligne cherche sa police
+  parmi tout le catalogue, et la fenêtre attend la fin de la recherche. La
+  durée dépend du nombre de polices installées ; elle n'a pas encore été
+  mesurée sur un Mac garni de polices.

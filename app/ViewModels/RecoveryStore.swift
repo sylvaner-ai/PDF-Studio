@@ -59,6 +59,9 @@ struct RecoveryRecord: Codable, Equatable, Sendable {
         /// Modifications d'un tableau (absentes des enregistrements antérieurs
         /// à l'édition des tableaux).
         var table: Table?
+        /// Texte retouché d'une ligne scannée, au format du moteur (absent des
+        /// enregistrements antérieurs à la retouche des scans).
+        var scan: String?
     }
 
     /// Modifications d'un tableau (cf. ``TableEditItem``).
@@ -149,6 +152,7 @@ extension RecoveryRecord.ObjectEdit {
                 }
             )
         }
+        scan = item.scan
     }
 
     var item: ObjectEditItem {
@@ -163,7 +167,8 @@ extension RecoveryRecord.ObjectEdit {
                         CellTextItem(row: $0.row, column: $0.column, text: $0.text, font: $0.font.engine)
                     }
                 )
-            }
+            },
+            scan: scan
         )
     }
 }

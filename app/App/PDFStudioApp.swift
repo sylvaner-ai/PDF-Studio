@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let store = try? RecoveryStore.standard() {
             store.removeUnusedCopies()
         }
+        BundledFonts.register()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
