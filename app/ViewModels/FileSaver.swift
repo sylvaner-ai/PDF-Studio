@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import os
 
@@ -12,6 +13,11 @@ import os
 /// peut pas évincer la copie d'un document. Le fichier d'origine est réécrit en
 /// place, ce qui conserve son emplacement, ses étiquettes et sa synchronisation ;
 /// le contenu écrit est relu, et l'ancien restauré en cas d'échec.
+///
+/// Si l'application s'arrête pendant la réécriture (panne, arrêt forcé), le
+/// fichier peut rester à moitié écrit. Une note, posée avant d'écrire et
+/// retirée après, le signale : à la prochaine ouverture du document, le
+/// fichier est rétabli depuis sa copie (cf. ``repairInterruptedWrite(of:journal:)``).
 enum FileSaver {
     static let maxBackups = 30
     /// Nombre d'exportations dont les fichiers remplacés sont gardés.
@@ -22,11 +28,14 @@ enum FileSaver {
     /// Remplace le contenu d'un fichier existant, après l'avoir sauvegardé.
     ///
     /// - Parameter backups: dossier des sauvegardes ; celui de l'application par défaut.
-    static func replace(_ url: URL, with data: Data, backups: URL? = nil) throws {
+    /// - Parameter journal: dossier des notes d'écriture en cours ; celui de
+    ///   l'application par défaut.
+    static func replace(_ url: URL, with data: Data, backups: URL? = nil, journal: URL? = nil) throws {
         let original = try Data(contentsOf: url)
         let directory = try backups ?? backupDirectory()
-        try backUp(original, name: url.lastPathComponent, in: directory)
-        pruneBackups(in: directory, keeping: maxBackups)
+        let copy = try backUp(original, name: url.lastPathComponent, in: directory)
+        pruneBackups(in: directory, keeping: maxBackups, sparing: copy)
+        let note = try beginWrite(of: url, backup: copy, data: data, journal: journal)
         do {
             try overwrite(url, with: data)
             guard try Data(contentsOf: url) == data else {
@@ -35,9 +44,48 @@ enum FileSaver {
         } catch {
             let reason = error.localizedDescription
             logger.error("Écriture interrompue, restauration de l'original : \(reason, privacy: .public)")
-            try? overwrite(url, with: original)
+            if (try? overwrite(url, with: original)) != nil {
+                try? FileManager.default.removeItem(at: note)
+            }
             throw error
         }
+        try? FileManager.default.removeItem(at: note)
+    }
+
+    /// Ce que la réouverture a constaté d'une écriture interrompue.
+    enum Repair: Equatable {
+        /// Le fichier avait été entièrement écrit : il est gardé tel quel.
+        case completed
+        /// Le fichier était incomplet : sa version précédente est rétablie.
+        case restored
+        /// Le fichier était incomplet et n'a pas pu être rétabli ; la copie de
+        /// sa version précédente est à `backup`.
+        case failed(backup: String)
+    }
+
+    /// Rétablit le fichier `url` si sa dernière réécriture a été interrompue
+    /// (note restée en place) ; `nil` s'il n'y a rien à réparer. À appeler à
+    /// l'ouverture, avant de lire le fichier.
+    static func repairInterruptedWrite(of url: URL, journal: URL? = nil) -> Repair? {
+        guard let noteURL = try? journalURL(for: url, in: journal),
+              let data = try? Data(contentsOf: noteURL),
+              let note = try? JSONDecoder().decode(WriteNote.self, from: data)
+        else { return nil }
+        let manager = FileManager.default
+        if let current = try? Data(contentsOf: url), digest(of: current) == note.digest {
+            try? manager.removeItem(at: noteURL)
+            return .completed
+        }
+        guard let previous = try? Data(contentsOf: URL(fileURLWithPath: note.backup)),
+              (try? overwrite(url, with: previous)) != nil,
+              (try? Data(contentsOf: url)) == previous
+        else {
+            logger.error("Écriture interrompue : la version précédente n'a pas pu être rétablie")
+            return .failed(backup: note.backup)
+        }
+        try? manager.removeItem(at: noteURL)
+        logger.info("Écriture interrompue : la version précédente a été rétablie")
+        return .restored
     }
 
     /// Écrit un nouveau fichier (Enregistrer sous) ; un fichier remplacé à cet
@@ -83,6 +131,37 @@ enum FileSaver {
         return directory
     }
 
+    /// Note que `url`, dont la version précédente est copiée à `backup`, va
+    /// être réécrit avec `data` ; renvoie l'emplacement de la note, à retirer
+    /// une fois l'écriture terminée.
+    static func beginWrite(of url: URL, backup: URL, data: Data, journal: URL? = nil) throws -> URL {
+        let note = try journalURL(for: url, in: journal)
+        try JSONEncoder().encode(WriteNote(path: url.path, backup: backup.path, digest: digest(of: data)))
+            .write(to: note, options: .atomic)
+        return note
+    }
+
+    /// Note d'une réécriture en cours : le fichier, la copie de sa version
+    /// précédente et l'empreinte du contenu qui le remplace.
+    private struct WriteNote: Codable {
+        let path: String
+        let backup: String
+        let digest: String
+    }
+
+    /// Note de la réécriture de `url`, dans `directory` ou à défaut dans le
+    /// dossier `Sauvegardes/Écritures en cours`.
+    private static func journalURL(for url: URL, in directory: URL?) throws -> URL {
+        let folder = try directory ?? backupDirectory().appendingPathComponent("Écritures en cours", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let key = Data(url.standardizedFileURL.path.precomposedStringWithCanonicalMapping.utf8)
+        return folder.appendingPathComponent("\(digest(of: key)).json")
+    }
+
+    private static func digest(of data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
     private static func exportsDirectory() throws -> URL {
         let directory = try backupDirectory().appendingPathComponent("Exportations", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -97,8 +176,11 @@ enum FileSaver {
         try handle.synchronize()
     }
 
-    private static func backUp(_ data: Data, name: String, in directory: URL) throws {
-        try data.write(to: uniqueURL(in: directory, name: name), options: .atomic)
+    @discardableResult
+    private static func backUp(_ data: Data, name: String, in directory: URL) throws -> URL {
+        let url = uniqueURL(in: directory, name: name)
+        try data.write(to: url, options: .atomic)
+        return url
     }
 
     /// « date nom » dans `directory`, numéroté s'il existe déjà.
@@ -117,8 +199,11 @@ enum FileSaver {
     }
 
     /// Supprime les sauvegardes au-delà des `count` plus récentes : des fichiers,
-    /// ou des dossiers d'exportation si `folders` est vrai.
-    private static func pruneBackups(in directory: URL, keeping count: Int, folders: Bool = false) {
+    /// ou des dossiers d'exportation si `folders` est vrai ; `sparing` est
+    /// toujours gardée (copie dont dépend une écriture en cours).
+    private static func pruneBackups(
+        in directory: URL, keeping count: Int, folders: Bool = false, sparing: URL? = nil
+    ) {
         let manager = FileManager.default
         let keys: Set<URLResourceKey> = [.contentModificationDateKey, .isDirectoryKey]
         guard let items = try? manager.contentsOfDirectory(
@@ -129,7 +214,8 @@ enum FileSaver {
             guard (values?.isDirectory == true) == folders else { return nil }
             return (url, values?.contentModificationDate ?? .distantPast)
         }
-        for (url, _) in dated.sorted(by: { $0.1 > $1.1 }).dropFirst(count) {
+        for (url, _) in dated.sorted(by: { $0.1 > $1.1 }).dropFirst(count)
+        where url.standardizedFileURL != sparing?.standardizedFileURL {
             try? manager.removeItem(at: url)
         }
     }

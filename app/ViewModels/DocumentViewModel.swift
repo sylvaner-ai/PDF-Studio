@@ -94,7 +94,7 @@ final class DocumentViewModel {
     @ObservationIgnored var noticeTask: Task<Void, Never>?
     @ObservationIgnored private var declaredTitle: String?
     /// Format des pages de chaque document source, en points.
-    @ObservationIgnored private var sourceSizes: [[CGSize]] = []
+    @ObservationIgnored private(set) var sourceSizes: [[CGSize]] = []
 
     let logger = Logger(subsystem: "fr.sylvainrobert.pdfstudio", category: "document")
     /// Identifie la fenêtre du document, pour les pages glissées vers une autre fenêtre.
@@ -115,6 +115,11 @@ final class DocumentViewModel {
     func open(password: String? = nil) async {
         phase = .opening
         let reference = reference
+        // Un enregistrement interrompu (arrêt imprévu pendant l'écriture) a pu
+        // laisser le fichier incomplet : il est rétabli avant d'être lu.
+        let repair = await Task.detached(priority: .userInitiated) {
+            try? reference.withAccess { FileSaver.repairInterruptedWrite(of: $0) }
+        }.value
         let result = await Task.detached(priority: .userInitiated) {
             Result {
                 try reference.withAccess { url -> (PdfDocument, FileStamp?) in
@@ -147,6 +152,27 @@ final class DocumentViewModel {
         case let .failure(error):
             logger.error("Accès au fichier refusé : \(error.localizedDescription, privacy: .public)")
             phase = .failed(message: String(localized: "PDF Studio n'a pas pu accéder à ce fichier."))
+        }
+        reportRepair(repair)
+    }
+
+    /// Prévient qu'un enregistrement interrompu a été réparé, ou n'a pas pu l'être.
+    private func reportRepair(_ repair: FileSaver.Repair?) {
+        switch repair {
+        case .restored:
+            show(notice: String(localized: """
+                Le dernier enregistrement de ce document a été interrompu : \
+                le fichier a été rétabli dans sa version précédente.
+                """))
+        case let .failed(backup):
+            let name = (backup as NSString).lastPathComponent
+            failureMessage = String(localized: """
+                Le dernier enregistrement de ce document a été interrompu et le fichier n'a pas pu \
+                être rétabli. Sa version précédente est conservée dans les sauvegardes de \
+                PDF Studio, sous le nom « \(name) ».
+                """)
+        case .completed, nil:
+            break
         }
     }
 
