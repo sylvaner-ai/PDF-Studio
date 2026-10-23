@@ -77,16 +77,6 @@ final class EditingOverlayView: NSView {
         return editing.objects(on: page) ?? []
     }
 
-    /// Objets qu'un clic peut atteindre : ni le fond de page, ni ce qui
-    /// appartient à un tableau (le tableau les couvre).
-    private var hittableItems: [PageObjectItem] {
-        let all = self.items
-        let tables = Set(all.filter { $0.kind == .table }.map(\.id))
-        return all.filter { item in
-            !item.background && !(item.table.map { tables.contains($0) } ?? false)
-        }
-    }
-
     /// Emprise d'un objet dans la vue.
     private func frame(of item: PageObjectItem) -> CGRect {
         guard let page else { return .zero }
@@ -97,16 +87,6 @@ final class EditingOverlayView: NSView {
     var screenPoint: CGFloat {
         max(abs(convert(NSSize(width: 1, height: 1), from: nil).width), 0.01)
     }
-
-    /// Objet sous le pointeur : le plus petit, à égalité le plus haut placé.
-    func object(at point: CGPoint) -> PageObjectItem? {
-        let tolerance = 3 * screenPoint
-        return hittableItems.reversed()
-            .filter { frame(of: $0).insetBy(dx: -tolerance, dy: -tolerance).contains(point) }
-            .min { area(frame(of: $0)) < area(frame(of: $1)) }
-    }
-
-    private func area(_ rect: CGRect) -> CGFloat { rect.width * rect.height }
 
     private func focusPages() {
         if let canvas = enclosingScrollView as? PageCanvasView {
@@ -272,26 +252,6 @@ final class EditingOverlayView: NSView {
         tableMenu(at: convert(event.locationInWindow, from: nil))
     }
 
-    /// Mots reconnus douteux, à vérifier.
-    private func drawDoubtfulWords(_ words: [RecognizedWordItem], page: DisplayPage, unit: CGFloat) {
-        for word in words {
-            let box = rotation.apply(to: word.bounds.cgRect, pageSize: page.baseSize)
-            NSColor.systemOrange.withAlphaComponent(0.18).setFill()
-            NSBezierPath(rect: box).fill()
-            stroke(box, .systemOrange, width: unit)
-        }
-    }
-
-    func stroke(_ rect: CGRect, _ color: NSColor, width: CGFloat, dashed: Bool = false) {
-        let path = NSBezierPath(rect: rect)
-        path.lineWidth = width
-        if dashed {
-            path.setLineDash([4 * width, 3 * width], count: 2, phase: 0)
-        }
-        color.setStroke()
-        path.stroke()
-    }
-
     // MARK: - Saisie du texte
 
     private func openEditor(for item: PageObjectItem) {
@@ -341,11 +301,5 @@ final class EditingOverlayView: NSView {
             focusPages()
         }
         needsDisplay = true
-    }
-
-    /// Police de saisie : celle du bloc si elle est installée sur le Mac.
-    static func font(for item: PageObjectItem) -> NSFont {
-        let size = CGFloat(max(item.fontSize, 4))
-        return item.displayFontName.flatMap { NSFont(name: $0, size: size) } ?? .systemFont(ofSize: size)
     }
 }

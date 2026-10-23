@@ -53,20 +53,20 @@ extension PageEditing {
         case .moveRowUp, .moveRowDown:
             // La ligne voisine passe de l'autre côté de la cellule (de toutes
             // ses lignes si elle est fusionnée).
-            let (from, to) = action == .moveRowUp
+            let (from, destination) = action == .moveRowUp
                 ? (item.row - 1, item.row + item.rowSpan - 1)
                 : (item.row + item.rowSpan, item.row)
             done = model.perform {
-                try $0.moveTableBand(page: page, table: table, axis: .rows, from: from, to: to)
+                try $0.moveTableBand(page: page, table: table, axis: .rows, from: from, to: destination)
             }
             let row = action == .moveRowUp ? item.row - 1 : item.row + 1
             next = CellTarget(page: page, table: table, row: row, column: item.column)
         case .moveColumnLeft, .moveColumnRight:
-            let (from, to) = action == .moveColumnLeft
+            let (from, destination) = action == .moveColumnLeft
                 ? (item.column - 1, item.column + item.columnSpan - 1)
                 : (item.column + item.columnSpan, item.column)
             done = model.perform {
-                try $0.moveTableBand(page: page, table: table, axis: .columns, from: from, to: to)
+                try $0.moveTableBand(page: page, table: table, axis: .columns, from: from, to: destination)
             }
             let column = action == .moveColumnLeft ? item.column - 1 : item.column + 1
             next = CellTarget(page: page, table: table, row: item.row, column: column)
