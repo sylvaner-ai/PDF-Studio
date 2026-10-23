@@ -176,6 +176,59 @@ def tableau() -> None:
     doc.build([Paragraph("Facture n° 2026-042", styles["Title"]), Spacer(1, cm), table])
 
 
+def tableaux() -> None:
+    """Tableaux à éditer : grille avec cellules fusionnées, cellules vides et
+    fonds de cellule ; tableau à filets horizontaux seuls (sans filet vertical)."""
+    doc = SimpleDocTemplate(str(OUT / "tableaux.pdf"), pagesize=A4, title="Tableaux",
+                            author="PDF Studio — jeu de test", invariant=1)
+    styles = getSampleStyleSheet()
+    grid = [
+        ["Trimestre", "Ventes", "", "Charges", ""],
+        ["", "France", "Export", "Fixes", "Variables"],
+        ["T1", "120", "45", "80", "30"],
+        ["T2", "135", "", "80", "34"],
+        ["T3", "", "52", "82", ""],
+        ["T4", "160", "61", "85", "41"],
+    ]
+    first = Table(grid, colWidths=[3 * cm, 2.6 * cm, 2.6 * cm, 2.6 * cm, 2.6 * cm])
+    first.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+        ("SPAN", (0, 0), (0, 1)),
+        ("SPAN", (1, 0), (2, 0)),
+        ("SPAN", (3, 0), (4, 0)),
+        ("BACKGROUND", (0, 0), (-1, 1), colors.HexColor("#dde4f0")),
+        ("BACKGROUND", (0, 5), (-1, 5), colors.HexColor("#f4f4f4")),
+        ("FONTNAME", (0, 0), (-1, 1), "Helvetica-Bold"),
+        ("ALIGN", (1, 2), (-1, -1), "RIGHT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    lined = [
+        ["Ville", "Habitants", "Superficie"],
+        ["Lyon", "522 000", "47,9 km²"],
+        ["Nantes", "320 000", "65,2 km²"],
+        ["Rennes", "222 000", "50,4 km²"],
+    ]
+    second = Table(lined, colWidths=[4 * cm, 3.5 * cm, 3.5 * cm])
+    second.setStyle(TableStyle([
+        ("LINEABOVE", (0, 0), (-1, 0), 1.2, colors.black),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.6, colors.black),
+        ("LINEBELOW", (0, 1), (-1, 2), 0.3, colors.grey),
+        ("LINEBELOW", (0, -1), (-1, -1), 1.2, colors.black),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+    ]))
+    doc.build([
+        Paragraph("Résultats trimestriels", styles["Title"]),
+        Spacer(1, cm),
+        first,
+        Spacer(1, 1.5 * cm),
+        Paragraph("Villes", styles["Heading2"]),
+        second,
+        Spacer(1, cm),
+        Paragraph("Source : données fictives pour les tests.", styles["Normal"]),
+    ])
+
+
 def scan_simule() -> None:
     """Page entièrement en image (aucun texte natif), légèrement inclinée et bruitée."""
     rng = random.Random(SEED)
@@ -802,6 +855,7 @@ def main() -> None:
     formats_mixtes()
     vectoriel()
     tableau()
+    tableaux()
     scan_simule()
     chiffre()
     pdf20()
