@@ -241,7 +241,11 @@ complété à chaque jalon.
   (police d'entreprise, Calibri ou Cambria non installées) est remplacée par la
   plus proche, avec un score de ressemblance plus bas. Sur la facture de test
   (200 ppp, tests du moteur), Caladea est retrouvée avec 84 % de ressemblance,
-  Carlito gras avec 91 %, Carlito avec 81 %.
+  Carlito gras avec 91 %, Carlito avec 81 %. Sur un Mac (169 polices
+  candidates, 36 familles), la ligne « Échéance » en Caladea donne Caladea
+  (80 %), Charter (78 %) et American Typewriter (73 %) : la première est juste,
+  mais les suivantes peuvent être des suggestions peu plausibles, les polices
+  d'allure particulière n'étant pas pénalisées.
 - **Graisse :** le nouveau texte peut paraître très légèrement plus gras que
   l'original ; le curseur « Graisse » corrige l'écart.
 - **Fond texturé :** sur papier uni, l'effacement est invisible ; sur un fond
@@ -262,6 +266,6 @@ complété à chaque jalon.
   déplace ou s'efface comme un élément ; réécrite, elle prend une police
   d'imprimerie (l'écriture n'est pas imitée).
 - **Temps de réponse :** la première modification d'une ligne cherche sa police
-  parmi tout le catalogue, et la fenêtre attend la fin de la recherche. La
-  durée dépend du nombre de polices installées ; elle n'a pas encore été
-  mesurée sur un Mac garni de polices.
+  parmi tout le catalogue, et la fenêtre attend la fin de la recherche :
+  environ une seconde pour 169 polices, mesurée sur le test du moteur (profil de
+  développement, MacBook Air) ; davantage avec plus de polices installées.
