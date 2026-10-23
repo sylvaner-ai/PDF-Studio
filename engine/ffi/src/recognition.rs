@@ -280,7 +280,7 @@ pub(crate) fn recognize(
     let engine = Foreign(recognizer);
     let name = engine.name();
     let content = match edits {
-        Some(edits) if !edits.is_empty() => handle.edited_page_content(index, edits)?,
+        Some(edits) if !edits.is_empty() => handle.edited_page_content(index, edits, None)?,
         _ => handle.page_content(index)?,
     };
     let size = content.size();

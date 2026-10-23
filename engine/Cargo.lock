@@ -1024,6 +1024,7 @@ name = "pdfstudio_ffi"
 version = "0.1.0"
 dependencies = [
  "edit",
+ "fonts",
  "ocr",
  "pdf_core",
  "render",

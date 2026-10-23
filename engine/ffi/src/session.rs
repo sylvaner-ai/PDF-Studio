@@ -5,12 +5,14 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use edit::{
-    EditError, Editor, PageEdits, PageEntry, PageOrigin, Recognition, RestoredPage, TextLayer,
-    TextReplacement,
+    EditError, Editor, PageEdits, PageEntry, PageOrigin, Recognition, RestoredPage, ScanStyle,
+    ScanText, TextLayer, TextReplacement,
 };
 use pdf_core::{OutputPage, SourceData};
 
-use crate::content::{restored_content, ContentEdits, ObjectEditItem, PageObjectItem};
+use crate::content::{
+    restored_content, ContentEdits, ObjectEditItem, PageObjectItem, ScanStyleItem,
+};
 use crate::recognition::{
     self, layer_from_items, LayerWordItem, PageRecognition, RecognitionSettings,
     RecognizedWordItem, TextRecognizer, DOUBTFUL_BELOW,
@@ -249,7 +251,7 @@ impl EditSession {
     ) -> Result<(), EngineError> {
         let documents = self.documents();
         let mut kept: Vec<Vec<ObjectEditItem>> = Vec::with_capacity(pages.len());
-        for (page, items) in pages.iter().zip(contents) {
+        for (position, (page, items)) in pages.iter().zip(contents).enumerate() {
             let PageKind::Source { source, index } = page.kind else {
                 kept.push(Vec::new());
                 continue;
@@ -258,9 +260,14 @@ impl EditSession {
                 kept.push(items);
                 continue;
             }
+            // Les objets d'un scan dépendent de sa couche de texte.
+            let layer = layers
+                .get(position)
+                .filter(|items| !items.is_empty())
+                .map(|items| Arc::new(layer_from_items(items, "récupération")));
             let fingerprints = documents
                 .get(source as usize)
-                .and_then(|document| document.handle.page_objects(index, None).ok())
+                .and_then(|document| document.handle.page_objects(index, None, layer).ok())
                 .map(|objects| {
                     objects
                         .into_iter()
@@ -319,9 +326,10 @@ impl EditSession {
         let Some(document) = document else {
             return Ok(Vec::new());
         };
+        let layer = self.text_layer(page);
         Ok(document
             .handle
-            .page_objects(index, edits)?
+            .page_objects(index, edits, layer)?
             .into_iter()
             .map(PageObjectItem::from)
             .collect())
@@ -358,16 +366,94 @@ impl EditSession {
         object: u32,
         text: String,
     ) -> Result<PageObjectItem, EngineError> {
-        let (document, index, _) = self.page_source(page)?;
+        let (document, index, edits) = self.page_source(page)?;
         let document = document.ok_or_else(|| invalid("page vierge"))?;
-        let font = document.handle.choose_font(index, object, &text)?;
-        self.lock()
-            .editor
-            .replace_text(page, object, Some(TextReplacement { text, font }))?;
+        if pdf_core::is_scanned_object(object) {
+            // Ligne d'un scan : la police et les réglages sont retrouvés sur
+            // la ligne à sa première modification, puis gardés.
+            let known = edits
+                .as_ref()
+                .and_then(|edits| edits.get(object))
+                .and_then(|edit| edit.scan.clone());
+            let scan = match known {
+                Some(known) => ScanText { text, ..known },
+                None => {
+                    let layer = self.text_layer(page);
+                    let (style, candidates) = document
+                        .handle
+                        .scan_style(index, object, layer)?
+                        .ok_or_else(|| invalid("ligne inexistante"))?;
+                    ScanText {
+                        text,
+                        measured: style.clone(),
+                        style,
+                        candidates,
+                    }
+                }
+            };
+            self.lock()
+                .editor
+                .replace_scan_text(page, object, Some(scan))?;
+        } else {
+            let font = document.handle.choose_font(index, object, &text)?;
+            self.lock()
+                .editor
+                .replace_text(page, object, Some(TextReplacement { text, font }))?;
+        }
         self.page_objects(page)?
             .into_iter()
             .find(|item| item.id == object)
             .ok_or_else(|| invalid("objet inexistant"))
+    }
+
+    /// Change les réglages du texte retouché de la ligne scannée `object`
+    /// (police, corps, graisse, interlettrage, flou, grain, couleur). Renvoie
+    /// la ligne modifiée.
+    pub fn set_scan_style(
+        &self,
+        page: u64,
+        object: u32,
+        style: ScanStyleItem,
+    ) -> Result<PageObjectItem, EngineError> {
+        let style = ScanStyle::from(&style);
+        if fonts::catalog::shared().find(&style.font).is_none() {
+            return Err(invalid("police indisponible"));
+        }
+        self.lock().editor.set_scan_style(page, object, style)?;
+        self.page_objects(page)?
+            .into_iter()
+            .find(|item| item.id == object)
+            .ok_or_else(|| invalid("objet inexistant"))
+    }
+
+    /// Retouche la ligne scannée `object` avec la police candidate
+    /// `candidate` (rang dans la liste, de 0) et ses réglages ; la couleur et
+    /// le grain sont gardés.
+    pub fn choose_scan_candidate(
+        &self,
+        page: u64,
+        object: u32,
+        candidate: u32,
+    ) -> Result<PageObjectItem, EngineError> {
+        let scan = self
+            .content(page)
+            .and_then(|edits| edits.get(object).and_then(|edit| edit.scan.clone()))
+            .ok_or_else(|| invalid("ligne non retouchée"))?;
+        let chosen = scan
+            .candidates
+            .get(candidate as usize)
+            .ok_or_else(|| invalid("police candidate inexistante"))?;
+        let style = chosen.style(&scan.style);
+        self.set_scan_style(page, object, ScanStyleItem::from(&style))
+    }
+
+    /// Rend à la ligne scannée `object` les réglages mesurés sur le scan.
+    pub fn reset_scan_style(&self, page: u64, object: u32) -> Result<PageObjectItem, EngineError> {
+        let scan = self
+            .content(page)
+            .and_then(|edits| edits.get(object).and_then(|edit| edit.scan.clone()))
+            .ok_or_else(|| invalid("ligne non retouchée"))?;
+        self.set_scan_style(page, object, ScanStyleItem::from(&scan.measured))
     }
 
     /// Supprime des lignes ou des colonnes (numéros actuels) du tableau
@@ -509,8 +595,10 @@ impl EditSession {
     /// Modifications du contenu de la page `page`, pour la rendre ; `None` si
     /// son contenu est celui d'origine.
     pub fn content_edits(&self, page: u64) -> Option<Arc<ContentEdits>> {
-        let edits = self.lock().editor.content(page).cloned()?;
-        Some(Arc::new(ContentEdits { edits }))
+        let state = self.lock();
+        let edits = state.editor.content(page).cloned()?;
+        let layer = state.editor.text_layer(page).cloned();
+        Some(Arc::new(ContentEdits { edits, layer }))
     }
 
     /// Modifications du contenu de la page `page`, à conserver pour la
@@ -522,7 +610,7 @@ impl EditSession {
         };
         let fingerprints: HashMap<u32, String> = document
             .handle
-            .page_objects(index, None)?
+            .page_objects(index, None, self.text_layer(page))?
             .into_iter()
             .map(|object| (object.id, object.fingerprint))
             .collect();
@@ -607,6 +695,9 @@ impl EditSession {
         let (Some(document), Some(layer)) = (document, layer) else {
             return Ok(Vec::new());
         };
+        let layer = document
+            .handle
+            .effective_layer(index, self.content(page), layer)?;
         let to_display = document.handle.display_matrix(index)?;
         Ok(layer
             .words
@@ -639,9 +730,14 @@ impl EditSession {
             return Ok(Vec::new());
         };
         let found = match layer {
-            Some(layer) => document
-                .handle
-                .search_page_with_layer(index, &query, layer)?,
+            Some(layer) => {
+                let layer = document
+                    .handle
+                    .effective_layer(index, self.content(page), layer)?;
+                document
+                    .handle
+                    .search_page_with_layer(index, &query, layer)?
+            }
             None => document.handle.search_page(index, &query)?,
         };
         Ok(search_matches(found))
@@ -735,6 +831,16 @@ impl EditSession {
 }
 
 impl EditSession {
+    /// Couche de texte d'origine de la page `page`, si elle a été reconnue.
+    fn text_layer(&self, page: u64) -> Option<Arc<TextLayer>> {
+        self.lock().editor.text_layer(page).cloned()
+    }
+
+    /// Modifications du contenu de la page `page`.
+    fn content(&self, page: u64) -> Option<Arc<PageEdits>> {
+        self.lock().editor.content(page).cloned()
+    }
+
     /// Documents sources, copiés pour libérer le verrou pendant les lectures.
     fn documents(&self) -> Vec<Arc<PdfDocument>> {
         self.lock()
@@ -792,11 +898,19 @@ impl EditSession {
 
     /// Grille actuelle du tableau `table` de la page `page`.
     fn table_grid(&self, page: u64, table: u32) -> Result<TableInfo, EngineError> {
+        if pdf_core::is_scanned_object(table) {
+            return Err(EngineError::Failed {
+                message: "Les lignes et les colonnes d'un tableau scanné ne se réorganisent pas : \
+                          déplacez ou supprimez le tableau entier, ou modifiez le texte de ses cellules."
+                    .to_owned(),
+                detail: "tableau scanné".to_owned(),
+            });
+        }
         let (document, index, edits) = self.page_source(page)?;
         let document = document.ok_or_else(|| invalid("page vierge"))?;
         document
             .handle
-            .page_objects(index, edits)?
+            .page_objects(index, edits, self.text_layer(page))?
             .into_iter()
             .find(|object| object.id == table)
             .and_then(|object| object.grid)
@@ -1344,6 +1458,93 @@ mod tests {
                 word("4521", 370.0, 0.3),
             ])
         }
+    }
+
+    /// Mots de `scan_retouche.pdf`, tels que les lirait la reconnaissance.
+    fn scan_words() -> Vec<LayerWordItem> {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/scan_retouche.mots.tsv");
+        std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(|line| {
+                let fields: Vec<&str> = line.split('\t').collect();
+                LayerWordItem {
+                    text: fields[0].into(),
+                    quad: fields[2..10].iter().map(|v| v.parse().unwrap()).collect(),
+                    confidence: 0.95,
+                    line: fields[1].parse().unwrap(),
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn retouche_une_page_scannee() {
+        crate::set_font_directories(vec![Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../app/Resources/Fonts")
+            .to_string_lossy()
+            .into_owned()]);
+        let session = EditSession::new(open("scan_retouche.pdf"));
+        let page = session.pages()[0].id;
+        session.apply_recognitions(vec![PageRecognition {
+            words: scan_words(),
+            ..PageRecognition::empty(page, "test".into())
+        }]);
+        let objects = session.page_objects(page).unwrap();
+        let line = objects
+            .iter()
+            .find(|o| o.text.as_deref() == Some("Échéance : 30 avril 2026"))
+            .unwrap()
+            .clone();
+        assert!(line.scanned && line.scan.is_none());
+        let table = objects
+            .iter()
+            .find(|o| o.kind == PageObjectKind::Table)
+            .unwrap()
+            .clone();
+        assert!(session
+            .delete_table_bands(page, table.id, TableAxis::Rows, vec![0])
+            .is_err());
+
+        let edited = session
+            .replace_text(page, line.id, "Échéance : 15 mai 2026".into())
+            .unwrap();
+        let scan = edited.scan.clone().unwrap();
+        assert_eq!(scan.style.family, "Caladea");
+        assert_eq!(scan.candidates.len(), 3);
+        assert_eq!(
+            session.undo_name().as_deref(),
+            Some("la modification du texte")
+        );
+        // Réglage fin, puis autre police candidate, puis retour aux mesures.
+        let bigger = ScanStyleItem {
+            size: scan.style.size + 1.0,
+            ..scan.style.clone()
+        };
+        let edited = session.set_scan_style(page, line.id, bigger).unwrap();
+        assert!((edited.font_size - scan.style.size - 1.0).abs() < 1e-3);
+        let edited = session.choose_scan_candidate(page, line.id, 1).unwrap();
+        assert_eq!(edited.scan.unwrap().style.family, scan.candidates[1].family);
+        let edited = session.reset_scan_style(page, line.id).unwrap();
+        assert_eq!(edited.scan.unwrap().style, scan.measured);
+
+        // Recherche dans la couche à jour, récupération, enregistrement.
+        assert_eq!(session.search_page(page, "15 mai".into()).unwrap().len(), 1);
+        assert!(session
+            .search_page(page, "avril".into())
+            .unwrap()
+            .is_empty());
+        let record = session.content_record(page).unwrap();
+        assert_eq!(record.len(), 1);
+        assert_eq!(
+            restored_content(&record).get(&line.id).unwrap().scan,
+            session.content(page).unwrap().get(line.id).unwrap().scan
+        );
+        let exported = session.export_pdf().unwrap();
+        let reopened = PdfDocument::from_data(exported.bytes, None).unwrap();
+        assert_eq!(reopened.search_page(0, "15 mai".into()).unwrap().len(), 1);
+        assert!(reopened.search_page(0, "avril".into()).unwrap().is_empty());
     }
 
     #[test]
