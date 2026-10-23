@@ -15,6 +15,10 @@ final class CanvasController {
     @ObservationIgnored private var matches: [Int: [SearchMatch]] = [:]
     @ObservationIgnored private var currentMatch: SearchHit?
     @ObservationIgnored private var editing: PageEditing?
+    /// Lecture du texte d'une page par le moteur, pour le sélectionner en mode Lecture.
+    @ObservationIgnored var textSource: (@Sendable (UInt64) async -> [SelectableLine])? {
+        didSet { canvas?.pagesView.text.source = textSource }
+    }
 
     init(pages: [DisplayPage]) {
         self.pages = pages
@@ -31,6 +35,7 @@ final class CanvasController {
         canvas.start(at: currentPage)
         canvas.showMatches(matches, current: currentMatch)
         canvas.setEditing(editing)
+        canvas.pagesView.text.source = textSource
         canvas.onCurrentPageChange = { [weak self] page in
             self?.show(page)
         }

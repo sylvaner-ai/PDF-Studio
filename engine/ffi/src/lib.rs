@@ -122,6 +122,17 @@ pub struct SearchMatch {
     pub rects: Vec<PageRect>,
 }
 
+/// Une ligne de texte que l'utilisateur peut sélectionner : son texte et
+/// l'emprise de chacun de ses caractères.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct SelectableLine {
+    /// Texte de la ligne.
+    pub text: String,
+    /// Emprise de chaque caractère de `text` (un par point de code), dans
+    /// l'ordre, sur la page droite.
+    pub rects: Vec<PageRect>,
+}
+
 /// Entrée du plan du document (signet), en parcours en profondeur.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct OutlineItem {
@@ -294,6 +305,13 @@ impl PdfDocument {
     pub fn search_page(&self, index: u32, query: String) -> Result<Vec<SearchMatch>, EngineError> {
         Ok(search_matches(self.handle.search_page(index, &query)?))
     }
+
+    /// Lignes de texte d'une page, avec l'emprise de chaque caractère : de quoi
+    /// sélectionner et copier le texte à la souris. Le texte invisible d'une
+    /// page déjà reconnue compte comme le reste.
+    pub fn selectable_text(&self, index: u32) -> Result<Vec<SelectableLine>, EngineError> {
+        Ok(selectable_lines(self.handle.glyph_lines(index)?))
+    }
 }
 
 impl PdfDocument {
@@ -301,6 +319,26 @@ impl PdfDocument {
     pub(crate) fn source_data(&self) -> SourceData {
         self.handle.source_data().clone()
     }
+}
+
+/// Lignes sélectionnables du moteur, converties pour l'application.
+pub(crate) fn selectable_lines(found: Vec<pdf_core::GlyphLine>) -> Vec<SelectableLine> {
+    found
+        .into_iter()
+        .map(|line| SelectableLine {
+            text: line.text,
+            rects: line
+                .rects
+                .into_iter()
+                .map(|r| PageRect {
+                    x: r.x,
+                    y: r.y,
+                    width: r.width,
+                    height: r.height,
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 /// Occurrences du moteur, converties pour l'application.

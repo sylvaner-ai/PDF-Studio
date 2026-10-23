@@ -175,3 +175,36 @@ fn couche_sur_une_page_tournee() {
         "texte horizontal à l'écran : {line:?}"
     );
 }
+
+#[test]
+fn texte_selectionnable_avant_et_apres_l_enregistrement() {
+    let handle = DocumentHandle::open(Source::Bytes(fixture("scan_simule.pdf")), None).unwrap();
+    assert!(
+        handle.glyph_lines(0).unwrap().is_empty(),
+        "un scan n'a pas de texte avant la reconnaissance"
+    );
+    let before = handle.glyph_lines_with_layer(0, layer()).unwrap();
+    let texts: Vec<&str> = before.iter().map(|line| line.text.as_str()).collect();
+    assert_eq!(texts, ["L'œuvre coûte 12,50 €", "Évreux"], "{before:?}");
+    for line in &before {
+        assert_eq!(line.rects.len(), line.text.chars().count(), "{line:?}");
+    }
+
+    // Une fois écrite, la couche invisible se retrouve dans le texte de la page.
+    let source = SourceData::new(fixture("scan_simule.pdf"), None);
+    let page = OutputPage::Source {
+        source: 0,
+        index: 0,
+        quarter_turns: 0,
+    };
+    let bytes = write_document(&[source], &[page], &[], &[Some(layer())]).unwrap();
+    let reopened = DocumentHandle::open(Source::Bytes(bytes), None).unwrap();
+    let after = reopened.glyph_lines(0).unwrap();
+    let texts: Vec<&str> = after.iter().map(|line| line.text.as_str()).collect();
+    assert_eq!(texts, ["L'œuvre coûte 12,50 €", "Évreux"], "{after:?}");
+    let first = after[0].rects.first().unwrap();
+    let last = after[0].rects.last().unwrap();
+    assert!((first.x - 72.0).abs() < 0.5, "{first:?}");
+    assert!((last.x + last.width - 221.0).abs() < 0.5, "{last:?}");
+    assert!(last.y > 100.0 && last.y < 142.0, "{last:?}");
+}

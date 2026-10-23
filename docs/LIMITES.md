@@ -150,10 +150,8 @@ complété à chaque jalon.
 - **Mesures :** deux des cinq documents privés de test ont une référence
   inexploitable (texte natif sans Unicode, ou texte invisible) : leur taux n'est
   pas significatif.
-- **Sélection du texte dans l'application :** le mode Lecture affiche les pages
-  en images et ne permet pas de sélectionner ni de copier du texte, natif ou
-  reconnu. Le texte reconnu se sélectionne dans les autres lecteurs (Aperçu,
-  Acrobat) une fois le document enregistré.
+- **Sélection du texte dans l'application :** ajoutée après le jalon 5 (D57),
+  voir « Sélection du texte » plus bas.
 - **Mots douteux :** sur un scan propre, Vision donne une confiance d'au moins
   0,5 à presque tous les mots : aucun n'est alors signalé. Le surlignage
   n'apparaît que sur les scans de moindre qualité.
@@ -337,3 +335,20 @@ complété à chaque jalon.
   (`String(localized:)` et textes SwiftUI), mais le catalogue
   `Localizable.xcstrings` du dépôt est vide : Xcode le remplit lorsqu'on
   compile depuis l'éditeur. L'interface n'existe qu'en français.
+
+## Sélection du texte (suite du jalon 5)
+
+- **Pas de « Tout sélectionner » (⌘A) :** la sélection se fait à la souris ; pour
+  une page entière, un triple-clic prend une ligne, puis ⇧-clic étend.
+- **Ordre du texte copié :** celui du moteur (MuPDF pour le texte natif, OCR pour
+  le reste) ; sur une page à plusieurs colonnes, une sélection qui traverse les
+  colonnes suit cet ordre, qui n'est pas toujours celui de la lecture. Les mots
+  coupés en fin de ligne ne sont pas recollés.
+- **Pages modifiées en mode Édition :** le texte natif d'une page dont le contenu
+  a été modifié n'est pas sélectionnable (il ne correspondrait plus à l'affichage).
+- **Texte reconnu :** les mots sont copiés tels que lus par Vision, y compris les
+  mots douteux ; en mode Lecture, ils ne sont pas signalés.
+- **Accessibilité :** VoiceOver ne lit pas la sélection ; le texte reste lisible
+  par la page elle-même une fois enregistré, dans d'autres lecteurs.
+- **Texte vertical ou couché :** les lignes verticales sont reconnues par leur
+  forme, mais la sélection n'a été vérifiée que sur du texte horizontal.

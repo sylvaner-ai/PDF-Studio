@@ -14,7 +14,7 @@ use crate::error::{PdfError, Result};
 use crate::outline::OutlineEntry;
 use crate::page::{PageContent, PageSize};
 use crate::qos::Qos;
-use crate::text::{PageText, TextLine, TextMatch};
+use crate::text::{GlyphLine, PageText, TextLine, TextMatch};
 use crate::writer::SourceData;
 
 /// Nombre de pages dont le contenu préparé est gardé en mémoire.
@@ -270,6 +270,27 @@ impl DocumentHandle {
             let to_display = worker.doc.display_matrix(index)?;
             let text = native.with_lines(&layer_lines(&layer, &to_display));
             Ok(text.search(&query))
+        })?
+    }
+
+    /// Caractères de la page et leur emprise, ligne par ligne, pour la
+    /// sélection du texte (cf. [`PageText::glyph_lines`]).
+    pub fn glyph_lines(&self, index: u32) -> Result<Vec<GlyphLine>> {
+        self.run(move |worker| Ok(worker.page_text(index)?.glyph_lines()))?
+    }
+
+    /// Comme [`DocumentHandle::glyph_lines`], suivi des lignes de la couche de
+    /// texte `layer`.
+    pub fn glyph_lines_with_layer(
+        &self,
+        index: u32,
+        layer: Arc<TextLayer>,
+    ) -> Result<Vec<GlyphLine>> {
+        self.run(move |worker| {
+            let native = worker.page_text(index)?;
+            let to_display = worker.doc.display_matrix(index)?;
+            let text = native.with_lines(&layer_lines(&layer, &to_display));
+            Ok(text.glyph_lines())
         })?
     }
 

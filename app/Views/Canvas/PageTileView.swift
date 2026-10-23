@@ -31,6 +31,8 @@ final class PageTileView: NSView {
     private let baseView = NSImageView()
     private let detailView = FlippedView()
     private let highlightView = HighlightView()
+    /// Texte sélectionné, en mode Lecture.
+    private let selectionView = TextSelectionView()
     /// Sélection des objets, en mode Édition.
     private var overlay: EditingOverlayView?
 
@@ -61,7 +63,7 @@ final class PageTileView: NSView {
         layer?.shadowOffset = CGSize(width: 0, height: -2)
 
         setFrameSize(pageSize)
-        for view in [baseView, detailView, highlightView] as [NSView] {
+        for view in [baseView, detailView, highlightView, selectionView] as [NSView] {
             view.frame = bounds
             view.autoresizingMask = [.width, .height]
             addSubview(view)
@@ -122,6 +124,7 @@ final class PageTileView: NSView {
         baseView.image = nil
         clearDetail()
         highlightView.update(matches: [], current: nil)
+        selectionView.update(highlights: [], lines: [], isSelectable: false)
         overlay?.configure(page: page, rotation: rotation)
         updateAccessibility()
     }
@@ -174,6 +177,14 @@ final class PageTileView: NSView {
             match.rects.map { rotation.apply(to: $0.cgRect, pageSize: size) }
         }
         highlightView.update(matches: matches.map(convert), current: current)
+    }
+
+    /// Surligne le texte sélectionné et délimite les lignes de texte (rectangles
+    /// sur la page droite) ; `isSelectable` faux : la souris traverse la vue.
+    func showText(highlights: [CGRect], lines: [CGRect], isSelectable: Bool) {
+        let (rotation, size) = (self.rotation, page.baseSize)
+        let convert = { (rect: CGRect) in rotation.apply(to: rect, pageSize: size) }
+        selectionView.update(highlights: highlights.map(convert), lines: lines.map(convert), isSelectable: isSelectable)
     }
 
     func cancelRendering() {

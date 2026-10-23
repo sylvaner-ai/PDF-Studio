@@ -12,6 +12,10 @@ extension PageCanvasView {
         if let editing, handleTabKey(event, editing: editing) || handleEditingKey(event, editing: editing) {
             return true
         }
+        if event.keyCode == 53, pagesView.text.hasSelection {
+            pagesView.text.clear()
+            return true
+        }
         guard let key = ReadingKey(event) else { return false }
         let visible = pagesView.visibleRect
         let screen = visible.height - 4 * PageLayout.spacing

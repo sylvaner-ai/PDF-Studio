@@ -50,6 +50,17 @@ struct DisplayRotation: Equatable, Hashable, Sendable {
         }
     }
 
+    /// Convertit un point de la page tournée en point de la page droite
+    /// (l'inverse de `apply(to:pageSize:)`, pour un point).
+    func unapply(to point: CGPoint, pageSize size: CGSize) -> CGPoint {
+        switch degrees {
+        case 90: return CGPoint(x: point.y, y: size.height - point.x)
+        case 180: return CGPoint(x: size.width - point.x, y: size.height - point.y)
+        case 270: return CGPoint(x: size.width - point.y, y: point.x)
+        default: return point
+        }
+    }
+
     /// Convertit un déplacement sur la page tournée (vers la droite et vers le
     /// bas) en déplacement sur la page droite.
     func unapply(to vector: CGVector) -> CGVector {

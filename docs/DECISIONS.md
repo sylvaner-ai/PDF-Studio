@@ -875,3 +875,32 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   si bien que toute la fenêtre, la liste des vignettes et les menus étaient
   recalculés deux fois par seconde pendant un défilement rapide, avec des
   images manquées (mesures de `make perf`, `docs/PERFORMANCES.md`).
+
+## D57 — Sélection et copie du texte en mode Lecture (suite du jalon 5)
+
+- **Retenu :** en mode Lecture, le texte des pages se sélectionne à la souris
+  (glisser, ⇧-clic, double-clic pour un mot, triple-clic pour une ligne, défilement
+  automatique au bord) et se copie par ⌘C, sans AppKit `PDFView` ni nouvelle
+  dépendance. Le moteur fournit les lignes et l'emprise de chaque caractère
+  (`selectable_text`), tirées du texte déjà employé par la recherche : le texte
+  reconnu se sélectionne donc dès la fin de la lecture, avant l'enregistrement,
+  comme après la réouverture du fichier (texte invisible). L'application garde la
+  sélection par identifiant de page, sur plusieurs pages, et l'abandonne si le
+  texte de la page change.
+- **Texte natif aussi :** le même mécanisme sert à tout le texte de la page ; le
+  limiter à la couche OCR aurait demandé de distinguer les deux sans bénéfice.
+- **Pages modifiées :** une page dont le contenu natif a été modifié en mode
+  Édition, sans couche reconnue, n'a pas de texte sélectionnable : le texte
+  d'origine ne correspondrait plus à ce qui est affiché. Une page scannée
+  retouchée, elle, se sélectionne avec son texte retouché (couche de texte à jour).
+- **Mode Édition :** inchangé ; la sélection y est abandonnée et la souris revient
+  aux objets de la page.
+- **Copie :** une ligne par ligne, ligatures développées (« ﬁ » → « fi »), sans
+  recoller les mots coupés en fin de ligne ; l'ordre des lignes est celui du moteur
+  (ordre de lecture de MuPDF pour le texte natif, ordre de l'OCR pour le reste).
+- **Alternatives écartées :** `PDFView` de PDFKit pour la lecture (remplacerait le
+  rendu par MuPDF, D2) ; un champ de texte invisible par mot (lourd, et
+  inutilisable pour une sélection continue sur plusieurs lignes) ; la sélection
+  dans le moteur (la géométrie du pointeur est un souci d'interface).
+- **Raisons :** demande de Sylvain (2026-10-23) : copier le texte reconnu depuis
+  le volet Lecture.

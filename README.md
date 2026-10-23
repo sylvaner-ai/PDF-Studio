@@ -21,6 +21,14 @@ locale, hors ligne, sans compte ni télémétrie.
 | 8. Design | finition visuelle, animations, mode sombre, icône, accessibilité | terminé (à valider) |
 | 9. Durcissement | performances, récupération, documentation, jeu de tests | terminé (à valider) |
 
+## Lire et copier le texte
+
+- **Sélection à la souris :** en mode Lecture, le texte des pages se sélectionne
+  en glissant (sur plusieurs pages si besoin), ⇧-clic étend la sélection,
+  double-clic prend un mot, triple-clic une ligne. ⌘C (Édition > Copier) place le
+  texte dans le presse-papiers. Cela vaut pour le texte natif et pour le texte
+  reconnu des pages scannées, avant comme après l'enregistrement (D57).
+
 ## Organiser les pages
 
 - **Présentations :** lecture (⌘1) ou grille d'organisation (⌘2) ; ⌘+ et ⌘-
