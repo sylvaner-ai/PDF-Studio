@@ -10,14 +10,23 @@ import Foundation
 struct DocumentReference: Codable, Hashable, Sendable {
     let path: String
     private let bookmark: Data
+    /// Signet ordinaire, sans portée de sécurité : seulement pour un fichier que
+    /// l'application lit sans l'avoir reçu de l'utilisateur (jeu de test des
+    /// captures d'écran). Absent des références enregistrées.
+    private var unscoped: Bool?
 
     init(url: URL) throws {
+        try self.init(url: url, securityScoped: true)
+    }
+
+    init(url: URL, securityScoped: Bool) throws {
         path = url.standardizedFileURL.path
         bookmark = try url.bookmarkData(
-            options: [.withSecurityScope],
+            options: securityScoped ? [.withSecurityScope] : [],
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         )
+        unscoped = securityScoped ? nil : true
     }
 
     var displayName: String {
@@ -29,7 +38,7 @@ struct DocumentReference: Codable, Hashable, Sendable {
         var isStale = false
         let url = try URL(
             resolvingBookmarkData: bookmark,
-            options: [.withSecurityScope],
+            options: unscoped == true ? [] : [.withSecurityScope],
             relativeTo: nil,
             bookmarkDataIsStale: &isStale
         )

@@ -26,16 +26,19 @@ extension PageCanvasView {
         pages.first { $0.id == id }?.rotation(rotation)
     }
 
-    /// Touches de la sélection : Tab et ⇧Tab pour passer d'un objet à l'autre,
-    /// flèches (1 pt, 10 pt avec ⇧), ⌫ et ⌦, Retour pour modifier un texte (ou
-    /// la cellule courante d'un tableau), Échap pour tout désélectionner.
+    /// Tab et ⇧Tab : passer d'un objet à l'autre.
+    func handleTabKey(_ event: NSEvent, editing: PageEditing) -> Bool {
+        let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        guard event.keyCode == 48, flags.subtracting(.shift).isEmpty else { return false }
+        return selectAdjacentObject(forward: !flags.contains(.shift), editing: editing)
+    }
+
+    /// Touches de la sélection : flèches (1 pt, 10 pt avec ⇧), ⌫ et ⌦,
+    /// Retour pour modifier un texte (ou la cellule courante d'un tableau),
+    /// Échap pour tout désélectionner.
     func handleEditingKey(_ event: NSEvent, editing: PageEditing) -> Bool {
         let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
-        guard flags.subtracting(.shift).isEmpty else { return false }
-        if event.keyCode == 48 {
-            return selectAdjacentObject(forward: !flags.contains(.shift), editing: editing)
-        }
-        guard editing.hasSelection, let page = editing.page else { return false }
+        guard flags.subtracting(.shift).isEmpty, editing.hasSelection, let page = editing.page else { return false }
         switch event.keyCode {
         case 53:
             editing.clearSelection()

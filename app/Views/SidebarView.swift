@@ -113,7 +113,7 @@ struct ThumbnailCell: View {
             .animation(.easeOut(duration: Design.Motion.duration), value: image != nil)
             .frame(width: Self.width, height: height)
             .overlay(Rectangle().strokeBorder(.separator, lineWidth: 0.5))
-            .shadow(color: .black.opacity(Double(Design.pageShadowOpacity(dark: colorScheme == .dark))), radius: 2, y: 1)
+            .shadow(color: .black.opacity(shadowOpacity), radius: 2, y: 1)
             Text("\(position + 1)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -129,6 +129,10 @@ struct ThumbnailCell: View {
                 image = nil
             }
         }
+    }
+
+    private var shadowOpacity: Double {
+        Double(Design.pageShadowOpacity(dark: colorScheme == .dark))
     }
 
     private var pixelWidth: Int {

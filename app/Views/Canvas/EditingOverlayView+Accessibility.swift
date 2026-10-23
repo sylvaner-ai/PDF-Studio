@@ -77,22 +77,28 @@ final class PageObjectElement: NSAccessibilityElement {
             : String(localized: "Cet objet ne peut pas être modifié."))
     }
 
+    // VoiceOver interroge l'élément sur le fil principal ; seules la vue (isolée
+    // au fil principal) et le numéro de l'objet entrent dans les fermetures.
+
     override func accessibilityParent() -> Any? {
-        MainActor.assumeIsolated { overlay }
+        overlay
     }
 
     override func accessibilityFrame() -> NSRect {
-        MainActor.assumeIsolated { overlay?.screenFrame(ofObject: objectID) ?? .zero }
+        let (overlay, id) = (overlay, objectID)
+        return MainActor.assumeIsolated { overlay?.screenFrame(ofObject: id) ?? .zero }
     }
 
     override func isAccessibilitySelected() -> Bool {
-        MainActor.assumeIsolated { overlay?.isObjectSelected(objectID) ?? false }
+        let (overlay, id) = (overlay, objectID)
+        return MainActor.assumeIsolated { overlay?.isObjectSelected(id) ?? false }
     }
 
     override func accessibilityPerformPress() -> Bool {
-        MainActor.assumeIsolated {
+        let (overlay, id) = (overlay, objectID)
+        return MainActor.assumeIsolated {
             guard let overlay else { return false }
-            overlay.selectObject(objectID)
+            overlay.selectObject(id)
             return true
         }
     }

@@ -56,7 +56,9 @@ final class DesignSnapshotTests: XCTestCase {
     private func captureDocument(
         _ name: String, as file: String, in folder: URL, prepare: (DocumentViewModel) -> Void
     ) throws {
-        let model = DocumentViewModel(reference: try DocumentReference(url: try fixture(name)))
+        // Un fichier du bundle de test ne peut pas recevoir de signet de sécurité.
+        let reference = try DocumentReference(url: try fixture(name), securityScoped: false)
+        let model = DocumentViewModel(reference: reference)
         Task { await model.open() }
         wait(upTo: 5) { model.phase == .ready }
         XCTAssertEqual(model.phase, .ready, name)
