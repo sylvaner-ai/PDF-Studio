@@ -292,6 +292,10 @@ complété à chaque jalon.
 - **Tab dans le mode Édition :** Tab sert à passer d'un objet à l'autre ; pour
   quitter les pages au clavier, aller au bout du document ou utiliser ⌃Tab
   (convention de macOS, non vérifiée sur ce canevas).
-- **Captures d'écran (`make snapshots`) :** les matériaux translucides y
-  apparaissent sans le flou de l'arrière-plan ; elles ne remplacent pas la
-  revue de l'application elle-même.
+- **Captures d'écran (`make snapshots`) :** elles ne remplacent pas la revue de
+  l'application elle-même. Sous macOS 27, constaté le 23 octobre 2026 : la barre
+  latérale en verre (« Liquid Glass ») y apparaît souvent vide ou blanche, la
+  sélection d'une vignette noire, et le surlignage de la recherche (mode
+  « produit ») y est dessiné sans son mélange, si bien que le mot trouvé semble
+  jaune ; ces défauts tiennent à la capture (`cacheDisplay`), pas à
+  l'application.

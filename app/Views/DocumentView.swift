@@ -214,18 +214,18 @@ struct ReaderView: View {
             ToolbarItem(placement: .primaryAction) {
                 RecognitionMenu(model: model)
             }
-            // La comparaison ne sert qu'à contrôler des retouches : elle n'apparaît
-            // qu'en mode Édition (elle reste au menu Présentation, ⌥⌘K).
-            if model.workspace == .editing {
-                ToolbarItem(placement: .primaryAction) {
+            // Un seul groupe : un élément de barre d'outils ajouté sous condition
+            // remplaçait le bouton Enregistrer (constaté sous macOS 27).
+            ToolbarItemGroup(placement: .primaryAction) {
+                // La comparaison ne sert qu'à contrôler des retouches : elle n'apparaît
+                // qu'en mode Édition (elle reste au menu Présentation, ⌥⌘K).
+                if model.workspace == .editing {
                     Toggle(isOn: $model.isComparing) {
                         Label("Comparer avec l'original", systemImage: "square.split.2x1")
                     }
                     .help(Text("Montrer les pages sans leurs modifications, pour les comparer (⌥⌘K)"))
                     .disabled(!model.canCompare && !model.isComparing)
                 }
-            }
-            ToolbarItem(placement: .primaryAction) {
                 Button { model.save() } label: {
                     Label("Enregistrer", systemImage: "square.and.arrow.down")
                 }
