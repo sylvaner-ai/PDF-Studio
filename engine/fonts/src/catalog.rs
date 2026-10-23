@@ -182,7 +182,30 @@ impl Catalog {
         }
     }
 
+    /// Ajoute les polices installées des familles données. Sur le Mac, les
+    /// fichiers sont retrouvés par Core Text (font-kit n'y donne que leurs
+    /// données, qu'il faudrait garder en mémoire).
+    #[cfg(target_os = "macos")]
+    pub fn add_installed_families(&mut self, families: &[&str]) {
+        use core_text::font_collection;
+
+        for family in families {
+            let Some(descriptors) =
+                font_collection::create_for_family(family).and_then(|c| c.get_descriptors())
+            else {
+                continue;
+            };
+            for descriptor in descriptors.iter() {
+                if let Some(path) = descriptor.font_path() {
+                    let name = descriptor.font_name();
+                    self.add_file(&path, Some(&Only::Name(name)), false);
+                }
+            }
+        }
+    }
+
     /// Ajoute les polices installées des familles données.
+    #[cfg(not(target_os = "macos"))]
     pub fn add_installed_families(&mut self, families: &[&str]) {
         use font_kit::handle::Handle;
         use font_kit::source::SystemSource;
@@ -194,14 +217,15 @@ impl Catalog {
             };
             for font in handle.fonts() {
                 if let Handle::Path { path, font_index } = font {
-                    self.add_file(path, Some(*font_index), false);
+                    self.add_file(path, Some(&Only::Index(*font_index)), false);
                 }
             }
         }
     }
 
-    /// Ajoute les polices d'un fichier : toutes, ou celle d'indice `only`.
-    fn add_file(&mut self, path: &Path, only: Option<u32>, bundled: bool) {
+    /// Ajoute les polices d'un fichier : toutes, ou seulement celle que
+    /// désigne `only`.
+    fn add_file(&mut self, path: &Path, only: Option<&Only>, bundled: bool) {
         if std::fs::metadata(path).map_or(true, |meta| meta.len() > MAX_FILE_BYTES) {
             return;
         }
@@ -210,12 +234,15 @@ impl Catalog {
         };
         let count = rustybuzz::ttf_parser::fonts_in_collection(&data).unwrap_or(1);
         for index in 0..count {
-            if only.is_some_and(|only| only != index) {
+            if matches!(only, Some(Only::Index(only)) if *only != index) {
                 continue;
             }
             let Some(info) = describe(&data, index, path, bundled) else {
                 continue;
             };
+            if matches!(only, Some(Only::Name(name)) if *name != info.postscript_name) {
+                continue;
+            }
             if self
                 .faces
                 .iter()
@@ -276,6 +303,16 @@ impl Catalog {
         }
         Some(data)
     }
+}
+
+/// Police à retenir dans un fichier (collection `.ttc`).
+enum Only {
+    /// D'indice donné.
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
+    Index(u32),
+    /// De nom PostScript donné.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    Name(String),
 }
 
 /// Catalogue partagé par l'application, établi au premier usage.

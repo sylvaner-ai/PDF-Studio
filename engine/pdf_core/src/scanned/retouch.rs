@@ -269,7 +269,7 @@ pub(crate) fn retouch(model: &ScanModel, layer: &TextLayer, edits: &PageEdits) -
             zone.contains(x as i32, y as i32)
         };
         for word in changes.words.iter_mut() {
-            if word.as_ref().is_some_and(&inside) {
+            if word.as_ref().is_some_and(inside) {
                 if edit.deleted {
                     *word = None;
                 } else if let Some(word) = word {

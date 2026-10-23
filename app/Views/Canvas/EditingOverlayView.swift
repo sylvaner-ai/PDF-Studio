@@ -78,7 +78,7 @@ final class EditingOverlayView: NSView {
     }
 
     /// Emprise d'un objet dans la vue.
-    private func frame(of item: PageObjectItem) -> CGRect {
+    func frame(of item: PageObjectItem) -> CGRect {
         guard let page else { return .zero }
         return rotation.apply(to: item.bounds.cgRect, pageSize: page.baseSize)
     }

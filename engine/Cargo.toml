@@ -34,6 +34,8 @@ mupdf = { version = "0.8", default-features = false, features = ["base14-fonts",
 thiserror = "2"
 # Recherche des polices installées (déjà utilisée par MuPDF, même version).
 font-kit = "0.14"
+# Fichiers des polices installées sur le Mac (déjà utilisée par font-kit, même version).
+core-text = "20.1"
 # Mise en forme du texte (crénage, ligatures) et lecture des polices.
 rustybuzz = "0.20"
 # Rendu des contours des glyphes en couverture anticrénelée.

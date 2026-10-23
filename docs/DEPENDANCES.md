@@ -24,6 +24,7 @@ préférées à qualité équivalente.
 | `rustybuzz` 0.20 | mise en forme du texte réécrit dans un scan (jalon 7) | MIT |
 | `ttf-parser` 0.25 (via `rustybuzz`) | lecture des polices du catalogue (jalon 7) | MIT ou Apache-2.0 |
 | `ab_glyph_rasterizer` 0.1 | rastérisation des glyphes à la résolution du scan (jalon 7) | Apache-2.0 |
+| `core-text` 20.1 (déjà utilisé par `font-kit`) | fichiers des polices installées sur le Mac, pour le catalogue de l'appariement (jalon 7) | MIT ou Apache-2.0 |
 
 **AGPL-3.0 (MuPDF, jbig2dec) :** cette licence oblige à fournir le code source à
 quiconque reçoit le logiciel ou l'utilise à travers un réseau. Pour un usage

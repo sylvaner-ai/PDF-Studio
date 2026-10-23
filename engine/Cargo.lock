@@ -557,6 +557,7 @@ name = "fonts"
 version = "0.1.0"
 dependencies = [
  "ab_glyph_rasterizer",
+ "core-text",
  "font-kit",
  "rustybuzz",
 ]
