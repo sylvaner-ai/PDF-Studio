@@ -10,7 +10,7 @@ struct RecognitionMenu: View {
             Button("Pages scannées du document") { model.recognizeText(.scannedPages) }
             Button("Page courante") { model.recognizeText(.currentPage) }
             Button("Pages sélectionnées") { model.recognizeText(.selection) }
-                .disabled(model.selection.isEmpty)
+                .disabled(model.selectionCount == 0)
             Divider()
             Button("Tout le document") { model.recognizeText(.allPages) }
         } label: {

@@ -68,18 +68,22 @@ final class PerformanceTests: XCTestCase {
         var rows: [String] = []
         var details: [String] = []
         var period: CFTimeInterval = 1.0 / 60
-        for name in ["multipage_100", "volumineux_600", "tableaux"] {
-            let stats = try scroll(name, speed: 2000, pages: 25)
+        // Dernière mesure, pour le diagnostic : la page lue n'est plus publiée
+        // (sous-titre, vignettes et menus ne suivent pas le défilement).
+        let runs = [("multipage_100", true), ("volumineux_600", true), ("tableaux", true), ("volumineux_600", false)]
+        for (name, publishes) in runs {
+            let stats = try scroll(name, speed: 2000, pages: 25, publishesPage: publishes)
             period = stats.period
             let frames = stats.frames
+            let label = publishes ? "\(name).pdf" : "\(name).pdf, page lue non publiée"
             rows.append(
-                "| \(name).pdf | \(frames) | \(String(format: "%.1f", stats.rate)) | "
+                "| \(label) | \(frames) | \(String(format: "%.1f", stats.rate)) | "
                     + "\(stats.missed) (\(percent(stats.missed, of: frames))) | "
                     + "\(stats.missedWithNewImage) | \(fine(stats.work.mean(frames))) | "
                     + "\(fine(stats.work.max)) | \(percent(stats.blankFrames, of: frames)) |"
             )
             details.append(
-                "| \(name).pdf | \(fine(stats.layout.mean(frames))) / \(fine(stats.layout.max)) | "
+                "| \(label) | \(fine(stats.layout.mean(frames))) / \(fine(stats.layout.max)) | "
                     + "\(fine(stats.display.mean(frames))) / \(fine(stats.display.max)) | "
                     + "\(fine(stats.commit.mean(frames))) / \(fine(stats.commit.max)) | "
                     + "\(stats.slowFrames) | \(stats.slowWithNewPage) | \(stats.slowWithNewImage) |"
@@ -111,7 +115,7 @@ final class PerformanceTests: XCTestCase {
     }
 
     /// Fait défiler `pages` pages du document à `speed` points par seconde.
-    private func scroll(_ name: String, speed: CGFloat, pages: Int) throws -> ScrollStats {
+    private func scroll(_ name: String, speed: CGFloat, pages: Int, publishesPage: Bool) throws -> ScrollStats {
         let model = DocumentViewModel(reference: try reference(name))
         Task { await model.open() }
         wait(upTo: 5) { model.phase == .ready }
@@ -122,6 +126,9 @@ final class PerformanceTests: XCTestCase {
         }
         wait(seconds: 1.5)
         let canvas = try XCTUnwrap(find(PageCanvasView.self, in: window.contentView))
+        if !publishesPage {
+            canvas.onCurrentPageChange = nil
+        }
         let visible = canvas.documentVisibleRect
         let height = canvas.documentView?.frame.height ?? 0
         let pageHeight = height / CGFloat(max(model.pageCount, 1))

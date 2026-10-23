@@ -22,7 +22,7 @@ struct DocumentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .underPageBackgroundColor))
             .navigationTitle(model.title)
-            .navigationSubtitle(subtitle)
+            .modifier(DocumentSubtitle(model: model))
             .focusedSceneValue(\.documentModel, model)
             .background(DocumentWindowBridge(model: model, isModified: model.isModified))
             .overlay(alignment: .bottom) {
@@ -149,10 +149,23 @@ struct DocumentView: View {
         return message + "\n\n" + String(localized: "Le fichier a été modifié depuis par une autre application.")
     }
 
+}
+
+/// Sous-titre de la fenêtre : la page lue, ou la sélection de la grille.
+///
+/// Calculé à part de ``DocumentView`` : la page lue change à chaque page qui
+/// défile, et seul ce sous-titre est alors recalculé, pas toute la fenêtre.
+private struct DocumentSubtitle: ViewModifier {
+    let model: DocumentViewModel
+
+    func body(content: Content) -> some View {
+        content.navigationSubtitle(subtitle)
+    }
+
     private var subtitle: String {
         guard model.phase == .ready else { return "" }
-        if model.workspace == .organizing, model.selection.count > 1 {
-            return String(localized: "\(model.selection.count) pages sélectionnées sur \(model.pageCount)")
+        if model.workspace == .organizing, model.selectionCount > 1 {
+            return String(localized: "\(model.selectionCount) pages sélectionnées sur \(model.pageCount)")
         }
         return model.pageCount == 1
             ? String(localized: "1 page")

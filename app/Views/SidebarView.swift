@@ -69,7 +69,22 @@ struct ThumbnailList: View {
                       position != controller.currentPage else { return }
                 controller.go(to: position)
             }
-            .onChange(of: controller.currentPage) { _, page in
+            .modifier(FollowCurrentPage(model: model, proxy: proxy))
+        }
+    }
+}
+
+/// La vignette de la page lue est sélectionnée et montrée.
+///
+/// À part de ``ThumbnailList`` : la page lue change à chaque page qui défile,
+/// et la liste de toutes les vignettes n'a pas à être recalculée pour autant.
+private struct FollowCurrentPage: ViewModifier {
+    let model: DocumentViewModel
+    let proxy: ScrollViewProxy
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: model.canvas.currentPage) { _, page in
                 guard let id = model.pages[safe: page]?.id else { return }
                 if model.selection.count <= 1 {
                     model.selection = [id]
@@ -77,10 +92,9 @@ struct ThumbnailList: View {
                 proxy.scrollTo(id)
             }
             .onAppear {
-                guard let id = model.pages[safe: controller.currentPage]?.id else { return }
+                guard let id = model.pages[safe: model.canvas.currentPage]?.id else { return }
                 proxy.scrollTo(id)
             }
-        }
     }
 }
 

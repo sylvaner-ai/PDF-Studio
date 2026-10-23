@@ -30,7 +30,16 @@ final class DocumentViewModel {
     /// Pages du document, dans l'ordre.
     private(set) var pages: [DisplayPage] = []
     /// Pages sélectionnées dans les vignettes, par identifiant.
-    var selection: Set<UInt64> = []
+    var selection: Set<UInt64> = [] {
+        didSet {
+            if selection.count != selectionCount {
+                selectionCount = selection.count
+            }
+        }
+    }
+    /// Nombre de pages sélectionnées, publié seulement quand il change : la
+    /// sélection suit la page lue, et les menus ne dépendent que de ce nombre.
+    private(set) var selectionCount = 0
     /// Lecture des pages, grille pour les organiser, ou édition de leur contenu.
     var workspace = Workspace.reading {
         didSet {
@@ -272,6 +281,20 @@ extension DocumentViewModel {
             return selected
         }
         return pages.indices.contains(canvas.currentPage) ? [canvas.currentPage] : selected
+    }
+
+    /// Nombre de pages visées (``targetPositions``), sans lire la page courante :
+    /// les menus qui en dépendent ne sont pas recalculés à chaque page qui défile.
+    var targetCount: Int {
+        if workspace == .organizing || selectionCount > 1 {
+            return positions(of: selection).count
+        }
+        return pages.isEmpty ? 0 : 1
+    }
+
+    /// Les pages visées peuvent être supprimées (il en reste au moins une).
+    var canDeleteTargets: Bool {
+        canEdit && targetCount > 0 && targetCount < pages.count
     }
 
     /// Positions des pages désignées par leur identifiant, dans l'ordre du document.
