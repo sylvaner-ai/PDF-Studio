@@ -861,3 +861,17 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   `cargo tree`), et le code Swift n'emploie aucune API réseau.
 - **Raisons :** §6 (aucune connexion réseau) ; une garantie du système vaut
   mieux qu'une relecture du code.
+
+## D56 — Page lue publiée sans recalculer la fenêtre (jalon 9)
+
+- **Retenu :** la page lue change à chaque page qui défile. Seuls en dépendent
+  désormais le sous-titre de la fenêtre et le suivi de la page par les
+  vignettes, calculés chacun dans un modificateur SwiftUI à part
+  (`DocumentSubtitle`, `FollowCurrentPage`). Les menus ne lisent plus la page
+  lue : « page précédente/suivante possible » et le nombre de pages
+  sélectionnées sont publiés seulement quand ils changent (`canGoBack`,
+  `canGoForward`, `selectionCount`, `targetCount`).
+- **Raisons :** le sous-titre était calculé dans le corps de `DocumentView`,
+  si bien que toute la fenêtre, la liste des vignettes et les menus étaient
+  recalculés deux fois par seconde pendant un défilement rapide, avec des
+  images manquées (mesures de `make perf`, `docs/PERFORMANCES.md`).

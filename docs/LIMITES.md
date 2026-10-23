@@ -319,6 +319,12 @@ complété à chaque jalon.
 - **Plan abîmé :** si une seule entrée du plan est illisible, tout le plan est
   ignoré et la barre latérale n'affiche pas de signets, même si les autres
   entrées étaient lisibles.
+- **Défilement des gros documents :** sur 600 pages, le défilement rapide
+  atteint 56 à 59 images par seconde (1,6 à 6,6 % d'images manquées selon
+  l'essai), 59,5 sur 100 pages : l'image où la page lue change (sous-titre,
+  vignette sélectionnée et défilement de la barre latérale) prend jusqu'à
+  30–40 ms. Sans cette mise à jour, le défilement tient 60 images par seconde
+  (`docs/PERFORMANCES.md`). Les Mac à écran 120 Hz n'ont pas été mesurés.
 - **Mesures de performance (`make perf`) :** elles sont prises dans
   l'application compilée en configuration Debug avec optimisations (`-O`),
   hébergeant les tests, et non dans la version Release distribuée par

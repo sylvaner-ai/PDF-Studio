@@ -340,7 +340,8 @@ lancé depuis Xcode reste donc à jour.
   (`CrashRecoveryTests`) et l'absence d'autorisation réseau (`PrivacyTests`).
 - `make perf` : mesures de performance du §6 dans l'application compilée avec
   optimisations (`PerformanceTests`, ignoré par `make test-app`) ; rapport dans
-  `~/Library/Caches/PDFStudio/perf/rapport.md` (D54).
+  `~/Library/Caches/PDFStudio/perf/rapport.md` (D54) ; résultats dans
+  `docs/PERFORMANCES.md`.
 - `tests/fixtures/generate.py` régénère le jeu de PDF publics, dont
   `organisation.pdf` (signets, liens, champs, note, numérotation et métadonnées à
   préserver) et `signature_factice.pdf` (champ de signature) pour le jalon 3,

@@ -96,6 +96,7 @@ locale, hors ligne, sans compte ni télémétrie.
 | Fonctionnalités du §4 sur le jeu de test | testées automatiquement (`make test`) ; à valider à l'usage |
 | 10 textes modifiés dans des PDF natifs, identiques à 100 % de zoom | évaluation de Sylvain à faire |
 | 10 textes modifiés dans des scans, indiscernables dans au moins 7 cas | évaluation de Sylvain à faire ; échecs à consigner dans LIMITES |
+| Performances du §6 (100 pages en moins de 2 s, 60 images/s, OCR en moins de 5 s) | 19 ms ; 59,5 images/s sur 100 pages, 56 à 59 sur 600 ; 0,3 à 0,5 s ([mesures](docs/PERFORMANCES.md)) |
 | OCR ≥ 98 % sur des scans propres en français | atteint : 98,63 à 99,68 % avec Vision ([banc d'essai](docs/OCR_BENCHMARK.md)) |
 | Interface conforme au §5 | revue visuelle de Sylvain (`make snapshots` aide à la refaire) |
 | Aucun original modifié sans confirmation, aucune connexion réseau | vérifié par des tests (`CrashRecoveryTests`, `PrivacyTests`) et par le bac à sable |
