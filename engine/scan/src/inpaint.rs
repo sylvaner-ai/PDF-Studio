@@ -39,8 +39,17 @@ impl Ord for Front {
 
 /// Comble les pixels marqués de `mask` à partir des pixels voisins, dans un
 /// rayon de `radius` pixels, puis leur ajoute un grain gaussien d'écart type
-/// `grain` (tirage reproductible depuis `seed`).
-pub fn inpaint(image: &mut RgbImage, mask: &Mask, radius: f32, grain: f32, seed: u64) {
+/// `grain` (tirage reproductible depuis `seed`). Au cœur d'une grande zone,
+/// loin de tout pixel connu, la couleur tend vers `far` (couleur du papier)
+/// si elle est donnée : la propagation seule y tracerait des rayons.
+pub fn inpaint(
+    image: &mut RgbImage,
+    mask: &Mask,
+    radius: f32,
+    grain: f32,
+    seed: u64,
+    far: Option<[f32; 3]>,
+) {
     let bounds = image.bounds();
     let work = mask
         .rect
@@ -100,15 +109,28 @@ pub fn inpaint(image: &mut RgbImage, mask: &Mask, radius: f32, grain: f32, seed:
             let t = solve(&dist, &state, work, nx, ny);
             dist[n] = t;
             state[n] = State::Band;
-            let color = estimate(image, &dist, &state, work, nx, ny, reach, r);
-            let color = if grain > 0.0 {
-                let g = grain * noise.gaussian();
-                color.map(|c| c + g)
-            } else {
-                color
-            };
+            let mut color = estimate(image, &dist, &state, work, nx, ny, reach, r);
+            if let Some(far) = far {
+                let w = ((t - 2.0) / 4.0).clamp(0.0, 1.0);
+                for (c, f) in color.iter_mut().zip(far) {
+                    *c += (f - *c) * w;
+                }
+            }
             image.set_f(nx, ny, color);
             heap.push(Front(t, nx, ny));
+        }
+    }
+    // Le grain est ajouté une fois la zone comblée : propagé, il dessinerait
+    // des traînées.
+    if grain > 0.0 {
+        for y in mask.rect.y0..mask.rect.y1 {
+            for x in mask.rect.x0..mask.rect.x1 {
+                if mask.get(x, y) && bounds.contains(x, y) {
+                    let g = grain * noise.gaussian();
+                    let c = image.get_f(x, y);
+                    image.set_f(x, y, c.map(|v| v + g));
+                }
+            }
         }
     }
 }
@@ -227,7 +249,7 @@ mod tests {
                 mask.set(x, y, true);
             }
         }
-        inpaint(&mut image, &mask, 4.0, 0.0, 1);
+        inpaint(&mut image, &mask, 4.0, 0.0, 1, None);
         for y in 4..16 {
             for x in 18..22 {
                 let v = image.get_f(x, y)[0];
@@ -246,7 +268,7 @@ mod tests {
                 mask.set(x, y, true);
             }
         }
-        inpaint(&mut image, &mask, 3.0, 2.0, 3);
+        inpaint(&mut image, &mask, 3.0, 2.0, 3, None);
         let v = image.get_f(0, 5)[0];
         assert!((v - 240.0).abs() < 10.0, "{v}");
     }

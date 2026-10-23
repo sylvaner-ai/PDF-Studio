@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use edit::{FontChoice, PageEdits, TableEdit, TextReplacement};
+use edit::{FontChoice, PageEdits, ScanText, TableEdit, TextReplacement};
 use layout::{Cell, Restructure};
 use mupdf::path::PathWalker;
 use mupdf::pdf::{PdfDocument, PdfObject};
@@ -79,6 +79,10 @@ pub struct ObjectInfo {
     pub table: Option<u32>,
     /// Grille d'un tableau, modifications comprises.
     pub grid: Option<TableInfo>,
+    /// Objet d'une page scannée (pixels de l'image du scan).
+    pub scanned: bool,
+    /// Texte retouché d'une ligne scannée, avec ses réglages.
+    pub scan: Option<ScanText>,
 }
 
 /// Grille d'un tableau, telle que l'affiche l'application.
@@ -725,6 +729,8 @@ impl PageModel {
                 fingerprint: fingerprint(object),
                 table: object.table,
                 grid: None,
+                scanned: false,
+                scan: None,
             });
         }
         infos
@@ -830,6 +836,8 @@ impl PageModel {
             fingerprint: fingerprint(object),
             table: None,
             grid: Some(grid),
+            scanned: false,
+            scan: None,
         })
     }
 
@@ -890,7 +898,7 @@ fn page_contents(page: &PdfObject) -> Result<Vec<u8>> {
 }
 
 /// Zone visible de la page, dans l'espace de la page PDF.
-fn page_box(page: &PdfObject) -> Result<Rect> {
+pub(crate) fn page_box(page: &PdfObject) -> Result<Rect> {
     let read = |key: &str| -> Result<Option<Rect>> {
         let Some(array) = page.get_dict_inheritable(key)? else {
             return Ok(None);

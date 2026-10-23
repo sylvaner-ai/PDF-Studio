@@ -16,6 +16,7 @@ use std::sync::Arc;
 use crate::content::{ObjectEdit, PageEdits, TableEdit, TextReplacement};
 use crate::history::{Command, History};
 use crate::layer::TextLayer;
+use crate::scan::{ScanStyle, ScanText};
 
 /// Origine d'une page.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -340,6 +341,35 @@ impl Editor {
     ) -> Result<()> {
         self.edit_objects(page, &[object], "la modification du texte", |edit| {
             edit.text = text.clone();
+        })
+    }
+
+    /// Remplace le texte d'une ligne d'une page scannée ; `None` rend à la
+    /// ligne son texte d'origine.
+    pub fn replace_scan_text(
+        &mut self,
+        page: u64,
+        object: u32,
+        text: Option<ScanText>,
+    ) -> Result<()> {
+        self.edit_objects(page, &[object], "la modification du texte", |edit| {
+            edit.scan = text.clone();
+        })
+    }
+
+    /// Change les réglages du texte retouché d'une ligne scannée.
+    pub fn set_scan_style(&mut self, page: u64, object: u32, style: ScanStyle) -> Result<()> {
+        let has_text = self
+            .content(page)
+            .and_then(|content| content.get(object))
+            .is_some_and(|edit| edit.scan.is_some());
+        if !has_text {
+            return Err(EditError::EmptySelection);
+        }
+        self.edit_objects(page, &[object], "le réglage du texte", |edit| {
+            if let Some(scan) = &mut edit.scan {
+                scan.style = style.clone();
+            }
         })
     }
 

@@ -101,14 +101,19 @@ pub fn observe(image: &RgbImage, frame: &LineFrame, words: &[(String, f64, f64)]
     let (color, ink_grain) = if cores.is_empty() {
         ([0.0; 3], 0.0)
     } else {
+        let mean = cores.iter().map(|p| luma(*p)).sum::<f32>() / cores.len() as f32;
+        let var = cores.iter().map(|p| (luma(*p) - mean).powi(2)).sum::<f32>() / cores.len() as f32;
+        // Couleur de l'encre : celle des pixels les plus sombres, que le flou
+        // du scan n'a pas éclaircis (le rendu sera flouté à son tour).
+        let mut darkest = cores.clone();
+        darkest.sort_by(|a, b| luma(*a).total_cmp(&luma(*b)));
+        darkest.truncate(darkest.len().div_ceil(5));
         let mut color = [0.0; 3];
         for (c, value) in color.iter_mut().enumerate() {
-            let mut v: Vec<f32> = cores.iter().map(|p| p[c]).collect();
+            let mut v: Vec<f32> = darkest.iter().map(|p| p[c]).collect();
             v.sort_by(f32::total_cmp);
             *value = v[v.len() / 2];
         }
-        let mean = luma(color);
-        let var = cores.iter().map(|p| (luma(*p) - mean).powi(2)).sum::<f32>() / cores.len() as f32;
         (color, var.sqrt())
     };
     let baseline = baseline(&ink, w, h);
@@ -143,10 +148,20 @@ fn baseline(ink: &[f32], w: usize, h: usize) -> f32 {
     if peak <= 0.0 {
         return h as f32 * 0.8;
     }
-    let last = rows.iter().rposition(|r| *r >= 0.3 * peak).unwrap_or(h - 1);
-    // Bord inférieur adouci : fraction de la rangée suivante.
+    // Niveau juste au-dessus du bord : maximum des trois dernières rangées
+    // denses (les empattements et les panses y ajoutent de l'encre).
+    let dense = rows.iter().rposition(|r| *r >= 0.3 * peak).unwrap_or(h - 1);
+    let level = rows[dense.saturating_sub(2)..=dense]
+        .iter()
+        .copied()
+        .fold(0.0, f32::max);
+    let half = 0.5 * level;
+    let last = rows.iter().rposition(|r| *r >= half).unwrap_or(h - 1);
+    // Bord flou : là où la densité passe sous la moitié de celle du corps,
+    // entre le centre de la dernière rangée dense et celui de la suivante.
     let next = rows.get(last + 1).copied().unwrap_or(0.0);
-    last as f32 + 1.0 + (next / rows[last].max(1e-3)).min(0.5)
+    let drop = (rows[last] - next).max(1e-3);
+    last as f32 + 0.5 + ((rows[last] - half) / drop).clamp(0.0, 1.0)
 }
 
 /// Couleur interpolée au point `(x, y)` (centres des pixels aux entiers).

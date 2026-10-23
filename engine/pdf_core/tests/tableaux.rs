@@ -25,7 +25,7 @@ fn fixture(name: &str) -> Vec<u8> {
 fn objects(bytes: &[u8], edits: Option<&PageEdits>) -> Vec<ObjectInfo> {
     Document::from_bytes(bytes, None)
         .unwrap()
-        .page_objects(0, edits)
+        .page_objects(0, edits, None)
         .unwrap()
 }
 

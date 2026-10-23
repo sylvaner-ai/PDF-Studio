@@ -94,6 +94,8 @@ const MAX_WORDS: usize = 10;
 const ITALIC_SHEAR: f32 = 0.07;
 /// Flous essayés, en pixels.
 const BLURS: [f32; 8] = [0.0, 0.3, 0.5, 0.75, 1.0, 1.3, 1.7, 2.2];
+/// Corrections de taille essayées sur les meilleures polices.
+const SCALE_FACTORS: [f32; 6] = [0.91, 0.94, 0.97, 1.03, 1.06, 1.09];
 /// Graisses essayées.
 const WEIGHTS: [f32; 7] = [-0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75];
 /// Flou appliqué au rendu pendant le tri des polices, en part du cadratin.
@@ -274,6 +276,18 @@ fn prepare(observation: &Observation) -> Vec<Word<'_>> {
 /// Taille et interlettrage d'une police qui donnent aux mots la hauteur et
 /// la largeur de leur encre.
 fn fit(face: &Face, observation: &Observation, words: &[Word], kerning: bool) -> Option<Fit> {
+    fit_scaled(face, observation, words, kerning, 1.0)
+}
+
+/// Comme [`fit`], la taille mesurée multipliée par `factor` (l'interlettrage
+/// est recalculé pour garder la largeur des mots).
+fn fit_scaled(
+    face: &Face,
+    observation: &Observation,
+    words: &[Word],
+    kerning: bool,
+    factor: f32,
+) -> Option<Fit> {
     let upem = face.units_per_em() as f32;
     let mut scales = Vec::new();
     let mut shaped = Vec::with_capacity(words.len());
@@ -289,7 +303,7 @@ fn fit(face: &Face, observation: &Observation, words: &[Word], kerning: bool) ->
         }
         shaped.push(s);
     }
-    let scale = median(&mut scales)?;
+    let scale = median(&mut scales)? * factor;
     if !(scale.is_finite() && scale > 0.0) {
         return None;
     }
@@ -394,6 +408,20 @@ fn refine(
         if value > best {
             best = value;
             best_fit = unkerned;
+        }
+    }
+    // La hauteur mesurée de l'encre est un peu faussée par le flou du scan :
+    // tailles voisines, à interlettrage recalculé.
+    let mut penalized = best * best_fit.spacing_penalty();
+    for factor in SCALE_FACTORS {
+        let Some(scaled) = fit_scaled(face, observation, words, best_fit.kerning, factor) else {
+            continue;
+        };
+        let value = score(face, observation, words, &scaled, base_blur, 0.0);
+        if value * scaled.spacing_penalty() > penalized {
+            penalized = value * scaled.spacing_penalty();
+            best = value;
+            best_fit = scaled;
         }
     }
     let mut blur = base_blur;

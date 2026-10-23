@@ -19,7 +19,7 @@ fn fixture() -> Vec<u8> {
 fn objects(bytes: &[u8], page: u32) -> Vec<ObjectInfo> {
     Document::from_bytes(bytes, None)
         .unwrap()
-        .page_objects(page, None)
+        .page_objects(page, None, None)
         .unwrap()
 }
 
@@ -179,7 +179,7 @@ fn paragraphe_remplace_sur_plusieurs_lignes() {
                assurent une visibilité de dix-huit mois sur le carnet de commandes.";
     let page_edits = edits(vec![(1, replaced(new, FontChoice::Original))]);
     let mut doc = Document::from_bytes(&fixture(), None).unwrap();
-    let infos = doc.page_objects(0, Some(&page_edits)).unwrap();
+    let infos = doc.page_objects(0, Some(&page_edits), None).unwrap();
     let paragraph = infos.iter().find(|o| o.id == 1).unwrap();
     assert_eq!(paragraph.text.as_deref(), Some(new));
     // Les glyphes manquent dans le sous-ensemble : le moteur le signale par
@@ -200,7 +200,7 @@ fn apercu_d_une_page_modifiee() {
         },
     )]);
     let edited = handle
-        .edited_page_content(0, Arc::clone(&page_edits))
+        .edited_page_content(0, Arc::clone(&page_edits), None)
         .unwrap();
     let pixel = |content: &pdf_core::PageContent| {
         let pixmap = content
@@ -221,7 +221,7 @@ fn apercu_d_une_page_modifiee() {
     assert_eq!(pixel(&edited), [255, 255, 255]);
     // L'original reste intact pour la page non modifiée.
     assert_ne!(pixel(&handle.page_content(0).unwrap()), [255, 255, 255]);
-    let objects = handle.page_objects(0, Some(page_edits)).unwrap();
+    let objects = handle.page_objects(0, Some(page_edits), None).unwrap();
     assert!(objects.iter().all(|o| o.kind != ObjectKind::Image));
 }
 

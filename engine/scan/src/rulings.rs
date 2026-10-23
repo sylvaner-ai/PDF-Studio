@@ -76,7 +76,22 @@ pub fn detect(mask: &Mask, skew: f64, min_length: usize, max_thickness: usize) -
     let slope = skew.to_radians().tan();
     let mut out = horizontal(mask, slope, min_length, max_thickness);
     out.extend(vertical(mask, slope, min_length, max_thickness));
-    out
+    // Les bords d'un filet épais et incliné donnent des morceaux parallèles,
+    // fondus dans le filet qui les contient.
+    out.sort_by(|a, b| b.length().total_cmp(&a.length()));
+    let mut kept: Vec<Ruling> = Vec::new();
+    for ruling in out {
+        let inside = kept.iter().any(|k| {
+            k.horizontal == ruling.horizontal
+                && k.bounds()
+                    .inflate(k.thickness.ceil() as i32 + 2)
+                    .contains_rect(&ruling.bounds())
+        });
+        if !inside {
+            kept.push(ruling);
+        }
+    }
+    kept
 }
 
 /// Suite de pixels sombres sur une rangée inclinée : `(rangée, début, fin)`.

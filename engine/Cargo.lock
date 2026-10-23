@@ -985,8 +985,10 @@ version = "0.1.0"
 dependencies = [
  "edit",
  "font-kit",
+ "fonts",
  "layout",
  "mupdf",
+ "scan",
  "thiserror",
  "unicode-normalization",
 ]

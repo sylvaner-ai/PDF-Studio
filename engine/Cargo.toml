@@ -51,3 +51,11 @@ all = { level = "warn", priority = -1 }
 lto = "thin"
 codegen-units = 4
 debug = "line-tables-only"
+
+# Les calculs sur les pixels des scans sont trop lents sans optimisation,
+# même pendant les tests.
+[profile.dev.package.scan]
+opt-level = 3
+
+[profile.dev.package.fonts]
+opt-level = 3

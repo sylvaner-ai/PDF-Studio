@@ -49,6 +49,8 @@ pub struct Selection {
     pub paper: Paper,
     /// Grain du papier (écart type).
     pub grain: f32,
+    /// Papier uni (estimé sur l'anneau autour de la zone).
+    pub uniform: bool,
 }
 
 impl Selection {
@@ -63,8 +65,9 @@ impl Selection {
     }
 }
 
-/// Sélectionne l'encre de `zone`.
-pub fn select(image: &RgbImage, zone: Rect, settings: &Selecting) -> Selection {
+/// Sélectionne l'encre de `zone`. Les composantes dont le centre tombe dans
+/// une zone de `avoid` (lignes voisines) sont laissées.
+pub fn select(image: &RgbImage, zone: Rect, settings: &Selecting, avoid: &[Rect]) -> Selection {
     let bounds = image.bounds();
     let allowed = zone.inflate(settings.margin);
     let search = allowed.inflate(1 + settings.halo).intersect(&bounds);
@@ -82,6 +85,13 @@ pub fn select(image: &RgbImage, zone: Rect, settings: &Selecting) -> Selection {
     let mut mask = Mask::new(raw.rect);
     for part in components(image, &raw) {
         if !allowed.contains_rect(&part.rect) {
+            continue;
+        }
+        let center = (
+            (part.rect.x0 + part.rect.x1) / 2,
+            (part.rect.y0 + part.rect.y1) / 2,
+        );
+        if avoid.iter().any(|r| r.contains(center.0, center.1)) {
             continue;
         }
         if let Some(color) = settings.color {
@@ -115,6 +125,7 @@ pub fn select(image: &RgbImage, zone: Rect, settings: &Selecting) -> Selection {
         mask,
         paper,
         grain: noise,
+        uniform: settings.background == Background::Ring,
     }
 }
 
@@ -136,7 +147,12 @@ pub fn erase(image: &mut RgbImage, selection: &Selection, seed: u64) -> Rect {
     if selection.is_empty() {
         return Rect::EMPTY;
     }
-    inpaint(image, &selection.mask, 5.0, selection.grain, seed);
+    let far = if selection.uniform && !selection.paper.colors.is_empty() {
+        Some(selection.paper.colors[0])
+    } else {
+        None
+    };
+    inpaint(image, &selection.mask, 5.0, selection.grain, seed, far);
     selection.extent()
 }
 
@@ -294,7 +310,7 @@ mod tests {
     #[test]
     fn efface_le_mot_et_garde_le_filet() {
         let mut image = page();
-        let selection = select(&image, Rect::new(18, 8, 34, 27), &settings());
+        let selection = select(&image, Rect::new(18, 8, 34, 27), &settings(), &[]);
         assert!(!selection.is_empty());
         assert!(!selection.mask.get(50, 25));
         let changed = erase(&mut image, &selection, 1);
@@ -310,7 +326,7 @@ mod tests {
     #[test]
     fn deplace_l_encre() {
         let mut image = page();
-        let selection = select(&image, Rect::new(18, 8, 34, 22), &settings());
+        let selection = select(&image, Rect::new(18, 8, 34, 22), &settings(), &[]);
         let patch = extract(&image, &selection);
         erase(&mut image, &selection, 2);
         apply(&mut image, &patch, 40, 2);

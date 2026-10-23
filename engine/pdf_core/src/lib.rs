@@ -13,6 +13,7 @@ mod fonts;
 mod outline;
 mod page;
 mod qos;
+mod scanned;
 mod service;
 mod text;
 mod textlayer;
