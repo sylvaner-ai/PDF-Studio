@@ -1,0 +1,13 @@
+[package]
+name = "scan"
+description = "Retouche des pages scannées : fond, effacement (inpainting), déplacement, texte assorti au scan, structure de l'image."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+fonts.workspace = true
+
+[lints]
+workspace = true

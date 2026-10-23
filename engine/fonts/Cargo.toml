@@ -1,0 +1,15 @@
+[package]
+name = "fonts"
+description = "Polices : catalogue, mise en forme et rendu des glyphes, appariement d'une police à un texte scanné."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+ab_glyph_rasterizer.workspace = true
+font-kit.workspace = true
+rustybuzz.workspace = true
+
+[lints]
+workspace = true
