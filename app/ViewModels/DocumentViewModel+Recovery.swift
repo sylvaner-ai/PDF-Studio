@@ -85,11 +85,11 @@ extension DocumentViewModel {
 
     /// Écriture qui retient l'état actuel du document, ou suppression de ce qui
     /// est retenu (`removes`) s'il n'y a plus rien à retenir.
-    private func recoveryWrite() -> (path: String, removes: Bool, write: @Sendable () -> Void)? {
+    private func recoveryWrite() -> RecoveryJob? {
         guard recovery.isActive, recoveryOffer == nil, let store = recoveryStore else { return nil }
         let path = reference.path
         guard isModified, recovery.isAvailable, let stamp = recovery.stamp, let session else {
-            return (path, true, { store.removeRecord(for: path) })
+            return RecoveryJob(path: path, removes: true) { store.removeRecord(for: path) }
         }
         let snapshot = RecoverySnapshot(
             path: path,
@@ -100,11 +100,11 @@ extension DocumentViewModel {
             sizes: sourceSizes,
             cache: recovery.cache
         )
-        return (path, false, {
+        return RecoveryJob(path: path, removes: false) {
             if let record = snapshot.record() {
                 store.save(record)
             }
-        })
+        }
     }
 
     /// Avant le premier enregistrement, conserve la version d'ouverture du

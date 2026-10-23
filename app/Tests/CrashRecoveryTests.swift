@@ -88,7 +88,8 @@ final class InterruptedWriteTests: XCTestCase {
 
 /// Arrêt imprévu de l'application avec des modifications non enregistrées :
 /// elles sont retenues, puis proposées et restaurées à la réouverture.
-@MainActor
+/// Chaque test s'exécute sur le fil principal, comme l'interface ; la
+/// préparation du dossier, non.
 final class CrashRecoveryTests: XCTestCase {
     private var directory: URL!
     private var url: URL!
@@ -105,6 +106,7 @@ final class CrashRecoveryTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
+    @MainActor
     private func openModel() async throws -> DocumentViewModel {
         let model = DocumentViewModel(reference: try DocumentReference(url: url, securityScoped: false))
         await model.open()
@@ -112,12 +114,14 @@ final class CrashRecoveryTests: XCTestCase {
         return model
     }
 
+    @MainActor
     private func waitUntil(_ condition: () -> Bool) async {
         for _ in 0..<200 where !condition() {
             try? await Task.sleep(for: .milliseconds(25))
         }
     }
 
+    @MainActor
     func testRestaureLesModificationsApresUnArretImprevu() async throws {
         let original = try Data(contentsOf: url)
         let crashed = try await openModel()
@@ -163,6 +167,7 @@ final class CrashRecoveryTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: url), original)
     }
 
+    @MainActor
     func testIgnorerSupprimeLesModificationsRetenues() async throws {
         let crashed = try await openModel()
         let store = try XCTUnwrap(crashed.recoveryStore)
@@ -182,6 +187,7 @@ final class CrashRecoveryTests: XCTestCase {
         RecoveryWriter.shared.flush()
     }
 
+    @MainActor
     func testEnregistrerDemandeConfirmationAvantDeToucherAuFichier() async throws {
         let original = try Data(contentsOf: url)
         let modified = try FileStamp(of: url)

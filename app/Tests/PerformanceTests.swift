@@ -39,7 +39,7 @@ final class PerformanceTests: XCTestCase {
                 + "\(ms(initialization)) ms.",
             "",
             "| Document | Pages | Document prêt (ms) | Première page (ms) | Total (ms) |",
-            "|---|---:|---:|---:|---:|",
+            "|---|---:|---:|---:|---:|"
         ]
         for name in ["multipage_100", "volumineux_600", "edition", "tableaux", "scan_simule"] {
             let start = CACurrentMediaTime()
@@ -89,7 +89,7 @@ final class PerformanceTests: XCTestCase {
             "",
             "| Document | Images | Images/s | Images manquées | Travail moyen (ms) | Travail max (ms) "
                 + "| Pages blanches |",
-            "|---|---:|---:|---:|---:|---:|---:|",
+            "|---|---:|---:|---:|---:|---:|---:|"
         ] + rows, as: "2-defilement")
     }
 
@@ -128,7 +128,7 @@ final class PerformanceTests: XCTestCase {
                 + "le temps comprend le rendu et la conversion des mots en couche de texte.",
             "",
             "| Document | Mots lus | Temps (s) |",
-            "|---|---:|---:|",
+            "|---|---:|---:|"
         ]
         for name in ["scan_simule", "scan_retouche"] {
             let session = EditSession(document: try PdfDocument.open(path: fixture(name).path, password: nil))
@@ -178,7 +178,7 @@ final class PerformanceTests: XCTestCase {
                 + "le catalogue.",
             "",
             "| Ligne | Temps (ms) | Police retrouvée |",
-            "|---:|---:|---|",
+            "|---:|---:|---|"
         ] + rows, as: "4-retouche")
     }
 
@@ -229,7 +229,7 @@ final class PerformanceTests: XCTestCase {
             "| Modification, fil principal (moyenne) | \(ms(mainThread.reduce(0, +) / 10)) ms |",
             "| Modification, fil principal (max) | \(ms(mainThread.max() ?? 0)) ms |",
             "| Écriture de la récupération (hors fil principal) | \(ms(writing)) ms |",
-            "| Taille du fichier de récupération | \(String(format: "%.1f", Double(size) / 1_048_576)) Mo |",
+            "| Taille du fichier de récupération | \(String(format: "%.1f", Double(size) / 1_048_576)) Mo |"
         ], as: "5-recuperation")
     }
 

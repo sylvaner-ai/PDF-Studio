@@ -209,7 +209,9 @@ final class DocumentViewModel {
 
     /// Charge le plan après l'affichage des pages : un plan illisible n'empêche pas la lecture.
     func loadOutline(_ document: PdfDocument) async {
-        let items = await Task.detached(priority: .utility) { () -> [OutlineItem]? in
+        // Même priorité que le rendu : le fil du document ne doit pas faire
+        // attendre une page derrière une requête de moindre priorité.
+        let items = await Task.detached(priority: .userInitiated) { () -> [OutlineItem]? in
             try? document.outline()
         }.value
         guard let items else {
@@ -228,7 +230,7 @@ final class DocumentViewModel {
 
     func checkSignature() async {
         guard let session else { return }
-        isSigned = await Task.detached(priority: .utility) {
+        isSigned = await Task.detached(priority: .userInitiated) {
             (try? session.hasSignature()) ?? false
         }.value
     }

@@ -777,7 +777,7 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
 ## D51 — Récupération écrite hors du fil principal, au plus 0,5 s après la modification (jalon 9)
 
 - **Retenu :** `RecoveryWriter` reçoit les écritures de récupération de toutes
-  les fenêtres sur une file série de priorité « utilitaire ». Les écritures
+  les fenêtres sur une file série. Les écritures
   rapprochées d'un même document sont regroupées : la dernière est faite au
   plus 0,5 s après la première. La lecture des modifications dans le moteur,
   l'encodage JSON et l'écriture du fichier s'y font ; les modifications et
@@ -787,6 +787,12 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   l'écriture en cours, et annulent celle qui attend. Quitter l'application,
   ouvrir un document ou copier la version d'ouverture écrit d'abord ce qui
   attend.
+- **Priorité :** la file, comme la lecture du plan et la recherche d'une
+  signature à l'ouverture, a la priorité des actions de l'utilisateur
+  (`userInitiated`), celle du rendu des pages. Le fil d'un document prend la
+  priorité de la requête qu'il exécute : une requête de moindre priorité en
+  cours faisait attendre le rendu (inversion de priorité signalée par macOS),
+  et bloquait les mesures de `make perf`.
 - **Alternative :** l'écriture immédiate sur le fil principal (jalons 3 à 8).
 - **Raisons :** chaque modification relisait toutes les pages modifiées du
   document sur le fil principal ; sur un document de 600 pages reconnues, cela

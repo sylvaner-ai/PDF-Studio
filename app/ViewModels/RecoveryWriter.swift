@@ -10,13 +10,18 @@ import Foundation
 /// première, ce qui borne ce qu'un arrêt imprévu peut faire perdre. Une
 /// suppression passe après l'écriture en cours et annule celle qui attend.
 /// Quitter l'application écrit aussitôt ce qui attend (``flush()``).
+///
+/// La file a la priorité des actions de l'utilisateur, comme les autres
+/// appels au moteur : le fil d'un document prend la priorité de la requête
+/// qu'il exécute, et une requête de rendu ne doit jamais attendre derrière une
+/// requête de moindre priorité (inversion de priorité).
 final class RecoveryWriter: @unchecked Sendable {
     static let shared = RecoveryWriter()
 
     /// Attente au plus entre une modification et son écriture.
     static let delay: TimeInterval = 0.5
 
-    private let queue = DispatchQueue(label: "fr.sylvainrobert.pdfstudio.recuperation", qos: .utility)
+    private let queue = DispatchQueue(label: "fr.sylvainrobert.pdfstudio.recuperation", qos: .userInitiated)
     /// Écritures en attente, par fichier de document ; lues et modifiées sur
     /// `queue` seulement.
     private var pending: [String: @Sendable () -> Void] = [:]
@@ -63,6 +68,13 @@ final class RecoveryWriter: @unchecked Sendable {
             waiting.values.forEach { $0() }
         }
     }
+}
+
+/// Écriture (ou suppression, `removes`) des modifications retenues d'un document.
+struct RecoveryJob {
+    let path: String
+    let removes: Bool
+    let write: @Sendable () -> Void
 }
 
 /// État d'un document à retenir, lu dans le moteur sur la file d'écriture.
