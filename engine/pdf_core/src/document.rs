@@ -121,6 +121,9 @@ impl Document {
     ///
     /// Un plan illisible est traité comme absent : il ne doit pas empêcher la lecture.
     pub fn outline(&self) -> Vec<OutlineEntry> {
+        if !matches!(outline::prepare(&self.inner), Ok(true)) {
+            return Vec::new();
+        }
         self.inner
             .outlines()
             .map(|tree| outline::flatten(&tree, self.page_count()))

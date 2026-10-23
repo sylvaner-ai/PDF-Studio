@@ -30,6 +30,6 @@ pub use error::{PdfError, Result};
 pub use outline::OutlineEntry;
 pub use page::{PageContent, PageSize};
 pub use qos::{install_qos_hooks, QosHooks};
-pub use service::{DocumentHandle, Source};
+pub use service::{DocumentHandle, Source, PANIC_DETAIL};
 pub use text::{PageRect, PageText, TextLine, TextMatch};
 pub use writer::{is_signed, write_document, write_edited_pdf, write_pdf, OutputPage, SourceData};
