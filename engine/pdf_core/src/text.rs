@@ -61,6 +61,16 @@ pub struct TextLine {
     pub rect: PageRect,
 }
 
+/// Une ligne de texte à sélectionner : ses caractères et l'emprise de chacun.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GlyphLine {
+    /// Texte de la ligne, sans espaces aux extrémités.
+    pub text: String,
+    /// Emprise de chaque caractère de `text`, dans l'espace d'affichage de la
+    /// page, dans le même ordre.
+    pub rects: Vec<PageRect>,
+}
+
 /// Une occurrence trouvée sur une page : un rectangle par ligne de texte touchée.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextMatch {
@@ -73,6 +83,7 @@ const NO_GLYPH: u32 = u32::MAX;
 
 #[derive(Debug, Clone, Copy)]
 struct Glyph {
+    c: char,
     rect: PageRect,
     line: u32,
 }
@@ -147,6 +158,42 @@ impl PageText {
             }
         }
         builder.finish()
+    }
+
+    /// Lignes de la page, caractère par caractère, pour la sélection à la
+    /// souris. Les espaces des extrémités, les caractères invisibles et les
+    /// lignes vides sont écartés ; toute espace devient une espace simple.
+    pub fn glyph_lines(&self) -> Vec<GlyphLine> {
+        let mut lines: Vec<GlyphLine> = Vec::new();
+        let mut current = None;
+        for glyph in &self.glyphs {
+            let c = match glyph.c {
+                c if is_invisible(c) || c.is_control() => continue,
+                c if c.is_whitespace() => ' ',
+                c => c,
+            };
+            if current != Some(glyph.line) {
+                current = Some(glyph.line);
+                lines.push(GlyphLine {
+                    text: String::new(),
+                    rects: Vec::new(),
+                });
+            }
+            let line = lines.last_mut().expect("une ligne vient d'être ouverte");
+            if c == ' ' && line.text.is_empty() {
+                continue;
+            }
+            line.text.push(c);
+            line.rects.push(glyph.rect);
+        }
+        for line in &mut lines {
+            while line.text.ends_with(' ') {
+                line.text.pop();
+                line.rects.pop();
+            }
+        }
+        lines.retain(|line| !line.text.is_empty());
+        lines
     }
 
     /// Cherche toutes les occurrences de `query`, sans tenir compte de la casse,
@@ -225,6 +272,7 @@ impl Builder {
         }
         let index = self.text.glyphs.len() as u32;
         self.text.glyphs.push(Glyph {
+            c,
             rect,
             line: self.line,
         });
@@ -302,11 +350,19 @@ fn fold_query(query: &str) -> String {
     folded
 }
 
+/// Caractère sans aucun tracé : trait d'union conditionnel, espaces de largeur
+/// nulle, marque d'ordre des octets.
+fn is_invisible(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}' | '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}'
+    )
+}
+
 /// Replie un caractère (hors espaces) : il peut en produire zéro, un ou plusieurs.
 fn fold_char(c: char, mut emit: impl FnMut(char)) {
     let expansion = match c {
-        // Caractères invisibles.
-        '\u{00AD}' | '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}' => "",
+        c if is_invisible(c) => "",
         'ﬀ' => "ff",
         'ﬁ' => "fi",
         'ﬂ' => "fl",
@@ -436,5 +492,41 @@ mod tests {
             text.search("titre facture").len() == 1,
             "lignes séparées par une espace"
         );
+    }
+
+    #[test]
+    fn lignes_a_selectionner() {
+        let native = page(&["  Titre ", "", "a\u{00AD}b\u{00A0}c"]);
+        let lines = native.glyph_lines();
+        let texts: Vec<&str> = lines.iter().map(|line| line.text.as_str()).collect();
+        assert_eq!(texts, ["Titre", "ab c"]);
+        for line in &lines {
+            assert_eq!(line.rects.len(), line.text.chars().count());
+        }
+        // Le premier caractère visible garde son emprise d'origine (après deux espaces).
+        assert_eq!(lines[0].rects[0].x, 2.0);
+    }
+
+    #[test]
+    fn lignes_a_selectionner_dans_une_couche_reconnue() {
+        let word = |text: &str, x: f32| {
+            (
+                text.to_owned(),
+                PageRect {
+                    x,
+                    y: 50.0,
+                    width: 30.0,
+                    height: 10.0,
+                },
+            )
+        };
+        let text = page(&["Titre"]).with_lines(&[vec![word("Facture", 0.0), word("n°", 40.0)]]);
+        let lines = text.glyph_lines();
+        let texts: Vec<&str> = lines.iter().map(|line| line.text.as_str()).collect();
+        assert_eq!(texts, ["Titre", "Facture n°"]);
+        // L'espace entre deux mots occupe l'intervalle qui les sépare.
+        let gap = lines[1].rects[7];
+        assert_eq!((gap.x, gap.width), (30.0, 10.0));
+        assert_eq!(lines[1].rects.len(), 10);
     }
 }

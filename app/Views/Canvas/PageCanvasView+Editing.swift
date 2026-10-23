@@ -12,6 +12,9 @@ extension PageCanvasView {
             self?.editingDidChange(on: page)
         }
         pageViews.values.forEach { $0.setEditing(editing) }
+        // Le texte ne se sélectionne qu'en lecture.
+        pagesView.text.clear()
+        refreshText()
     }
 
     /// Les objets ou la sélection de la page `id` ont changé.

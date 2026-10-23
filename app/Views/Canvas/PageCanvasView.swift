@@ -14,7 +14,7 @@ final class PageCanvasView: NSScrollView {
     private let renderer: PageRenderer
     private(set) var pages: [DisplayPage]
     let pagesView = PagesDocumentView()
-    private var layout: PageLayout
+    private(set) var layout: PageLayout
     private(set) var rotation = DisplayRotation()
     private(set) var mode = DisplayMode.continuous
     private(set) var singlePage = 0
@@ -30,8 +30,8 @@ final class PageCanvasView: NSScrollView {
 
     private(set) var pageViews: [Int: PageTileView] = [:]
     private var reusableViews: [PageTileView] = []
-    private var matches: [Int: [SearchMatch]] = [:]
-    private var currentMatch: SearchHit?
+    var matches: [Int: [SearchMatch]] = [:]
+    var currentMatch: SearchHit?
     /// Mode Édition : sélection et modification des objets des pages (cf.
     /// ``setEditing(_:)``).
     var editing: PageEditing?
@@ -165,6 +165,7 @@ extension PageCanvasView {
             for (index, view) in pageViews {
                 view.configure(position: index, page: pages[index], pageCount: pages.count, display: rotation)
             }
+            refreshText()
             refreshPages()
             return
         }
@@ -227,34 +228,6 @@ extension PageCanvasView {
 
     func goToNextPage() { go(to: min(currentPage + 1, pages.count - 1)) }
     func goToPreviousPage() { go(to: max(currentPage - 1, 0)) }
-
-    /// Occurrences à surligner, page par page, et occurrence courante.
-    func showMatches(_ matches: [Int: [SearchMatch]], current: SearchHit?) {
-        self.matches = matches
-        currentMatch = current
-        pageViews.values.forEach(applyMatches(to:))
-    }
-
-    /// Fait défiler juste assez pour montrer une occurrence.
-    func reveal(_ hit: SearchHit) {
-        guard let match = matches[hit.page]?[safe: hit.index], let first = match.rects.first,
-              let page = pages[safe: hit.page] else { return }
-        if mode == .singlePage, hit.page != singlePage {
-            go(to: hit.page)
-        }
-        let frame = layout.frames[hit.page]
-        let target = page.rotation(rotation).apply(to: first.cgRect, pageSize: page.baseSize)
-            .offsetBy(dx: frame.minX, dy: frame.minY)
-        let visible = pagesView.visibleRect
-        navigationTarget = hit.page
-        guard !visible.insetBy(dx: 8, dy: visible.height * 0.1).contains(target) else {
-            updateCurrentPage()
-            return
-        }
-        let x = visible.width < pagesView.bounds.width ? target.midX - visible.width / 2 : visible.minX
-        scrollContent(to: CGPoint(x: x, y: target.midY - visible.height / 3), animated: true)
-        updateCurrentPage()
-    }
 }
 
 // MARK: - Disposition et rendu
@@ -345,6 +318,7 @@ extension PageCanvasView {
             pagesView.addSubview(view)
             pageViews[index] = view
             applyMatches(to: view)
+            refreshText(of: view)
             added.append(view)
         }
         updateCurrentPage()
@@ -376,7 +350,7 @@ extension PageCanvasView {
         }
     }
 
-    private func updateCurrentPage() {
+    func updateCurrentPage() {
         let page: Int
         if mode == .singlePage {
             page = singlePage
@@ -389,11 +363,5 @@ extension PageCanvasView {
         guard page != currentPage else { return }
         currentPage = page
         onCurrentPageChange?(page)
-    }
-
-    private func applyMatches(to view: PageTileView) {
-        let page = view.pageIndex
-        let current = currentMatch?.page == page ? currentMatch?.index : nil
-        view.showMatches(matches[page] ?? [], current: current)
     }
 }

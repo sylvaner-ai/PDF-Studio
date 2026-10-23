@@ -3,7 +3,11 @@ import AppKit
 /// Vue qui porte les pages ; elle reçoit le clavier pour la lecture.
 @MainActor
 final class PagesDocumentView: NSView {
-    weak var canvas: PageCanvasView?
+    weak var canvas: PageCanvasView? {
+        didSet { text.canvas = canvas }
+    }
+    /// Texte sélectionné à la souris (mode Lecture).
+    let text = TextSelection()
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -18,7 +22,19 @@ final class PagesDocumentView: NSView {
         window?.makeFirstResponder(self)
         // Clic entre les pages : plus rien n'est sélectionné.
         canvas?.editing?.clearSelection()
+        text.clear()
         super.mouseDown(with: event)
+    }
+
+    /// Édition > Copier : le texte sélectionné.
+    @objc func copy(_ sender: Any?) {
+        text.copySelection()
+    }
+}
+
+extension PagesDocumentView: NSMenuItemValidation {
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        item.action != #selector(copy(_:)) || text.hasSelection
     }
 }
 

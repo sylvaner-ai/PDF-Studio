@@ -209,6 +209,9 @@ final class DocumentViewModel {
         }
         renderer = PageRenderer(sources: sources)
         canvas = CanvasController(pages: pages)
+        canvas.textSource = { page in
+            await Task.detached(priority: .userInitiated) { (try? session.selectableText(page: page)) ?? [] }.value
+        }
         editing.reset()
         canvas.setEditing(workspace == .editing ? editing : nil)
         search = SearchModel(session: session, pages: pages, canvas: canvas)

@@ -11,13 +11,14 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
 │               DocumentWindowBridge (fermeture), ExportOptions, SearchField ; │
 │               EditingBadge, RecognitionViews (bouton et avancement OCR),     │
 │               ScanRetouchPanel (réglages du texte réécrit d'un scan) ;       │
-│               Canvas/ : PageCanvasView (AppKit),                             │
-│               PageTileView, EditingOverlayView (+Tables, +Accessibility),    │
-│               InlineTextEditor ;                                             │
+│               Canvas/ : PageCanvasView (+Search, +Text), PageTileView,       │
+│               TextSelectionView, EditingOverlayView (+Tables,                │
+│               +Accessibility), InlineTextEditor ;                            │
 │               Grid/ : PageGrid, PageGridCoordinator, PageGridItem (AppKit)   │
 │ ViewModels/   DocumentViewModel (+Saving, +Recovery, +Inserting,             │
 │               +Exporting, +Recognizing), DisplayPage, CanvasController,      │
-│               SearchModel, OutlineTree, PageLayout, PageRenderer,            │
+│               SearchModel, TextSelection, PageTextLayout, OutlineTree,       │
+│               PageLayout, PageRenderer,                                      │
 │               FileSaver, RecoveryStore, RecoveryWriter, PageExporter,        │
 │               PageEditing (+Tables, +Scans), DocumentViewModel+Comparing     │
 │ Recognition/  VisionTextReader (Vision), VisionTextRecognizer (pour Rust)    │
@@ -137,6 +138,20 @@ l'interprétation du flux de contenu et sur MuPDF.
   Côté application, la recherche s'ouvre par ⌘F ou le menu Édition dans un
   panneau posé en haut à droite des pages (`SearchPanel`), et non dans la barre
   d'outils (décision D24).
+- **Sélection du texte.** En mode Lecture, le texte des pages se sélectionne à la
+  souris et se copie (⌘C), qu'il soit natif ou reconnu par l'OCR, enregistré ou non
+  (D57). Le moteur donne, page par page (`selectable_text`), les lignes et
+  l'emprise de chaque caractère, sur la page droite, depuis le même texte que la
+  recherche (`PageText::glyph_lines`) : texte natif, invisible compris, suivi de la
+  couche reconnue en session. `PageTextLayout` met ces caractères bout à bout et
+  retrouve le caractère visé (ligne dont la bande contient le pointeur, puis
+  caractère le plus proche le long d'elle), les mots, les lignes, les rectangles à
+  surligner et le texte à copier. `TextSelection` tient la sélection de tout le
+  document (positions suivant l'identifiant de la page), lit le texte des pages
+  quand elles apparaissent et l'abandonne si la page est modifiée ou reconnue.
+  `TextSelectionView`, posée sur chaque page, surligne, change le pointeur en barre
+  de texte et transmet la souris au canevas. La copie est la commande Copier de
+  l'application (`PagesDocumentView.copy`).
 - **Plan.** Le plan MuPDF est aplati en parcours en profondeur (titre, niveau, page,
   position verticale), forme simple à faire traverser le pont ; l'application
   reconstruit l'arbre (`OutlineTree`).

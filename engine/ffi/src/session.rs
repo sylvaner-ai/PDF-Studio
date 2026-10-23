@@ -17,7 +17,10 @@ use crate::recognition::{
     self, layer_from_items, LayerWordItem, PageRecognition, RecognitionSettings,
     RecognizedWordItem, TextRecognizer, DOUBTFUL_BELOW,
 };
-use crate::{search_matches, EngineError, PageSize, PdfDocument, SearchMatch};
+use crate::{
+    search_matches, selectable_lines, EngineError, PageSize, PdfDocument, SearchMatch,
+    SelectableLine,
+};
 use pdf_core::TableInfo;
 
 /// Contenu d'une page de la session.
@@ -743,6 +746,30 @@ impl EditSession {
         Ok(search_matches(found))
     }
 
+    /// Lignes de texte de la page `page` et emprise de chaque caractère, pour
+    /// la sélection à la souris : son texte et, si elle a été reconnue, sa
+    /// couche de texte (retouches des scans comprises). Les rectangles sont
+    /// exprimés sur la page droite. Une page dont le contenu a été modifié sans
+    /// couche de texte n'a pas de texte sélectionnable : le texte d'origine ne
+    /// correspondrait plus à ce qui est affiché.
+    pub fn selectable_text(&self, page: u64) -> Result<Vec<SelectableLine>, EngineError> {
+        let (document, index, layer) = self.page_layer(page)?;
+        let Some(document) = document else {
+            return Ok(Vec::new());
+        };
+        let found = match layer {
+            Some(layer) => {
+                let layer = document
+                    .handle
+                    .effective_layer(index, self.content(page), layer)?;
+                document.handle.glyph_lines_with_layer(index, layer)?
+            }
+            None if self.content(page).is_some_and(|edits| !edits.is_empty()) => Vec::new(),
+            None => document.handle.glyph_lines(index)?,
+        };
+        Ok(selectable_lines(found))
+    }
+
     /// Défait la dernière modification ; `false` s'il n'y en a pas.
     pub fn undo(&self) -> bool {
         self.lock().editor.undo()
@@ -1279,6 +1306,11 @@ mod tests {
         let text = doc.plain_text(0).unwrap();
         assert!(text.contains("Bonjour 2026 €") && text.contains("Bilan zéro"));
 
+        // Le texte d'origine d'une page modifiée ne correspond plus à ce qui
+        // est affiché : rien n'est sélectionnable. Une page intacte l'est.
+        assert!(session.selectable_text(first).unwrap().is_empty());
+        assert!(!doc.selectable_text(0).unwrap().is_empty());
+
         // Récupération : les modifications retrouvent leurs objets.
         let record = session.content_record(first).unwrap();
         assert_eq!(record.len(), 3);
@@ -1570,6 +1602,7 @@ mod tests {
             .search_page(page, "facture".into())
             .unwrap()
             .is_empty());
+        assert!(session.selectable_text(page).unwrap().is_empty());
 
         session.apply_recognitions(vec![result]);
         assert_eq!(
@@ -1597,10 +1630,22 @@ mod tests {
         let found = session.search_page(page, "facture n° 4521".into()).unwrap();
         assert_eq!(found.len(), 1);
 
+        // Le texte reconnu se sélectionne avant même l'enregistrement.
+        let lines = session.selectable_text(page).unwrap();
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(lines[0].text.starts_with("Facture"), "{lines:?}");
+        assert_eq!(lines[0].rects.len(), lines[0].text.chars().count());
+        assert!((lines[0].rects[0].x - 72.0).abs() < 0.5);
+
         // La couche est enregistrée dans le PDF et cherchable après réouverture.
         let exported = session.export_pdf().unwrap();
         let reopened = PdfDocument::from_data(exported.bytes, None).unwrap();
         assert_eq!(reopened.search_page(0, "4521".into()).unwrap().len(), 1);
+        let saved = reopened.selectable_text(0).unwrap();
+        assert_eq!(
+            saved.iter().map(|line| &line.text).collect::<Vec<_>>(),
+            lines.iter().map(|line| &line.text).collect::<Vec<_>>()
+        );
 
         assert!(session.undo());
         assert!(session.recognized_words(page).unwrap().is_empty());
@@ -1608,6 +1653,7 @@ mod tests {
             .search_page(page, "facture".into())
             .unwrap()
             .is_empty());
+        assert!(session.selectable_text(page).unwrap().is_empty());
     }
 
     #[test]
