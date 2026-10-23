@@ -299,3 +299,41 @@ complété à chaque jalon.
   « produit ») y est dessiné sans son mélange, si bien que le mot trouvé semble
   jaune ; ces défauts tiennent à la capture (`cacheDisplay`), pas à
   l'application.
+
+## Jalon 9
+
+- **Arrêt imprévu :** les modifications sont retenues au plus 0,5 s après avoir
+  été faites (D51) ; un arrêt brutal dans cet intervalle perd la dernière
+  modification. Le mot de passe d'un document protégé n'est jamais retenu : il
+  est redemandé à la réouverture.
+- **Enregistrement interrompu :** le fichier est rétabli à sa réouverture dans
+  PDF Studio (D52). Ouvert entre-temps dans une autre application, il peut
+  paraître abîmé ; sa version précédente est dans les sauvegardes
+  (`~/Library/Containers/fr.sylvainrobert.pdfstudio/Data/Library/Application
+  Support/PDF Studio/Sauvegardes`).
+- **Fichiers abîmés :** le moteur ne panique plus sur les cas du test de
+  robustesse (D54), mais ce test ne couvre que des défauts tirés au hasard sur
+  seize documents. Un plantage dans le code C de MuPDF lui-même (accès mémoire
+  invalide) ne peut pas être intercepté et fermerait l'application ; seule une
+  panique du code Rust est isolée (D50).
+- **Plan abîmé :** si une seule entrée du plan est illisible, tout le plan est
+  ignoré et la barre latérale n'affiche pas de signets, même si les autres
+  entrées étaient lisibles.
+- **Défilement des gros documents :** sur 600 pages, le défilement rapide
+  atteint 56 à 59 images par seconde (1,6 à 6,6 % d'images manquées selon
+  l'essai), 59,5 sur 100 pages : l'image où la page lue change (sous-titre,
+  vignette sélectionnée et défilement de la barre latérale) prend jusqu'à
+  30–40 ms. Sans cette mise à jour, le défilement tient 60 images par seconde
+  (`docs/PERFORMANCES.md`). Les Mac à écran 120 Hz n'ont pas été mesurés.
+- **Mesures de performance (`make perf`) :** elles sont prises dans
+  l'application compilée en configuration Debug avec optimisations (`-O`),
+  hébergeant les tests, et non dans la version Release distribuée par
+  `make build` ; le moteur Rust, lui, est compilé en Release. Le défilement est
+  mesuré par un défilement programmé à vitesse constante (2 000 points par
+  seconde), image par image : c'est une approximation du défilement à la
+  souris, pas une mesure d'Instruments. Les documents personnels de
+  `tests/fixtures/private/` ne sont pas mesurés.
+- **Localisation :** les textes de l'interface sont localisables
+  (`String(localized:)` et textes SwiftUI), mais le catalogue
+  `Localizable.xcstrings` du dépôt est vide : Xcode le remplit lorsqu'on
+  compile depuis l'éditeur. L'interface n'existe qu'en français.

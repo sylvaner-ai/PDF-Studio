@@ -8,6 +8,7 @@
 #   make fixtures  régénère le jeu de PDF de test
 #   make icon      régénère les images de l'icône depuis app/Resources/AppIcon.svg
 #   make snapshots captures d'écran de l'interface, en mode clair et sombre
+#   make perf      mesures de performance sur le Mac (cf. docs/PERFORMANCES.md)
 #
 # Le chemin du dépôt peut contenir des espaces et se trouver dans un dossier
 # synchronisé par iCloud Drive. Deux conséquences :
@@ -34,7 +35,7 @@ APP_NAME      := PDF Studio.app
 PDFIUM_URL    := https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz
 PDFIUM_DIR    := .tools/pdfium
 
-.PHONY: build engine bindings project test test-engine test-app lint bench ocr-bench fixtures icon snapshots clean
+.PHONY: build engine bindings project test test-engine test-app lint bench ocr-bench fixtures icon snapshots perf clean
 
 build: project
 	xcodebuild -project "$(XCODE_PROJECT)" -scheme PDFStudio -configuration Release \
@@ -148,6 +149,24 @@ snapshots: project
 	rm -rf "$(SNAPSHOTS_OUT)"
 	cp -R "$(SNAPSHOTS_SANDBOX)" "$(SNAPSHOTS_OUT)"
 	@echo "Captures : $(SNAPSHOTS_OUT)"
+
+# Mesures de performance du cahier des charges (§6) : ouverture, défilement,
+# reconnaissance du texte, retouche d'un scan, récupération d'un gros document
+# (cf. app/Tests/PerformanceTests.swift). Le code Swift est compilé optimisé
+# (-O), comme dans la version Release ; le moteur l'est toujours. Chaque mesure
+# écrit son tableau dans les caches du bac à sable ; ils sont réunis dans
+# PERF_OUT/rapport.md. Les fenêtres apparaissent quelques secondes à l'écran.
+PERF_OUT     := $(PDFSTUDIO_BUILD_ROOT)/perf
+PERF_SANDBOX := $(HOME)/Library/Containers/fr.sylvainrobert.pdfstudio/Data/Library/Caches/Performances
+
+perf: project
+	rm -rf "$(PERF_SANDBOX)"
+	TEST_RUNNER_PDFSTUDIO_PERF=1 xcodebuild -project "$(XCODE_PROJECT)" -scheme PDFStudio \
+		-configuration Debug -derivedDataPath "$(DERIVED_DATA)/Perf" -destination 'platform=macOS,arch=arm64' \
+		SWIFT_OPTIMIZATION_LEVEL=-O test -only-testing:PDFStudioTests/PerformanceTests
+	mkdir -p "$(PERF_OUT)"
+	cat "$(PERF_SANDBOX)"/*.md > "$(PERF_OUT)/rapport.md"
+	@echo "Rapport : $(PERF_OUT)/rapport.md"
 
 clean:
 	$(CARGO) clean $(CARGO_FLAGS)

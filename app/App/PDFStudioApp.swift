@@ -42,6 +42,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    /// Les modifications non enregistrées qui attendent d'être retenues sont
+    /// écrites avant de quitter.
+    func applicationWillTerminate(_ notification: Notification) {
+        RecoveryWriter.shared.flush()
+    }
+
     /// Prévient avant de quitter si des modifications ne sont pas enregistrées :
     /// elles sont retenues et seront proposées à la prochaine ouverture. Un
     /// enregistrement en cours est mené à son terme avant de quitter.

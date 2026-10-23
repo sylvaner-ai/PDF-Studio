@@ -21,7 +21,7 @@ struct PageCommands: Commands {
                 .disabled(!hasTargets)
             Button("Supprimer", action: deletePages)
                 .keyboardShortcut(.delete, modifiers: .command)
-                .disabled(model.map { $0.canDelete($0.targetPositions) } != true)
+                .disabled(model?.canDeleteTargets != true)
             Divider()
             Button("Insérer une page vierge") { model?.insertBlankPage() }
                 .keyboardShortcut("n", modifiers: [.command, .option])
@@ -40,7 +40,7 @@ struct PageCommands: Commands {
                 .keyboardShortcut("o", modifiers: [.command, .option])
                 .disabled(!canEdit)
             Button("Reconnaître le texte des pages sélectionnées") { model?.recognizeText(.selection) }
-                .disabled(!canEdit || model?.selection.isEmpty != false)
+                .disabled(!canEdit || (model?.selectionCount ?? 0) == 0)
             Button("Arrêter la reconnaissance du texte") { model?.stopRecognition() }
                 .keyboardShortcut(".", modifiers: .command)
                 .disabled(model?.recognition == nil)
@@ -53,7 +53,7 @@ struct PageCommands: Commands {
 
     /// Des pages sont visées (dans la grille, rien n'est visé sans sélection).
     private var hasTargets: Bool {
-        canEdit && model?.targetPositions.isEmpty == false
+        canEdit && (model?.targetCount ?? 0) > 0
     }
 
     /// ⌘⌫ efface le début de la ligne dans un champ de texte (recherche) ; il ne

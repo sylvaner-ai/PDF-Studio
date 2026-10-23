@@ -30,7 +30,16 @@ final class DocumentViewModel {
     /// Pages du document, dans l'ordre.
     private(set) var pages: [DisplayPage] = []
     /// Pages sélectionnées dans les vignettes, par identifiant.
-    var selection: Set<UInt64> = []
+    var selection: Set<UInt64> = [] {
+        didSet {
+            if selection.count != selectionCount {
+                selectionCount = selection.count
+            }
+        }
+    }
+    /// Nombre de pages sélectionnées, publié seulement quand il change : la
+    /// sélection suit la page lue, et les menus ne dépendent que de ce nombre.
+    private(set) var selectionCount = 0
     /// Lecture des pages, grille pour les organiser, ou édition de leur contenu.
     var workspace = Workspace.reading {
         didSet {
@@ -94,7 +103,7 @@ final class DocumentViewModel {
     @ObservationIgnored var noticeTask: Task<Void, Never>?
     @ObservationIgnored private var declaredTitle: String?
     /// Format des pages de chaque document source, en points.
-    @ObservationIgnored private var sourceSizes: [[CGSize]] = []
+    @ObservationIgnored private(set) var sourceSizes: [[CGSize]] = []
 
     let logger = Logger(subsystem: "fr.sylvainrobert.pdfstudio", category: "document")
     /// Identifie la fenêtre du document, pour les pages glissées vers une autre fenêtre.
@@ -115,6 +124,11 @@ final class DocumentViewModel {
     func open(password: String? = nil) async {
         phase = .opening
         let reference = reference
+        // Un enregistrement interrompu (arrêt imprévu pendant l'écriture) a pu
+        // laisser le fichier incomplet : il est rétabli avant d'être lu.
+        let repair = await Task.detached(priority: .userInitiated) {
+            try? reference.withAccess { FileSaver.repairInterruptedWrite(of: $0) }
+        }.value
         let result = await Task.detached(priority: .userInitiated) {
             Result {
                 try reference.withAccess { url -> (PdfDocument, FileStamp?) in
@@ -147,6 +161,27 @@ final class DocumentViewModel {
         case let .failure(error):
             logger.error("Accès au fichier refusé : \(error.localizedDescription, privacy: .public)")
             phase = .failed(message: String(localized: "PDF Studio n'a pas pu accéder à ce fichier."))
+        }
+        reportRepair(repair)
+    }
+
+    /// Prévient qu'un enregistrement interrompu a été réparé, ou n'a pas pu l'être.
+    private func reportRepair(_ repair: FileSaver.Repair?) {
+        switch repair {
+        case .restored:
+            show(notice: String(localized: """
+                Le dernier enregistrement de ce document a été interrompu : \
+                le fichier a été rétabli dans sa version précédente.
+                """))
+        case let .failed(backup):
+            let name = (backup as NSString).lastPathComponent
+            failureMessage = String(localized: """
+                Le dernier enregistrement de ce document a été interrompu et le fichier n'a pas pu \
+                être rétabli. Sa version précédente est conservée dans les sauvegardes de \
+                PDF Studio, sous le nom « \(name) ».
+                """)
+        case .completed, nil:
+            break
         }
     }
 
@@ -183,7 +218,9 @@ final class DocumentViewModel {
 
     /// Charge le plan après l'affichage des pages : un plan illisible n'empêche pas la lecture.
     func loadOutline(_ document: PdfDocument) async {
-        let items = await Task.detached(priority: .utility) { () -> [OutlineItem]? in
+        // Même priorité que le rendu : le fil du document ne doit pas faire
+        // attendre une page derrière une requête de moindre priorité.
+        let items = await Task.detached(priority: .userInitiated) { () -> [OutlineItem]? in
             try? document.outline()
         }.value
         guard let items else {
@@ -202,7 +239,7 @@ final class DocumentViewModel {
 
     func checkSignature() async {
         guard let session else { return }
-        isSigned = await Task.detached(priority: .utility) {
+        isSigned = await Task.detached(priority: .userInitiated) {
             (try? session.hasSignature()) ?? false
         }.value
     }
@@ -216,41 +253,9 @@ final class DocumentViewModel {
     }
 }
 
-// MARK: - Navigation
-
-extension DocumentViewModel {
-    /// Position actuelle de la page `index` du document ouvert (destination d'un
-    /// signet) ; `nil` si elle a été supprimée.
-    func position(ofOriginalPage index: Int) -> Int? {
-        let source = DisplayPage.Source(document: 0, index: index)
-        return pages.firstIndex { $0.source == source }
-    }
-
-    func go(to node: OutlineNode) {
-        guard let page = node.page, let position = position(ofOriginalPage: page) else { return }
-        canvas.go(to: position, top: node.top)
-    }
-}
-
 // MARK: - Organisation des pages
 
 extension DocumentViewModel {
-    /// Pages visées par les commandes. Dans la grille : la sélection. En lecture :
-    /// plusieurs vignettes sélectionnées, sinon la page lue (la sélection ne la
-    /// suit pas quand la barre latérale montre les signets).
-    var targetPositions: [Int] {
-        let selected = positions(of: selection)
-        if workspace == .organizing || selected.count > 1 {
-            return selected
-        }
-        return pages.indices.contains(canvas.currentPage) ? [canvas.currentPage] : selected
-    }
-
-    /// Positions des pages désignées par leur identifiant, dans l'ordre du document.
-    func positions(of ids: Set<UInt64>) -> [Int] {
-        pages.indices.filter { ids.contains(pages[$0].id) }
-    }
-
     /// Les pages restent figées tant que des modifications retrouvées attendent une
     /// réponse, pendant une exportation ou une reconnaissance du texte, et une fois
     /// la fenêtre fermée.

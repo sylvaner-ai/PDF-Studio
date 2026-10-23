@@ -42,14 +42,14 @@ impl Rect {
         self.x1 <= self.x0 || self.y1 <= self.y0
     }
 
-    /// Largeur.
+    /// Largeur (calculée sans débordement, même pour [`Rect::EMPTY`]).
     pub fn width(&self) -> usize {
-        (self.x1 - self.x0).max(0) as usize
+        (i64::from(self.x1) - i64::from(self.x0)).max(0) as usize
     }
 
     /// Hauteur.
     pub fn height(&self) -> usize {
-        (self.y1 - self.y0).max(0) as usize
+        (i64::from(self.y1) - i64::from(self.y0)).max(0) as usize
     }
 
     /// Nombre de pixels.
@@ -62,7 +62,12 @@ impl Rect {
         if self.is_empty() {
             return *self;
         }
-        Rect::new(self.x0 - d, self.y0 - d, self.x1 + d, self.y1 + d)
+        Rect::new(
+            self.x0.saturating_sub(d),
+            self.y0.saturating_sub(d),
+            self.x1.saturating_add(d),
+            self.y1.saturating_add(d),
+        )
     }
 
     /// Rectangle déplacé.
@@ -70,7 +75,12 @@ impl Rect {
         if self.is_empty() {
             return *self;
         }
-        Rect::new(self.x0 + dx, self.y0 + dy, self.x1 + dx, self.y1 + dy)
+        Rect::new(
+            self.x0.saturating_add(dx),
+            self.y0.saturating_add(dy),
+            self.x1.saturating_add(dx),
+            self.y1.saturating_add(dy),
+        )
     }
 
     /// Partie commune.
@@ -285,6 +295,16 @@ impl Noise {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn un_rectangle_vide_ou_extreme_ne_deborde_pas() {
+        assert_eq!(Rect::EMPTY.width(), 0);
+        assert_eq!(Rect::EMPTY.area(), 0);
+        let huge = Rect::new(i32::MIN, 0, i32::MAX, 1);
+        assert_eq!(huge.width(), u32::MAX as usize);
+        assert_eq!(huge.inflate(4).x1, i32::MAX);
+        assert_eq!(huge.offset(-3, 0).x0, i32::MIN);
+    }
 
     #[test]
     fn rectangles() {

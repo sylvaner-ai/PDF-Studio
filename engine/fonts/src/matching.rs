@@ -14,6 +14,7 @@
 //! un choix incertain, que le score indique.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rustybuzz::Face;
 
@@ -142,23 +143,24 @@ pub fn match_line(catalog: &Catalog, observation: &Observation) -> LineMatch {
     } else {
         (0..catalog.faces().len()).collect()
     };
-    let mut scored: Vec<(f32, usize, Fit)> = Vec::new();
-    for index in pool {
-        let Some(file) = catalog.load(index) else {
-            continue;
-        };
+    // Les polices sont essayées en parallèle, sur tous les cœurs ; l'ordre du
+    // catalogue est conservé, donc le résultat est celui d'un essai en série.
+    let mut scored: Vec<(f32, usize, Fit)> = parallel_map(&pool, |&index| {
+        let file = catalog.load(index)?;
         let face = file.face();
-        let Some(fit) = fit(&face, observation, &words, true) else {
-            continue;
-        };
+        let fit = fit(&face, observation, &words, true)?;
         let blur = SORT_BLUR * fit.em;
         let score = score(&face, observation, &words, &fit, blur, 0.0) * fit.spacing_penalty();
-        scored.push((score, index, fit));
-    }
+        Some((score, index, fit))
+    })
+    .into_iter()
+    .flatten()
+    .collect();
     scored.sort_by(|a, b| b.0.total_cmp(&a.0));
 
     // Meilleure police de chaque famille, puis réglages fins.
     let mut seen: HashMap<String, ()> = HashMap::new();
+    let mut best = Vec::new();
     for (_, index, sorted_fit) in scored {
         let info = &catalog.faces()[index];
         if seen.insert(info.family.clone(), ()).is_some() {
@@ -167,18 +169,69 @@ pub fn match_line(catalog: &Catalog, observation: &Observation) -> LineMatch {
         let Some(file) = catalog.load(index) else {
             continue;
         };
-        let face = file.face();
-        result
-            .candidates
-            .push(refine(&face, observation, &words, sorted_fit, index, info));
-        if result.candidates.len() == CANDIDATES {
+        best.push((file, index, sorted_fit));
+        if best.len() == CANDIDATES {
             break;
         }
     }
+    result.candidates = parallel_map(&best, |(file, index, sorted_fit)| {
+        let info = &catalog.faces()[*index];
+        refine(
+            &file.face(),
+            observation,
+            &words,
+            sorted_fit.clone(),
+            *index,
+            info,
+        )
+    });
     result
         .candidates
         .sort_by(|a, b| b.score.total_cmp(&a.score));
     result
+}
+
+/// Applique `f` à chaque élément, sur plusieurs fils ; les résultats sont
+/// rendus dans l'ordre des éléments.
+fn parallel_map<T, R, F>(items: &[T], f: F) -> Vec<R>
+where
+    T: Sync,
+    R: Send,
+    F: Fn(&T) -> R + Sync,
+{
+    let threads = std::thread::available_parallelism()
+        .map_or(1, |n| n.get())
+        .min(items.len());
+    if threads <= 1 {
+        return items.iter().map(f).collect();
+    }
+    let next = AtomicUsize::new(0);
+    let mut results: Vec<(usize, R)> = std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut done = Vec::new();
+                    loop {
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(item) = items.get(index) else {
+                            break;
+                        };
+                        done.push((index, f(item)));
+                    }
+                    done
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|worker| match worker.join() {
+                Ok(done) => done,
+                Err(payload) => std::panic::resume_unwind(payload),
+            })
+            .collect()
+    });
+    results.sort_by_key(|(index, _)| *index);
+    results.into_iter().map(|(_, result)| result).collect()
 }
 
 /// Réglages d'une police pour la ligne.

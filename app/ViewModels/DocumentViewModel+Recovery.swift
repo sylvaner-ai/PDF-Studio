@@ -14,28 +14,33 @@ struct RecoveryContext {
     var isActive = false
     /// Faux si la version d'ouverture n'a pas pu être conservée : plus rien n'est retenu.
     var isAvailable = true
+    /// Modifications des pages déjà lues pour les retenir (cf. ``RecoveryWriter``).
+    let cache = RecoveryPageCache()
 }
 
 // MARK: - Récupération des modifications non enregistrées
 
 /// Tant que des modifications ne sont pas enregistrées, l'organisation des pages,
-/// les modifications de leur contenu et le texte reconnu sont retenus à chaque
-/// changement (cf. ``RecoveryStore``). Si l'application s'arrête ou est quittée
-/// entre-temps, ils sont proposés à la prochaine ouverture du fichier. Les pages
-/// renvoient au fichier tel qu'il a été ouvert ; avant le premier enregistrement,
-/// qui le remplace, une copie en est conservée, comme des documents dont des
-/// pages sont insérées.
+/// les modifications de leur contenu et le texte reconnu sont retenus après
+/// chaque changement (cf. ``RecoveryStore``), hors du fil principal et au plus
+/// une demi-seconde plus tard (cf. ``RecoveryWriter``). Si l'application
+/// s'arrête ou est quittée entre-temps, ils sont proposés à la prochaine
+/// ouverture du fichier. Les pages renvoient au fichier tel qu'il a été ouvert ;
+/// avant le premier enregistrement, qui le remplace, une copie en est conservée,
+/// comme des documents dont des pages sont insérées.
 extension DocumentViewModel {
     /// Le document vient de s'ouvrir : propose les modifications retenues pour son fichier.
     func offerRecovery() {
         recovery.isActive = true
+        // Une fenêtre du même fichier, fermée à l'instant, a pu laisser une écriture en attente.
+        RecoveryWriter.shared.flush()
         guard let store = recoveryStore, let record = store.record(for: reference.path) else { return }
         // Sans copie d'ouverture, les pages renvoient au fichier : il ne doit pas avoir changé.
         let usable = record.basePath.map { FileManager.default.fileExists(atPath: $0) }
             ?? (record.stamp == recovery.stamp)
         guard usable, record.version == 1, !record.pages.isEmpty else {
             logger.info("Modifications retenues périmées, supprimées")
-            store.discard(record)
+            RecoveryWriter.shared.perform(for: record.path) { store.discard(record) }
             return
         }
         recoveryOffer = record
@@ -48,9 +53,9 @@ extension DocumentViewModel {
 
     /// Supprime les modifications proposées.
     func declineRecovery() {
-        guard let record = recoveryOffer else { return }
+        guard let record = recoveryOffer, let store = recoveryStore else { return }
         recoveryOffer = nil
-        recoveryStore?.discard(record)
+        RecoveryWriter.shared.perform(for: record.path) { store.discard(record) }
     }
 
     /// Restaure les modifications proposées ; elles s'annulent comme les autres.
@@ -60,25 +65,46 @@ extension DocumentViewModel {
         Task { await restore(record) }
     }
 
-    /// Retient l'organisation et le contenu des pages tant qu'ils ne sont pas enregistrés.
+    /// Retient l'organisation et le contenu des pages tant qu'ils ne sont pas
+    /// enregistrés : l'écriture se fait hors du fil principal, peu après.
     func updateRecovery() {
-        guard recovery.isActive, recoveryOffer == nil, let store = recoveryStore else { return }
-        guard isModified, recovery.isAvailable, let stamp = recovery.stamp else {
-            store.removeRecord(for: reference.path)
-            return
+        guard let job = recoveryWrite() else { return }
+        if job.removes {
+            RecoveryWriter.shared.perform(for: job.path, job.write)
+        } else {
+            RecoveryWriter.shared.schedule(for: job.path, job.write)
         }
-        store.save(RecoveryRecord(
-            path: reference.path,
+    }
+
+    /// Comme ``updateRecovery()``, mais écrit aussitôt et attend la fin de
+    /// l'écriture (avant de toucher au fichier du document).
+    func updateRecoveryNow() async {
+        guard let job = recoveryWrite() else { return }
+        await RecoveryWriter.shared.performNow(for: job.path, job.write)
+    }
+
+    /// Écriture qui retient l'état actuel du document, ou suppression de ce qui
+    /// est retenu (`removes`) s'il n'y a plus rien à retenir.
+    private func recoveryWrite() -> RecoveryJob? {
+        guard recovery.isActive, recoveryOffer == nil, let store = recoveryStore else { return nil }
+        let path = reference.path
+        guard isModified, recovery.isAvailable, let stamp = recovery.stamp, let session else {
+            return RecoveryJob(path: path, removes: true) { store.removeRecord(for: path) }
+        }
+        let snapshot = RecoverySnapshot(
+            path: path,
             stamp: stamp,
             basePath: recovery.basePath,
             sources: recovery.extraSources,
-            pages: pages.map { page in
-                let edits = page.editRevision == 0 ? [] : (try? session?.contentRecord(page: page.id)) ?? []
-                let layer = page.textRevision == 0 ? [] : session?.textLayerRecord(page: page.id) ?? []
-                return RecoveryRecord.Page(page, edits: edits, layer: layer)
-            },
-            date: Date()
-        ))
+            session: session,
+            sizes: sourceSizes,
+            cache: recovery.cache
+        )
+        return RecoveryJob(path: path, removes: false) {
+            if let record = snapshot.record() {
+                store.save(record)
+            }
+        }
     }
 
     /// Avant le premier enregistrement, conserve la version d'ouverture du
@@ -92,7 +118,7 @@ extension DocumentViewModel {
             // Retenu avant que le fichier ne soit touché : si l'écriture échoue en
             // chemin, les modifications restent rattachées à cette copie.
             recovery.basePath = base
-            updateRecovery()
+            await updateRecoveryNow()
         } else {
             logger.error("Copie d'ouverture impossible : les modifications ne seront plus retenues")
             disableRecovery()
@@ -102,8 +128,8 @@ extension DocumentViewModel {
     /// Le document vient d'être enregistré, éventuellement dans un autre fichier
     /// que `previousPath`.
     func didSave(stamp: FileStamp?, previousPath: String) {
-        if previousPath != reference.path {
-            recoveryStore?.removeRecord(for: previousPath)
+        if previousPath != reference.path, let store = recoveryStore {
+            RecoveryWriter.shared.perform(for: previousPath) { store.removeRecord(for: previousPath) }
         }
         recovery.stamp = stamp
         updateRecovery()
@@ -113,9 +139,12 @@ extension DocumentViewModel {
     /// à la prochaine ouverture ; sinon, il n'y a plus rien à retenir.
     func endRecovery() {
         guard recovery.isActive, !isModified, recoveryOffer == nil, let store = recoveryStore else { return }
-        store.removeRecord(for: reference.path)
-        store.removeCopy(recovery.basePath)
-        recovery.extraSources.forEach(store.removeCopy)
+        let (path, base, sources) = (reference.path, recovery.basePath, recovery.extraSources)
+        RecoveryWriter.shared.perform(for: path) {
+            store.removeRecord(for: path)
+            store.removeCopy(base)
+            sources.forEach(store.removeCopy)
+        }
     }
 
     /// Plus rien ne peut être retenu pour ce document (copie impossible, document
@@ -202,7 +231,9 @@ extension DocumentViewModel {
 
     /// Les modifications retenues ne peuvent pas être restaurées : elles sont supprimées.
     private func abandon(_ record: RecoveryRecord) {
-        recoveryStore?.discard(record)
+        if let store = recoveryStore {
+            RecoveryWriter.shared.perform(for: record.path) { store.discard(record) }
+        }
         recovery.basePath = nil
         recovery.extraSources = []
         failureMessage = String(localized: "Les modifications non enregistrées n'ont pas pu être restaurées.")

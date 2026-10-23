@@ -1,4 +1,6 @@
+use std::any::Any;
 use std::collections::{HashMap, VecDeque};
+use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::{mpsc, Arc};
 use std::thread;
@@ -26,6 +28,12 @@ const EDITED_CACHE_PAGES: usize = 16;
 /// (quelques dizaines de kilo-octets par page).
 const TEXT_CACHE_PAGES: usize = 256;
 
+/// Pile du fil d'un document : MuPDF parcourt récursivement certaines
+/// structures (plan, arbre des pages, objets imbriqués), plus profondes dans
+/// un fichier malformé ; la pile par défaut d'un fil (2 Mio) laisse peu de
+/// marge.
+const DOCUMENT_STACK: usize = 16 << 20;
+
 /// Origine des données d'un document.
 pub enum Source {
     /// Fichier sur le disque, lu une seule fois à l'ouverture.
@@ -46,6 +54,9 @@ type Request = (Qos, Job);
 /// une, à la qualité de service du fil demandeur. Les contenus de page renvoyés
 /// ([`PageContent`]) peuvent ensuite être rastérisés en parallèle par l'appelant.
 /// Le fil s'arrête quand la poignée est libérée.
+///
+/// Une requête qui panique (défaut du moteur sur un fichier inattendu) échoue
+/// seule, avec une erreur : le fil survit et le document reste utilisable.
 pub struct DocumentHandle {
     jobs: mpsc::Sender<Request>,
     page_sizes: Vec<PageSize>,
@@ -69,6 +80,7 @@ impl DocumentHandle {
 
         thread::Builder::new()
             .name("pdf-document".into())
+            .stack_size(DOCUMENT_STACK)
             .spawn(move || {
                 let mut qos = if opener_qos.apply() {
                     opener_qos
@@ -80,7 +92,12 @@ impl DocumentHandle {
                     Source::Bytes(bytes) => Ok(bytes),
                 }
                 .and_then(|bytes| {
-                    let doc = Document::from_bytes(&bytes, password.as_deref())?;
+                    let doc = panic::catch_unwind(AssertUnwindSafe(|| {
+                        Document::from_bytes(&bytes, password.as_deref())
+                    }))
+                    .map_err(|payload| PdfError::InvalidDocument {
+                        detail: panic_detail(payload.as_ref()),
+                    })??;
                     Ok((doc, SourceData::new(bytes, password)))
                 });
                 let (doc, data) = match opened {
@@ -286,13 +303,32 @@ impl DocumentHandle {
     {
         let (reply_tx, reply_rx) = mpsc::sync_channel(1);
         let job: Job = Box::new(move |worker| {
-            let _ = reply_tx.send(job(worker));
+            // Les caches ne sont remplis qu'une fois le calcul terminé : une
+            // requête interrompue ne laisse rien de partiel derrière elle.
+            let result = panic::catch_unwind(AssertUnwindSafe(|| job(worker)));
+            let _ = reply_tx.send(result.map_err(|payload| panic_detail(payload.as_ref())));
         });
         self.jobs
             .send((Qos::current(), job))
             .map_err(|_| PdfError::Closed)?;
-        reply_rx.recv().map_err(|_| PdfError::Closed)
+        reply_rx
+            .recv()
+            .map_err(|_| PdfError::Closed)?
+            .map_err(|detail| PdfError::Engine { detail })
     }
+}
+
+/// Préfixe du détail technique d'une erreur due à une panique du moteur.
+pub const PANIC_DETAIL: &str = "panique du moteur";
+
+/// Détail technique d'une panique, pour le journal.
+fn panic_detail(payload: &(dyn Any + Send)) -> String {
+    let message = payload
+        .downcast_ref::<&str>()
+        .map(|message| (*message).to_owned())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_default();
+    format!("{PANIC_DETAIL} : {message}")
 }
 
 struct Worker {
@@ -423,5 +459,23 @@ mod tests {
         // Priorité non précisée : le fil garde la précédente.
         FAKE_QOS.with(|qos| qos.set(0));
         assert_eq!(worker_qos(&handle), 0x21);
+    }
+
+    #[test]
+    fn une_requete_qui_panique_echoue_seule() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/texte_simple.pdf");
+        let handle = DocumentHandle::open(Source::File(path), None).unwrap();
+        let failed = handle.run(|_| -> u32 { panic!("défaut simulé") });
+        match failed {
+            Err(PdfError::Engine { detail }) => {
+                assert!(detail.starts_with(PANIC_DETAIL), "{detail}");
+                assert!(detail.contains("défaut simulé"), "{detail}");
+            }
+            other => panic!("erreur attendue, obtenu {other:?}"),
+        }
+        // Le fil du document a survécu : la page se lit toujours.
+        assert!(handle.page_content(0).is_ok());
+        assert!(!handle.plain_text(0).unwrap().is_empty());
     }
 }

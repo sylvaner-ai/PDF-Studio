@@ -71,6 +71,8 @@ final class PageTileView: NSView {
         baseView.isEditable = false
         baseView.setAccessibilityElement(false)
         highlightView.compositingFilter = CIFilter(name: "CIMultiplyBlendMode")
+        // Sans occurrence, le surlignage n'a ni image à dessiner ni filtre à composer.
+        highlightView.isHidden = true
         updateAccessibility()
     }
 
@@ -126,6 +128,9 @@ final class PageTileView: NSView {
 
     /// Identifiant de la page affichée.
     var pageID: UInt64 { page.id }
+
+    /// Vrai une fois l'image de la page affichée (mesure du défilement).
+    var showsImage: Bool { baseView.image != nil }
 
     /// Mode Édition (`editing` non nul) ou lecture.
     func setEditing(_ editing: PageEditing?) {
@@ -321,6 +326,7 @@ final class HighlightView: NSView {
         guard matches != self.matches || current != self.current else { return }
         self.matches = matches
         self.current = current
+        isHidden = matches.allSatisfy(\.isEmpty)
         needsDisplay = true
     }
 
