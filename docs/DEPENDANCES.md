@@ -47,6 +47,8 @@ soit une licence commerciale d'Artifex, soit le passage à PDFium (BSD).
 | XcodeGen | génération du projet Xcode | MIT |
 | SwiftLint | analyse du code Swift | MIT |
 | reportlab, pikepdf, Pillow, fontTools | génération du jeu de test | BSD, MPL-2.0, HPND, MIT |
+| resvg-py (resvg) et Pillow | images de l'icône depuis son SVG (`make icon`, jalon 8) | MIT (resvg : MIT ou Apache-2.0), HPND |
+| SF Symbols (fournis avec macOS) | icônes de l'interface | licence d'Apple, usage dans les applications pour ses plateformes |
 
 ## Polices embarquées
 

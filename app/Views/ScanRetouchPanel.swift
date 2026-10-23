@@ -21,7 +21,7 @@ struct ScanRetouchPanel: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Design.Spacing.medium) {
             Text("Retouche du texte scanné")
                 .font(.headline)
             fontPicker
@@ -44,11 +44,10 @@ struct ScanRetouchPanel: View {
                 Spacer()
             }
         }
-        .controlSize(.small)
-        .padding(12)
-        .frame(width: 270)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-        .padding(12)
+        .padding(Design.Spacing.medium)
+        .frame(width: 288)
+        .floatingPanel()
+        .padding(Design.Spacing.medium)
         .onChange(of: scan.style) { _, style in
             draft = style
         }
@@ -95,7 +94,7 @@ struct ScanRetouchPanel: View {
             set: { draft[keyPath: value] = $0 }
         )
         let number = Double(draft[keyPath: value]).formatted(.number.precision(.fractionLength(0...2)))
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: Design.Spacing.tight) {
             HStack {
                 Text(title)
                 Spacer()

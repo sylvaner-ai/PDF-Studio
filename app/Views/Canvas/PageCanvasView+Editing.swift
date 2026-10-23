@@ -26,6 +26,13 @@ extension PageCanvasView {
         pages.first { $0.id == id }?.rotation(rotation)
     }
 
+    /// Tab et ⇧Tab : passer d'un objet à l'autre.
+    func handleTabKey(_ event: NSEvent, editing: PageEditing) -> Bool {
+        let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        guard event.keyCode == 48, flags.subtracting(.shift).isEmpty else { return false }
+        return selectAdjacentObject(forward: !flags.contains(.shift), editing: editing)
+    }
+
     /// Touches de la sélection : flèches (1 pt, 10 pt avec ⇧), ⌫ et ⌦,
     /// Retour pour modifier un texte (ou la cellule courante d'un tableau),
     /// Échap pour tout désélectionner.
@@ -53,6 +60,55 @@ extension PageCanvasView {
             return false
         }
         return true
+    }
+
+    /// Sélectionne l'objet suivant ou précédent, dans l'ordre de lecture de la
+    /// page, puis sur les pages voisines. Au bout du document, rien n'est
+    /// sélectionné : Tab passe alors à la vue suivante de la fenêtre.
+    private func selectAdjacentObject(forward: Bool, editing: PageEditing) -> Bool {
+        let step = forward ? 1 : -1
+        var index = editing.page.flatMap { id in pages.firstIndex { $0.id == id } } ?? currentPage
+        var current = editing.page == pages[safe: index]?.id ? editing.selected : []
+        while pages.indices.contains(index) {
+            let page = pages[index]
+            guard let items = editing.objects(on: page) else {
+                // Objets en cours de chargement : la page est montrée, et le
+                // prochain Tab y entrera.
+                go(to: index)
+                return true
+            }
+            let screen = page.rotation(rotation)
+            let frame = { (item: PageObjectItem) in screen.apply(to: item.bounds.cgRect, pageSize: page.baseSize) }
+            let objects = items.selectable.inReadingOrder(frame: frame)
+            let position = forward
+                ? objects.lastIndex { current.contains($0.id) }
+                : objects.firstIndex { current.contains($0.id) }
+            let next = position.map { $0 + step } ?? (forward ? 0 : objects.count - 1)
+            if let item = objects[safe: next] {
+                editing.select([item.id], on: page.id)
+                reveal(frame(item), onPage: index)
+                NSAccessibility.post(
+                    element: pagesView, notification: .announcementRequested,
+                    userInfo: [
+                        .announcement: item.accessibilityDescription,
+                        .priority: NSAccessibilityPriorityLevel.high.rawValue
+                    ]
+                )
+                return true
+            }
+            index += step
+            current = []
+        }
+        return false
+    }
+
+    /// Fait défiler juste assez pour montrer `rect`, dans les coordonnées de la page `index`.
+    private func reveal(_ rect: CGRect, onPage index: Int) {
+        if pageViews[index] == nil || (mode == .singlePage && index != singlePage) {
+            go(to: index)
+        }
+        navigationTarget = index
+        pageViews[index]?.scrollToVisible(rect.insetBy(dx: -24, dy: -24))
     }
 
     /// Déplacement à l'écran demandé par une flèche.

@@ -56,7 +56,7 @@ final class PageTileView: NSView {
         wantsLayer = true
         layer?.backgroundColor = NSColor.white.cgColor
         layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowOpacity = 0.12
+        layer?.shadowOpacity = Design.pageShadowOpacity(dark: effectiveAppearance.isDark)
         layer?.shadowRadius = 6
         layer?.shadowOffset = CGSize(width: 0, height: -2)
 
@@ -80,6 +80,12 @@ final class PageTileView: NSView {
     }
 
     override var isFlipped: Bool { true }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        // La page reste blanche ; seule son ombre s'adapte au fond du canevas.
+        layer?.shadowOpacity = Design.pageShadowOpacity(dark: effectiveAppearance.isDark)
+    }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
@@ -123,6 +129,8 @@ final class PageTileView: NSView {
 
     /// Mode Édition (`editing` non nul) ou lecture.
     func setEditing(_ editing: PageEditing?) {
+        // En mode Édition, VoiceOver entre dans la page pour en parcourir les objets.
+        defer { updateAccessibility() }
         guard let editing else {
             overlay?.close()
             overlay?.removeFromSuperview()
@@ -187,7 +195,9 @@ final class PageTileView: NSView {
             guard let self, !Task.isCancelled, self.isShowing(page, display), self.basePixelWidth == wanted else {
                 return
             }
-            self.setBase(image)
+            // Une page qui apparaît pour la première fois se dévoile en fondu ;
+            // une image plus nette remplace la précédente sans transition.
+            self.setBase(image, fading: self.baseView.image == nil)
         }
     }
 
@@ -203,7 +213,13 @@ final class PageTileView: NSView {
         return max(step, (exact + step - 1) / step * step)
     }
 
-    private func setBase(_ image: PageImage) {
+    private func setBase(_ image: PageImage, fading: Bool = false) {
+        if fading, let layer = baseView.layer {
+            let fade = CATransition()
+            fade.type = .fade
+            fade.duration = Design.Motion.duration * 0.75
+            layer.add(fade, forKey: "apparition")
+        }
         baseView.image = NSImage(cgImage: image.cgImage, size: pageSize)
     }
 
@@ -283,7 +299,7 @@ final class PageTileView: NSView {
 
     private func updateAccessibility() {
         setAccessibilityElement(true)
-        setAccessibilityRole(.image)
+        setAccessibilityRole(overlay == nil ? .image : .group)
         setAccessibilityLabel(String(localized: "Page \(pageIndex + 1) sur \(pageCount)"))
     }
 }

@@ -7,25 +7,29 @@ struct EditingBadge: View {
     let editing: PageEditing
 
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: Design.Spacing.tight) {
             Text(summary)
-                .font(.callout)
             if let detail {
                 Text(detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             if let notice = editing.notice {
-                Label(notice, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
+                // Une mise en garde, pas une couleur d'accent : le triangle jaune du système.
+                Label {
+                    Text(notice)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .symbolRenderingMode(.multicolor)
+                }
+                .font(.caption)
             }
         }
         .multilineTextAlignment(.center)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .padding(12)
+        .padding(.horizontal, Design.Spacing.medium)
+        .padding(.vertical, Design.Spacing.small)
+        .floatingPanel()
+        .padding(Design.Spacing.medium)
         .frame(maxWidth: 560)
         .accessibilityElement(children: .combine)
         .allowsHitTesting(false)
@@ -40,7 +44,7 @@ struct EditingBadge: View {
         case 0:
             return String(localized: "Cliquez sur un texte, une image, un tracé ou un tableau pour le sélectionner.")
         case 1:
-            return Self.name(of: items[0])
+            return items[0].kindName
         default:
             return String(localized: "\(items.count) objets sélectionnés")
         }
@@ -76,17 +80,6 @@ struct EditingBadge: View {
             parts.append(String(localized: "Flèches pour déplacer (⇧ : 10 pt), ⌫ pour supprimer"))
         }
         return parts.joined(separator: " · ")
-    }
-
-    private static func name(of item: PageObjectItem) -> String {
-        switch item.kind {
-        case .text: return String(localized: "Bloc de texte")
-        case .image: return String(localized: "Image")
-        case .path: return String(localized: "Tracé")
-        case .form: return String(localized: "Groupe d'objets")
-        case .shading: return String(localized: "Dégradé")
-        case .table: return String(localized: "Tableau")
-        }
     }
 
     /// Taille du tableau, cellule courante et marche à suivre.

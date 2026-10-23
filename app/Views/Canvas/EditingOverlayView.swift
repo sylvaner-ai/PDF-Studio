@@ -22,6 +22,9 @@ final class EditingOverlayView: NSView {
     private var editor: InlineTextEditor?
     private var editorObject: UInt32?
     var editorCell: PageEditing.CellTarget?
+    /// Éléments d'accessibilité des objets, gardés d'une lecture à l'autre
+    /// (cf. `EditingOverlayView+Accessibility.swift`).
+    var accessibilityObjects: [UInt32: PageObjectElement] = [:]
 
     private enum Drag {
         /// Déplacement de la sélection depuis `start` ; il commence au-delà
@@ -68,6 +71,7 @@ final class EditingOverlayView: NSView {
             removeEditor()
         }
         needsDisplay = true
+        selectionDidChangeForAccessibility()
     }
 
     // MARK: - Géométrie

@@ -21,8 +21,8 @@ struct SidebarView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.horizontal, Design.Spacing.medium)
+                .padding(.vertical, Design.Spacing.small)
             }
             if panel == .outline, !model.outline.isEmpty {
                 OutlineList(model: model)
@@ -92,6 +92,7 @@ struct ThumbnailCell: View {
     let renderer: PageRenderer
 
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.colorScheme) private var colorScheme
     @State private var image: PageImage?
 
     private static let width: CGFloat = 104
@@ -99,23 +100,26 @@ struct ThumbnailCell: View {
     var body: some View {
         let size = page.size(display)
         let height = (size.height * Self.width / max(size.width, 1)).rounded()
-        VStack(spacing: 4) {
+        VStack(spacing: Design.Spacing.tight) {
             ZStack {
                 Color.white
                 if let image {
                     Image(decorative: image.cgImage, scale: 1)
                         .resizable()
                         .interpolation(.high)
+                        .transition(.opacity)
                 }
             }
+            .animation(.easeOut(duration: Design.Motion.duration), value: image != nil)
             .frame(width: Self.width, height: height)
-            .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
+            .overlay(Rectangle().strokeBorder(.separator, lineWidth: 0.5))
+            .shadow(color: .black.opacity(shadowOpacity), radius: 2, y: 1)
             Text("\(position + 1)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 4)
+        .padding(.vertical, Design.Spacing.tight)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Page \(position + 1)"))
         .task(id: RenderRequest(page: page, display: display, pixelWidth: pixelWidth)) {
@@ -125,6 +129,10 @@ struct ThumbnailCell: View {
                 image = nil
             }
         }
+    }
+
+    private var shadowOpacity: Double {
+        Double(Design.pageShadowOpacity(dark: colorScheme == .dark))
     }
 
     private var pixelWidth: Int {

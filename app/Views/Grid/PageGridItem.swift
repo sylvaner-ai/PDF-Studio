@@ -108,12 +108,12 @@ final class PageGridItemView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        selectionLayer.cornerRadius = 5
+        selectionLayer.cornerRadius = Design.Radius.small
+        selectionLayer.cornerCurve = .continuous
         selectionLayer.borderWidth = 3
         pageLayer.backgroundColor = NSColor.white.cgColor
         pageLayer.contentsGravity = .resize
         pageLayer.minificationFilter = .trilinear
-        pageLayer.shadowOpacity = 0.25
         pageLayer.shadowRadius = 2
         pageLayer.shadowOffset = CGSize(width: 0, height: -1)
         layer?.addSublayer(selectionLayer)
@@ -173,6 +173,7 @@ final class PageGridItemView: NSView {
             selectionLayer.borderColor = isHighlighted ? NSColor.controlAccentColor.cgColor : nil
             pageLayer.borderColor = NSColor.separatorColor.cgColor
         }
+        pageLayer.shadowOpacity = Design.pageShadowOpacity(dark: effectiveAppearance.isDark) * 1.5
         pageLayer.borderWidth = 0.5
     }
 }

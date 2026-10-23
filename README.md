@@ -18,7 +18,8 @@ locale, hors ligne, sans compte ni télémétrie.
 | 5. OCR | reconnaissance du texte des scans (Vision), couche de texte invisible | terminé |
 | 6. Structure | détection des tableaux, édition des tableaux | terminé (à valider) |
 | 7. Scans | retouche des pages scannées : texte réécrit dans la police retrouvée, objets effacés ou déplacés, comparaison avant/après | terminé (à valider) |
-| 8 et 9 | design, durcissement | à faire |
+| 8. Design | finition visuelle, animations, mode sombre, icône, accessibilité | terminé (à valider) |
+| 9. Durcissement | performances, récupération, documentation, jeu de tests | à faire |
 
 ## Organiser les pages
 
@@ -62,6 +63,8 @@ locale, hors ligne, sans compte ni télémétrie.
   retrouvées (avec leur ressemblance) et règle le corps, la graisse,
   l'interlettrage, le flou, le grain et la couleur. Une retouche n'est pas un
   caviardage : les pixels d'origine restent dans le fichier.
+- **Au clavier :** Tab et ⇧Tab passent d'un objet à l'autre, dans l'ordre de
+  lecture ; VoiceOver annonce chaque objet et le sélectionne par VO-Espace.
 - **Comparer avec l'original** (⌥⌘K, ou le bouton de la barre d'outils) montre
   les pages sans leurs modifications, à la même place, le temps de comparer.
 - Tout s'annule par ⌘Z, avec l'organisation des pages ; les limites sont décrites
@@ -81,6 +84,8 @@ make test       # tests du moteur (cargo) et de l'application (XCTest)
 make lint       # clippy, rustfmt, SwiftLint
 make bench      # banc d'essai MuPDF / PDFium (télécharge PDFium pour la mesure)
 make fixtures   # régénère le jeu de PDF de test
+make icon       # régénère les images de l'icône depuis app/Resources/AppIcon.svg
+make snapshots  # captures d'écran de l'interface, en mode clair et sombre
 ```
 
 Le premier `make build` compile MuPDF et prend plusieurs minutes ; les suivants

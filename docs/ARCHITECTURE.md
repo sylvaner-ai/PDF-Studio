@@ -6,12 +6,13 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
 
 ```
 ┌──────────────────────── Application SwiftUI (app/) ──────────────────────────┐
-│ Views/        DocumentWindow, DocumentView (lecteur), SidebarView,           │
+│ Views/        Design (règles visuelles communes, D43),                       │
+│               DocumentWindow, DocumentView (lecteur), SidebarView,           │
 │               DocumentWindowBridge (fermeture), ExportOptions, SearchField ; │
 │               EditingBadge, RecognitionViews (bouton et avancement OCR),     │
 │               ScanRetouchPanel (réglages du texte réécrit d'un scan) ;       │
 │               Canvas/ : PageCanvasView (AppKit),                             │
-│               PageTileView, EditingOverlayView (+Tables),                    │
+│               PageTileView, EditingOverlayView (+Tables, +Accessibility),    │
 │               InlineTextEditor ;                                             │
 │               Grid/ : PageGrid, PageGridCoordinator, PageGridItem (AppKit)   │
 │ ViewModels/   DocumentViewModel (+Saving, +Recovery, +Inserting,             │
@@ -109,6 +110,10 @@ l'interprétation du flux de contenu et sur MuPDF.
   visible (`render_region`) se posent par-dessus. Pendant un pincement, l'image
   existante est simplement agrandie ; le rendu net suit la fin du geste. Une image
   déjà en cache à une autre résolution sert de remplaçant immédiat.
+- **Apparence.** Les pages restent blanches en mode sombre ; seule leur ombre
+  s'adapte au fond du canevas (D46). Une page rendue pour la première fois se
+  dévoile en fondu ; les panneaux posés sur les pages et le passage à la grille
+  suivent les animations de `Design.Motion` (D45).
 - **Rotation d'affichage.** Elle est appliquée par le moteur au rendu (quart de tour
   dans la matrice de MuPDF) ; le fichier n'est pas modifié. Les rectangles de la
   recherche, exprimés sur la page droite, sont tournés côté Swift
@@ -326,3 +331,12 @@ lancé depuis Xcode reste donc à jour.
   jalon 5, `tableaux.pdf` (cellules fusionnées, cellules vides, fonds de
   cellule, tableau à filets horizontaux) pour le jalon 6 ;
   `tests/fixtures/private/` reçoit les documents personnels, jamais versionnés.
+- `make snapshots` : captures d'écran de l'interface en mode clair et sombre
+  (`DesignSnapshotTests`, ignoré par `make test-app`), copiées dans
+  `~/Library/Caches/PDFStudio/snapshots` (D49).
+
+## Icône
+
+`app/Resources/AppIcon.svg` est la source ; `make icon` (`tools/icon/render_icon.py`)
+produit le jeu d'icônes `app/Resources/Assets.xcassets/AppIcon.appiconset`, versionné.
+Le SVG n'est pas copié dans l'application (`project.yml`).

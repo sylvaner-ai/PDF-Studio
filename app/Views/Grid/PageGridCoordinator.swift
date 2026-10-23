@@ -79,7 +79,7 @@ final class PageGridCoordinator: NSObject, NSCollectionViewDelegate {
             var snapshot = NSDiffableDataSourceSnapshot<Int, UInt64>()
             snapshot.appendSections([0])
             snapshot.appendItems(pages.map(\.id))
-            dataSource?.apply(snapshot, animatingDifferences: animated)
+            dataSource?.apply(snapshot, animatingDifferences: animated && !Design.Motion.reducesMotion)
             // Les cases déjà affichées gardent leur page : numéro, rotation et taille suivent.
             for case let item as PageGridItem in collectionView.visibleItems() {
                 if let path = collectionView.indexPath(for: item), let page = pages[safe: path.item] {
