@@ -71,6 +71,8 @@ final class PageTileView: NSView {
         baseView.isEditable = false
         baseView.setAccessibilityElement(false)
         highlightView.compositingFilter = CIFilter(name: "CIMultiplyBlendMode")
+        // Sans occurrence, le surlignage n'a ni image à dessiner ni filtre à composer.
+        highlightView.isHidden = true
         updateAccessibility()
     }
 
@@ -324,6 +326,7 @@ final class HighlightView: NSView {
         guard matches != self.matches || current != self.current else { return }
         self.matches = matches
         self.current = current
+        isHidden = matches.allSatisfy(\.isEmpty)
         needsDisplay = true
     }
 

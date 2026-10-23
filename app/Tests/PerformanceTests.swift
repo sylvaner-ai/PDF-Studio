@@ -66,16 +66,23 @@ final class PerformanceTests: XCTestCase {
     /// est un intervalle de plus d'une fois et demie la période de l'écran.
     func test2Defilement() throws {
         var rows: [String] = []
+        var details: [String] = []
         var period: CFTimeInterval = 1.0 / 60
         for name in ["multipage_100", "volumineux_600", "tableaux"] {
             let stats = try scroll(name, speed: 2000, pages: 25)
             period = stats.period
+            let frames = stats.frames
             rows.append(
-                "| \(name).pdf | \(stats.frames) | \(String(format: "%.1f", stats.rate)) | "
-                    + "\(stats.missed) (\(percent(stats.missed, of: stats.frames))) | "
-                    + "\(String(format: "%.2f", stats.meanWork * 1000)) | "
-                    + "\(String(format: "%.1f", stats.maxWork * 1000)) | "
-                    + "\(percent(stats.blankFrames, of: stats.frames)) |"
+                "| \(name).pdf | \(frames) | \(String(format: "%.1f", stats.rate)) | "
+                    + "\(stats.missed) (\(percent(stats.missed, of: frames))) | "
+                    + "\(stats.missedWithNewImage) | \(fine(stats.work.mean(frames))) | "
+                    + "\(fine(stats.work.max)) | \(percent(stats.blankFrames, of: frames)) |"
+            )
+            details.append(
+                "| \(name).pdf | \(fine(stats.layout.mean(frames))) / \(fine(stats.layout.max)) | "
+                    + "\(fine(stats.display.mean(frames))) / \(fine(stats.display.max)) | "
+                    + "\(fine(stats.commit.mean(frames))) / \(fine(stats.commit.max)) | "
+                    + "\(stats.slowFrames) | \(stats.slowWithNewPage) | \(stats.slowWithNewImage) |"
             )
         }
         try write([
@@ -84,13 +91,23 @@ final class PerformanceTests: XCTestCase {
             "Défilement continu à 2 000 points par seconde (environ deux pages A4 et demie), sur "
                 + "25 pages au plus, fenêtre de 1 080 × 760 points, ajustement à la largeur ; écran "
                 + "à \(Int((1 / period).rounded())) images par seconde. *Travail* : temps passé sur le fil "
-                + "principal pour chaque image (mise en page et dessin). *Pages blanches* : part des "
-                + "images où une page visible attend encore son rendu.",
+                + "principal pour chaque image (mise en page, dessin, validation Core Animation). "
+                + "*Après une image posée* : images manquées alors que le rendu d'une page venait "
+                + "d'être affiché. *Pages blanches* : part des images où une page visible attend "
+                + "encore son rendu.",
             "",
-            "| Document | Images | Images/s | Images manquées | Travail moyen (ms) | Travail max (ms) "
-                + "| Pages blanches |",
+            "| Document | Images | Images/s | Images manquées | Après une image posée | Travail moyen (ms) "
+                + "| Travail max (ms) | Pages blanches |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|"
+        ] + rows + [
+            "",
+            "Détail du travail, moyenne / maximum en millisecondes. *Lentes* : images dont le "
+                + "travail dépasse la moitié de la période de l'écran ; *avec page* : une vue de page "
+                + "y a été créée ou réutilisée ; *avec image* : le rendu d'une page venait d'être posé.",
+            "",
+            "| Document | Mise en page | Dessin | Validation | Lentes | avec page | avec image |",
             "|---|---:|---:|---:|---:|---:|---:|"
-        ] + rows, as: "2-defilement")
+        ] + details, as: "2-defilement")
     }
 
     /// Fait défiler `pages` pages du document à `speed` points par seconde.
@@ -308,6 +325,11 @@ extension PerformanceTests {
         String(format: "%.0f", seconds * 1000)
     }
 
+    /// Millisecondes au dixième.
+    private func fine(_ seconds: CFTimeInterval) -> String {
+        String(format: "%.1f", seconds * 1000)
+    }
+
     private func percent(_ count: Int, of total: Int) -> String {
         total == 0 ? "—" : String(format: "%.1f %%", 100 * Double(count) / Double(total))
     }
@@ -320,74 +342,6 @@ extension PerformanceTests {
         let deadline = Date().addingTimeInterval(seconds)
         while !condition(), Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
-        }
-    }
-}
-
-// MARK: - Défilement
-
-private struct ScrollStats {
-    var frames = 0
-    var missed = 0
-    var period: CFTimeInterval = 1.0 / 60
-    var elapsed: CFTimeInterval = 0
-    var meanWork: CFTimeInterval = 0
-    var maxWork: CFTimeInterval = 0
-    var blankFrames = 0
-    var rate: Double { elapsed > 0 ? Double(frames) / elapsed : 0 }
-}
-
-/// Avance le défilement à chaque image de l'écran et mesure le travail.
-@MainActor
-private final class ScrollDriver: NSObject {
-    private let canvas: PageCanvasView
-    private let origin: CGPoint
-    private let speed: CGFloat
-    private let distance: CGFloat
-    private var start: CFTimeInterval?
-    private var last: CFTimeInterval?
-    private var totalWork: CFTimeInterval = 0
-    private(set) var stats = ScrollStats()
-    private(set) var isDone = false
-
-    init(canvas: PageCanvasView, origin: CGPoint, speed: CGFloat, distance: CGFloat) {
-        self.canvas = canvas
-        self.origin = origin
-        self.speed = speed
-        self.distance = distance
-    }
-
-    @objc func step(_ link: CADisplayLink) {
-        guard !isDone else { return }
-        let now = link.timestamp
-        stats.period = link.duration
-        let start = self.start ?? now
-        self.start = start
-        if let last {
-            stats.frames += 1
-            if now - last > 1.5 * link.duration {
-                stats.missed += 1
-            }
-        }
-        last = now
-        let begin = CACurrentMediaTime()
-        let offset = min(speed * CGFloat(now - start), distance)
-        canvas.contentView.scroll(to: CGPoint(x: origin.x, y: origin.y + offset))
-        canvas.reflectScrolledClipView(canvas.contentView)
-        canvas.window?.displayIfNeeded()
-        let work = CACurrentMediaTime() - begin
-        if stats.frames > 0 {
-            totalWork += work
-            stats.maxWork = max(stats.maxWork, work)
-            stats.meanWork = totalWork / Double(stats.frames)
-            let shown = canvas.documentVisibleRect
-            if canvas.pageViews.values.contains(where: { $0.frame.intersects(shown) && !$0.showsImage }) {
-                stats.blankFrames += 1
-            }
-        }
-        if offset >= distance {
-            stats.elapsed = now - start
-            isDone = true
         }
     }
 }
