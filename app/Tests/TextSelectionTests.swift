@@ -132,9 +132,12 @@ final class TextSelectionTests: XCTestCase {
         return model
     }
 
+    /// Fermée sans enregistrer, la fenêtre ne laisse rien à récupérer.
     private func close(_ window: NSWindow, _ model: DocumentViewModel) {
         window.close()
+        model.discardChanges()
         model.close()
+        RecoveryWriter.shared.flush()
     }
 
     private func show(_ model: DocumentViewModel) async throws -> (NSWindow, PageCanvasView) {
@@ -164,7 +167,6 @@ final class TextSelectionTests: XCTestCase {
         while !condition(), Date() < deadline {
             try? await Task.sleep(for: .milliseconds(25))
         }
-    }
     }
 
     /// Point de la vue des pages qui correspond à `point` sur la première page (page droite, non tournée).
