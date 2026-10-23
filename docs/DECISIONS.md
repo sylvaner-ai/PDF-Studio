@@ -637,3 +637,114 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
 - **Raisons :** une retouche réussie se juge en basculant sur place : l'œil
   repère le moindre décalage. Le rendu d'origine est mis en cache comme les
   autres.
+
+## D43 — Règles visuelles réunies dans `Design.swift` (jalon 8)
+
+- **Retenu :** un seul fichier, `app/Views/Design.swift`, fixe les règles du §5
+  et toutes les vues s'y réfèrent : espacements multiples de 4 pt (4, 8, 12, 16,
+  32), deux rayons à arrondi continu (12 pt pour les panneaux posés sur les
+  pages, 4 pt pour le cadre de sélection d'une vignette), capsules pour les
+  bandeaux, une surface commune (matériau `.regularMaterial`, filet de 0,5 pt,
+  ombre douce). Le texte est en SF Pro, en trois tailles : `.title3` pour les
+  écrans vides, `.body` par défaut (aussi en gras pour un titre de panneau),
+  `.caption` pour les précisions. Les commandes du panneau de retouche ne sont
+  plus en petite taille, qui aurait ajouté une quatrième taille de texte.
+- **Couleurs :** l'accent du système seul, pour ce qui est actif ou
+  sélectionné. Les mises en garde gardent le triangle jaune du système et les
+  mots douteux de l'OCR leur surlignage orange : ce sont des signaux d'état,
+  pas des accents. Les occurrences de la recherche ont la couleur de
+  surlignage de macOS.
+- **Raisons :** des valeurs dispersées (10, 14, 8 et 10 pt de rayon) divergeaient
+  d'une vue à l'autre ; une seule source les garde cohérentes.
+
+## D44 — Barre d'outils : cinq outils, Comparer en mode Édition seulement (jalon 8)
+
+- **Retenu :** de gauche à droite, après le bouton de la barre latérale :
+  Lecture, Pages, Édition (un contrôle segmenté, ⌘1 à ⌘3), Reconnaître le
+  texte (OCR), puis Enregistrer (⌘S, grisé sans modification). « Comparer avec
+  l'original » n'apparaît qu'en mode Édition, où se font les retouches ; il
+  reste au menu Présentation (⌥⌘K) dans tous les modes. Six outils au plus
+  sont donc visibles.
+- **Correspondance avec le cahier des charges** (Sélection, Texte, Image, OCR,
+  Pages, Enregistrer) : la sélection, la modification du texte et celle des
+  images se font toutes dans le mode Édition, d'un clic ou d'un double-clic sur
+  l'objet ; il n'y a pas d'outil distinct, puisque l'application ne crée pas
+  de nouveau bloc de texte ni de nouvelle image (§4 ne le demande pas). Le mode
+  Lecture tient la place de l'outil Sélection lorsqu'on ne modifie rien.
+- **Raisons :** principe de révélation progressive (§5) ; un bouton
+  Enregistrer visible rappelle qu'un document est modifié.
+
+## D45 — Animations : ressort de 0,22 s, fondu seul si les animations sont réduites (jalon 8)
+
+- **Retenu :** les panneaux et bandeaux (recherche, retouche, mode Édition,
+  comparaison, avancement) apparaissent en fondu avec un glissement de 8 pt
+  depuis leur bord, par un ressort de 0,22 s sans rebond ; le passage à la
+  grille d'organisation et le retour se font en fondu. Une page ou une vignette
+  rendue pour la première fois se dévoile en fondu de 0,15 s ; une image plus
+  nette (zoom) remplace la précédente sans transition, et une page déjà en
+  cache s'affiche aussitôt. Le défilement animé (recherche) dure 0,2 s. Si
+  « Réduire les animations » est activé, les glissements disparaissent : il ne
+  reste que des fondus de 0,15 s, et le défilement est immédiat.
+- **Raisons :** §5 (150–250 ms, courbes naturelles, rien de gratuit) ; les
+  recommandations d'Apple remplacent les mouvements par des fondus quand les
+  animations sont réduites.
+
+## D46 — Mode sombre : pages blanches, ombre adaptée au fond du canevas (jalon 8)
+
+- **Retenu :** les pages restent blanches dans les deux modes (c'est le
+  document) ; le canevas garde la couleur « sous la page » du système, distincte
+  de la page dans les deux modes. L'ombre des pages, invisible sur le fond
+  sombre à l'opacité du mode clair, passe de 0,14 à 0,5 en mode sombre ; les
+  vignettes de la barre latérale reçoivent un filet de séparation, comme
+  celles de la grille. La saisie d'un texte se fait en noir sur blanc, comme
+  sur la page.
+- **Alternative :** inverser les couleurs des pages en mode sombre (au risque de
+  fausser le contrôle d'une retouche).
+
+## D47 — Icône : source SVG, images générées et versionnées (jalon 8)
+
+- **Retenu :** `app/Resources/AppIcon.svg` est l'unique source : sur la grille
+  des icônes de macOS (forme de 824 pt, superellipse d'exposant 5, sur une toile
+  de 1 024), une page blanche au coin replié, quatre lignes grises et une ligne
+  bleue suivie d'un curseur de saisie, sur un fond bleu profond. `make icon`
+  (`tools/icon/render_icon.py`, resvg et Pillow) en tire les dix images du jeu
+  d'icônes (`Assets.xcassets/AppIcon.appiconset`), versionnées : la compilation
+  n'a pas besoin de Python. Les lignes sont assez épaisses pour rester
+  distinctes à 32 pixels.
+- **Alternative :** le format `.icon` d'Icon Composer (macOS 26), à couches
+  « Liquid Glass ».
+- **Raisons :** le catalogue d'images classique fonctionne de macOS 14 à
+  macOS 27 ; le format `.icon` n'est lisible que par les Xcode récents et ne
+  s'écrit pas à la main de façon fiable.
+
+## D48 — Accessibilité : objets de la page pour VoiceOver, Tab entre les objets (jalon 8)
+
+- **Retenu :** en mode Édition, chaque objet sélectionnable d'une page est un
+  élément d'accessibilité (`PageObjectElement`) : rôle texte, image ou groupe,
+  libellé « Bloc de texte : début du texte », aide sur les touches ; l'activer
+  (VO-Espace) le sélectionne, et la sélection est annoncée. La page passe du
+  rôle image au rôle groupe pour que VoiceOver y entre. Tab et ⇧Tab
+  sélectionnent l'objet suivant ou précédent dans l'ordre de lecture (de haut en
+  bas, puis de gauche à droite), puis passent aux pages voisines ; au bout du
+  document, Tab rend la main à la vue suivante de la fenêtre. Avec « Augmenter
+  le contraste », les contours de sélection et le filet des panneaux
+  s'épaississent. Les symboles des écrans vides suivent la taille du texte
+  (`@ScaledMetric`).
+- **Dynamic Type :** l'interface n'emploie que des styles de texte (`.body`,
+  `.caption`, `.title3`), jamais de taille fixe ; macOS 14 n'offre pas de
+  réglage global de la taille du texte pour les applications tierces, donc
+  l'effet réel dépend du système (voir LIMITES).
+
+## D49 — Captures d'écran par un test, sans autorisation système (jalon 8)
+
+- **Retenu :** `make snapshots` exécute `DesignSnapshotTests`, ignoré par les
+  tests ordinaires : il ouvre des documents du jeu de test dans des fenêtres à
+  barre d'outils unifiée, en mode clair puis sombre (accueil, lecture,
+  vignettes, grille, édition avec sélection, recherche), et en écrit l'image
+  par `cacheDisplay`. Les images sont copiées dans
+  `~/Library/Caches/PDFStudio/snapshots`.
+- **Alternatives :** `screencapture` ou ScreenCaptureKit, qui demandent
+  l'autorisation d'enregistrer l'écran ; une revue uniquement manuelle.
+- **Raisons :** aucune autorisation macOS n'est demandée ; la revue visuelle
+  du design se refait en une commande après chaque changement. Les matériaux
+  translucides y paraissent sans le flou de l'arrière-plan.

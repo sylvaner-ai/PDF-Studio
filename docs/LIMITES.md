@@ -269,3 +269,29 @@ complété à chaque jalon.
   parmi tout le catalogue, et la fenêtre attend la fin de la recherche :
   environ une seconde pour 169 polices, mesurée sur le test du moteur (profil de
   développement, MacBook Air) ; davantage avec plus de polices installées.
+
+## Jalon 8
+
+- **Outils Texte et Image :** la barre d'outils n'a pas d'outil pour créer un
+  nouveau bloc de texte ou poser une nouvelle image ; texte et images
+  existants se modifient en mode Édition (D44).
+- **Dynamic Type :** l'interface n'utilise que des styles de texte ; macOS 14
+  n'a pas de réglage global de la taille du texte pour les applications
+  tierces. Je ne sais pas si le réglage « Taille du texte » des versions
+  récentes de macOS s'applique à PDF Studio : à vérifier sur le Mac. Les pages,
+  elles, s'agrandissent au zoom.
+- **Icône sous macOS 26 et suivants :** l'icône suit la grille de macOS 11 à
+  15 et n'a pas les couches « Liquid Glass » d'Icon Composer ; sur
+  macOS 26 et 27, le système peut l'afficher sans les reflets des icônes
+  d'Apple. Son rendu dans le Dock et le Finder reste à juger sur le Mac.
+- **VoiceOver :** les objets d'une page ne sont exposés qu'en mode Édition ;
+  en lecture, une page est une image (« Page 3 sur 12 ») dont le texte n'est
+  pas lu. L'ordre de lecture des objets est géométrique : sur deux colonnes,
+  il alterne d'une colonne à l'autre ligne à ligne. Les cellules d'un tableau
+  ne sont pas parcourues une à une par VoiceOver.
+- **Tab dans le mode Édition :** Tab sert à passer d'un objet à l'autre ; pour
+  quitter les pages au clavier, aller au bout du document ou utiliser ⌃Tab
+  (convention de macOS, non vérifiée sur ce canevas).
+- **Captures d'écran (`make snapshots`) :** les matériaux translucides y
+  apparaissent sans le flou de l'arrière-plan ; elles ne remplacent pas la
+  revue de l'application elle-même.
