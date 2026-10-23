@@ -222,10 +222,7 @@ struct ReaderView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelStyle(.iconOnly)
-                .help(Text("Lecture (⌘1), organisation des pages (⌘2) ou édition du contenu (⌘3)"))
-            }
-            ToolbarItem(placement: .primaryAction) {
-                RecognitionMenu(model: model)
+                .help(Text("Lecture (⌘1), organisation des pages (⌘2) ou édition du contenu et des scans (⌘3)"))
             }
             // Comparer et Enregistrer restent visibles dans tous les modes (choix de
             // Sylvain), grisés quand ils ne servent pas.
@@ -254,17 +251,16 @@ struct ReaderView: View {
                     if model.isComparing {
                         ComparisonBadge()
                             .floatingTransition(from: .bottom)
-                    } else if model.workspace == .editing {
+                    } else if showsEditingBadge {
                         EditingBadge(editing: model.editing)
                             .floatingTransition(from: .bottom)
                     }
                 }
-                .interfaceAnimation(value: model.isComparing ? 2 : model.workspace == .editing ? 1 : 0)
+                .interfaceAnimation(value: model.isComparing ? 2 : showsEditingBadge ? 1 : 0)
             }
             .overlay(alignment: .topLeading) {
                 ZStack {
-                    if model.workspace == .editing, !model.isComparing,
-                       let line = model.editing.selectedScanLine, let scan = line.scan {
+                    if model.isEditingCanvas, let line = model.editing.selectedScanLine, let scan = line.scan {
                         ScanRetouchPanel(editing: model.editing, scan: scan)
                             .id(line.id)
                             .floatingTransition(from: .top)
@@ -283,10 +279,15 @@ struct ReaderView: View {
             }
     }
 
+    /// Bandeau du mode Édition ; il laisse la place à l'avancement de la
+    /// reconnaissance du texte et à son bilan, au même endroit.
+    private var showsEditingBadge: Bool {
+        model.isEditingCanvas && model.recognition == nil && model.notice == nil
+    }
+
     /// Ligne scannée dont le panneau de retouche est ouvert.
     private var scanPanelKey: UInt32? {
-        guard model.workspace == .editing, !model.isComparing,
-              let line = model.editing.selectedScanLine, line.scan != nil else { return nil }
+        guard model.isEditingCanvas, let line = model.editing.selectedScanLine, line.scan != nil else { return nil }
         return line.id
     }
 }

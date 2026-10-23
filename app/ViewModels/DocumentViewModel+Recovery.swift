@@ -227,6 +227,7 @@ extension DocumentViewModel {
             await loadOutline(base)
             await checkSignature()
         }
+        prepareEditing()
     }
 
     /// Les modifications retenues ne peuvent pas être restaurées : elles sont supprimées.

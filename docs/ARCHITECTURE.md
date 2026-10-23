@@ -9,7 +9,7 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
 │ Views/        Design (règles visuelles communes, D43),                       │
 │               DocumentWindow, DocumentView (lecteur), SidebarView,           │
 │               DocumentWindowBridge (fermeture), ExportOptions, SearchField ; │
-│               EditingBadge, RecognitionViews (bouton et avancement OCR),     │
+│               EditingBadge, RecognitionViews (avancement de l'OCR),          │
 │               ScanRetouchPanel (réglages du texte réécrit d'un scan) ;       │
 │               Canvas/ : PageCanvasView (+Search, +Text), PageTileView,       │
 │               TextSelectionView, EditingOverlayView (+Tables,                │
@@ -277,12 +277,18 @@ l'interprétation du flux de contenu et sur MuPDF.
   (`3 Tr`), placé et étiré sur son quadrilatère, dans une police Type0 sans
   dessin construite par le code (D28). Les lecteurs PDF y trouvent le texte
   (sélection, recherche, copie) sans que l'image change.
-- **Interface.** Le bouton « Reconnaître le texte » de la barre d'outils et le
-  menu Pages lancent la lecture des pages scannées (détectées par le moteur :
-  aucun texte, mais un contenu), de la page lue, de la sélection ou de tout le
-  document. Les pages sont lues une à une hors du fil principal ; un bandeau
-  montre l'avancement et permet d'arrêter après la page en cours. En mode
-  Édition, les mots douteux (confiance inférieure à 0,5) sont surlignés.
+- **Interface.** L'entrée en mode Édition lance la lecture des pages
+  scannées (D58), détectées par le moteur (`pages_to_recognize`) : aucun texte
+  mais un contenu, ou seulement le texte invisible d'un OCR précédent posé sur
+  un scan. Un PDF natif passe aussitôt en Édition. Les pages sont lues une à
+  une hors du fil principal ; un bandeau montre l'avancement et permet
+  d'arrêter après la page en cours. En mode Édition, les mots douteux
+  (confiance inférieure à 0,5) sont surlignés.
+- **Couche remplacée.** Sur une page dont le seul texte était invisible, la
+  nouvelle couche remplace l'ancienne : la recherche et la sélection l'ignorent
+  (`service::Worker::page_text_with_layer`), et l'écriture retire du contenu les
+  opérations d'affichage du texte avant d'ajouter la nouvelle couche
+  (`writer::remove_replaced_text`).
 
 ## Enregistrement, récupération et exportations
 

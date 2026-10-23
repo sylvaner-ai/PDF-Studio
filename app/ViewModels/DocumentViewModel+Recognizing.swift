@@ -1,68 +1,73 @@
 import Foundation
 
-/// Pages dont le texte est à reconnaître.
-enum RecognitionScope: CaseIterable, Sendable {
-    /// La page lue.
-    case currentPage
-    /// Les pages sélectionnées dans les vignettes.
-    case selection
-    /// Les pages sans texte (scans), détectées par le moteur.
-    case scannedPages
-    /// Toutes les pages du document.
-    case allPages
-}
-
-/// Avancement d'une reconnaissance du texte.
+/// Avancement de la préparation du mode Édition : recherche des pages
+/// scannées, puis reconnaissance de leur texte.
 struct RecognitionProgress: Equatable, Sendable {
     /// Pages lues.
     var done: Int
-    /// Pages à lire.
+    /// Pages à lire ; 0 pendant la recherche des pages scannées.
     let total: Int
     /// Vrai une fois l'arrêt demandé : la page en cours se termine.
     var isStopping = false
+
+    /// Vrai pendant la recherche des pages scannées, avant leur lecture.
+    var isSearching: Bool {
+        total == 0
+    }
 
     var fraction: Double {
         total == 0 ? 0 : Double(done) / Double(total)
     }
 }
 
-// MARK: - Reconnaissance du texte (OCR)
+// MARK: - Mode Édition
 
-/// Le texte des pages scannées est lu par Vision (``VisionTextRecognizer``),
-/// page après page, hors du fil principal. Le moteur prépare chaque image
-/// (fond, contraste, inclinaison, orientation) et convertit les mots lus en
-/// couche de texte invisible, cherchable et enregistrée avec le document.
-/// Les pages restent figées pendant la lecture ; à la fin, ou à l'arrêt, les
-/// pages lues reçoivent leur couche en une seule étape d'annulation, et les
-/// pages couchées ou retournées sont remises à l'endroit.
 extension DocumentViewModel {
-    /// Pages visées par `scope`, dans l'ordre du document.
-    func recognitionTargets(_ scope: RecognitionScope) async -> [UInt64] {
-        switch scope {
-        case .currentPage:
-            return pages[safe: canvas.currentPage].map { [$0.id] } ?? []
-        case .selection:
-            return positions(of: selection).map { pages[$0] }.filter { !$0.isBlank }.map(\.id)
-        case .allPages:
-            return pages.filter { !$0.isBlank }.map(\.id)
-        case .scannedPages:
-            guard let session else { return [] }
-            return await Task.detached(priority: .userInitiated) {
-                (try? session.pagesToRecognize()) ?? []
-            }.value
-        }
+    /// Vrai si les objets des pages se sélectionnent et se modifient dans le
+    /// canevas : en mode Édition, hors de la comparaison avec l'original, et
+    /// une fois lu le texte des pages scannées (pendant leur lecture, les
+    /// pages sont montrées comme en lecture).
+    var isEditingCanvas: Bool {
+        workspace == .editing && !isComparing && recognition?.isSearching != false
     }
 
-    /// Lance la reconnaissance du texte des pages visées par `scope`.
-    func recognizeText(_ scope: RecognitionScope) {
-        guard canEdit, recognitionTask == nil else { return }
+    /// Met le canevas en mode Édition, ou le ramène à la lecture.
+    func updateCanvasEditing() {
+        canvas.setEditing(isEditingCanvas ? editing : nil)
+    }
+}
+
+// MARK: - Reconnaissance du texte (OCR), à l'entrée en mode Édition
+
+/// La reconnaissance du texte fait partie du mode Édition (D58) : à chaque
+/// entrée dans ce mode, le moteur cherche les pages scannées pas encore
+/// reconnues (aucun texte, ou seulement le texte invisible d'un OCR
+/// précédent). Un PDF natif passe aussitôt en Édition ; sinon, le texte de
+/// toutes ses pages scannées est d'abord lu par Vision
+/// (``VisionTextRecognizer``), page après page, hors du fil principal. Le
+/// moteur prépare chaque image (fond, contraste, inclinaison, orientation) et
+/// convertit les mots lus en couche de texte invisible, cherchable et
+/// enregistrée avec le document. Les pages restent figées pendant la lecture,
+/// montrées comme en lecture ; à la fin, ou à l'arrêt, les pages lues
+/// reçoivent leur couche en une seule étape d'annulation, les pages couchées
+/// ou retournées sont remises à l'endroit, et les objets des pages deviennent
+/// modifiables.
+extension DocumentViewModel {
+    /// Prépare le mode Édition : cherche les pages scannées et lit leur texte.
+    /// Sans effet hors du mode Édition, pendant une autre opération (la
+    /// préparation se fera à la prochaine entrée en Édition) ou si une
+    /// préparation est déjà en cours.
+    func prepareEditing() {
+        guard workspace == .editing, canEdit, recognitionTask == nil else { return }
+        recognition = RecognitionProgress(done: 0, total: 0)
         recognitionTask = Task { [weak self] in
-            await self?.runRecognition(scope)
+            await self?.runPreparation()
             self?.recognitionTask = nil
         }
     }
 
-    /// Arrête la reconnaissance après la page en cours ; les pages déjà lues
+    /// Arrête la préparation du mode Édition : la recherche des pages
+    /// scannées, ou la lecture après la page en cours ; les pages déjà lues
     /// reçoivent leur couche de texte.
     func stopRecognition() {
         guard recognition != nil else { return }
@@ -70,13 +75,11 @@ extension DocumentViewModel {
         recognitionTask?.cancel()
     }
 
-    private func runRecognition(_ scope: RecognitionScope) async {
-        let targets = await recognitionTargets(scope)
-        guard let session, canEdit else { return }
-        guard !targets.isEmpty else {
-            show(notice: scope == .scannedPages
-                 ? String(localized: "Aucune page scannée à reconnaître : toutes les pages ont déjà du texte.")
-                 : String(localized: "Aucune page à reconnaître."))
+    private func runPreparation() async {
+        let targets = await scannedPages()
+        // Recherche arrêtée, ou mode Édition quitté entre-temps : rien n'est lu.
+        guard let session, !targets.isEmpty, !Task.isCancelled, !isClosed, workspace == .editing else {
+            recognition = nil
             return
         }
         recognition = RecognitionProgress(done: 0, total: targets.count)
@@ -101,10 +104,23 @@ extension DocumentViewModel {
         }
         recognition = nil
         guard !isClosed else { return }
+        // Une page lue sans texte (photo, dessin) n'est pas relue à la prochaine
+        // entrée en Édition.
+        pagesWithoutText.formUnion(results.filter { $0.words.isEmpty && $0.quarterTurns == 0 }.map(\.page))
         if results.contains(where: { !$0.words.isEmpty || $0.quarterTurns != 0 }) {
             perform { $0.applyRecognitions(results: results) }
         }
         summarize(results, failures: failures, interrupted: results.count + failures < targets.count)
+    }
+
+    /// Pages scannées pas encore reconnues, dans l'ordre du document, sauf
+    /// celles déjà lues sans y trouver de texte.
+    private func scannedPages() async -> [UInt64] {
+        guard let session else { return [] }
+        let found = await Task.detached(priority: .userInitiated) {
+            (try? session.pagesToRecognize()) ?? []
+        }.value
+        return found.filter { !pagesWithoutText.contains($0) }
     }
 
     /// Bilan de la reconnaissance.
@@ -123,12 +139,15 @@ extension DocumentViewModel {
             parts.append(String(localized: "Texte reconnu : \(pageCount), \(wordCount)."))
             if doubtful > 0 {
                 parts.append(doubtful == 1
-                    ? String(localized: "1 mot douteux, signalé en mode Édition.")
-                    : String(localized: "\(doubtful) mots douteux, signalés en mode Édition."))
+                    ? String(localized: "1 mot douteux, surligné en orange.")
+                    : String(localized: "\(doubtful) mots douteux, surlignés en orange."))
             }
         }
         if interrupted {
-            parts.append(String(localized: "Reconnaissance arrêtée avant la fin."))
+            parts.append(String(localized: """
+                Reconnaissance arrêtée avant la fin : les pages restantes seront lues \
+                à la prochaine entrée en Édition.
+                """))
         }
         if failures > 0 {
             failureMessage = failures == 1

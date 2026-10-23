@@ -1,41 +1,29 @@
 import SwiftUI
 
-/// Bouton « Reconnaître le texte » de la barre d'outils : la page lue, les
-/// pages sélectionnées, les pages scannées ou tout le document.
-struct RecognitionMenu: View {
-    let model: DocumentViewModel
-
-    var body: some View {
-        Menu {
-            Button("Pages scannées du document") { model.recognizeText(.scannedPages) }
-            Button("Page courante") { model.recognizeText(.currentPage) }
-            Button("Pages sélectionnées") { model.recognizeText(.selection) }
-                .disabled(model.selectionCount == 0)
-            Divider()
-            Button("Tout le document") { model.recognizeText(.allPages) }
-        } label: {
-            Label("Reconnaître le texte", systemImage: "text.viewfinder")
-        } primaryAction: {
-            model.recognizeText(.scannedPages)
-        }
-        .help(Text("Reconnaître le texte des pages scannées (OCR), pour le rendre cherchable"))
-        .disabled(!model.canEdit)
-    }
-}
-
-/// Avancement de la reconnaissance du texte, en bas de la fenêtre, avec le
-/// bouton d'arrêt.
+/// Préparation du mode Édition, en bas de la fenêtre : recherche des pages
+/// scannées, puis avancement de la reconnaissance de leur texte, avec le
+/// bouton d'arrêt. La recherche, presque instantanée sur un document court,
+/// ne s'affiche que si elle dure : le bandeau ne clignote pas à chaque entrée
+/// en Édition.
 struct RecognitionBadge: View {
     let progress: RecognitionProgress
     let stop: () -> Void
 
+    /// Délai avant d'afficher la recherche des pages scannées.
+    private static let searchDelay = Duration.milliseconds(400)
+
+    @State private var showsSearch = false
+
     var body: some View {
         HStack(spacing: Design.Spacing.medium) {
-            ProgressView(value: progress.fraction)
-                .frame(width: 120)
-            Text(progress.isStopping
-                 ? String(localized: "Arrêt après la page en cours…")
-                 : String(localized: "Reconnaissance du texte : page \(progress.done + 1) sur \(progress.total)"))
+            if progress.isSearching {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                ProgressView(value: progress.fraction)
+                    .frame(width: 120)
+            }
+            Text(status)
                 .monospacedDigit()
             Button("Arrêter", action: stop)
                 .disabled(progress.isStopping)
@@ -45,6 +33,23 @@ struct RecognitionBadge: View {
         .floatingBadge()
         .padding(.bottom, Design.Spacing.large)
         .accessibilityElement(children: .contain)
+        .opacity(progress.isSearching && !showsSearch ? 0 : 1)
+        .allowsHitTesting(!progress.isSearching || showsSearch)
+        .task {
+            try? await Task.sleep(for: Self.searchDelay)
+            showsSearch = true
+        }
+    }
+
+    private var status: String {
+        if progress.isStopping {
+            return progress.isSearching
+                ? String(localized: "Arrêt de la recherche des pages scannées…")
+                : String(localized: "Arrêt après la page en cours…")
+        }
+        return progress.isSearching
+            ? String(localized: "Recherche des pages scannées…")
+            : String(localized: "Reconnaissance du texte : page \(progress.done + 1) sur \(progress.total)")
     }
 }
 
