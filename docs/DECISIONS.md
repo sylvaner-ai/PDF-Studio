@@ -657,22 +657,24 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
 - **Raisons :** des valeurs dispersées (10, 14, 8 et 10 pt de rayon) divergeaient
   d'une vue à l'autre ; une seule source les garde cohérentes.
 
-## D44 — Barre d'outils : cinq outils, Comparer en mode Édition seulement (jalon 8)
+## D44 — Barre d'outils : six outils, toujours visibles (jalon 8)
 
 - **Retenu :** de gauche à droite, après le bouton de la barre latérale :
   Lecture, Pages, Édition (un contrôle segmenté, ⌘1 à ⌘3), Reconnaître le
-  texte (OCR), puis Enregistrer (⌘S, grisé sans modification). « Comparer avec
-  l'original » n'apparaît qu'en mode Édition, où se font les retouches ; il
-  reste au menu Présentation (⌥⌘K) dans tous les modes. Six outils au plus
-  sont donc visibles.
+  texte (OCR), Comparer avec l'original (⌥⌘K) et Enregistrer (⌘S). Les deux
+  derniers restent visibles dans tous les modes, grisés quand ils ne servent
+  pas (aucune page modifiée à comparer, rien à enregistrer, grille
+  d'organisation pour la comparaison) : décision de Sylvain du 23 octobre
+  2026, qui préfère les voir toujours à la même place. Comparer n'apparaissait
+  d'abord qu'en mode Édition.
 - **Correspondance avec le cahier des charges** (Sélection, Texte, Image, OCR,
   Pages, Enregistrer) : la sélection, la modification du texte et celle des
   images se font toutes dans le mode Édition, d'un clic ou d'un double-clic sur
   l'objet ; il n'y a pas d'outil distinct, puisque l'application ne crée pas
   de nouveau bloc de texte ni de nouvelle image (§4 ne le demande pas). Le mode
   Lecture tient la place de l'outil Sélection lorsqu'on ne modifie rien.
-- **Raisons :** principe de révélation progressive (§5) ; un bouton
-  Enregistrer visible rappelle qu'un document est modifié.
+- **Raisons :** six outils, la limite du §5 ; des boutons toujours à la même
+  place ; un bouton Enregistrer actif rappelle qu'un document est modifié.
 
 ## D45 — Animations : ressort de 0,22 s, fondu seul si les animations sont réduites (jalon 8)
 

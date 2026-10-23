@@ -65,8 +65,7 @@ locale, hors ligne, sans compte ni télémétrie.
   caviardage : les pixels d'origine restent dans le fichier.
 - **Au clavier :** Tab et ⇧Tab passent d'un objet à l'autre, dans l'ordre de
   lecture ; VoiceOver annonce chaque objet et le sélectionne par VO-Espace.
-- **Comparer avec l'original** (⌥⌘K, ou le bouton de la barre d'outils, visible
-  en mode Édition) montre
+- **Comparer avec l'original** (⌥⌘K, ou le bouton de la barre d'outils) montre
   les pages sans leurs modifications, à la même place, le temps de comparer.
 - Tout s'annule par ⌘Z, avec l'organisation des pages ; les limites sont décrites
   dans [docs/LIMITES.md](docs/LIMITES.md).
