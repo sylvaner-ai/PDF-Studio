@@ -13,6 +13,19 @@ use crate::page::{PageContent, PageSize};
 use crate::scanned::{self, is_scan_id, Retouched, ScanModel};
 use crate::text::{PageRect, PageText, TextLine};
 
+/// Ce que la reconnaissance du texte apporterait à une page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecognitionNeed {
+    /// La page a du texte visible, ou ne dessine rien : rien à reconnaître.
+    None,
+    /// Aucun texte, mais un contenu (image d'un scan, texte vectorisé).
+    Missing,
+    /// Seulement du texte invisible posé sur un scan, laissé par un OCR
+    /// précédent : une nouvelle reconnaissance le remplace (la page devient
+    /// alors retouchable comme un scan reconnu dans la session).
+    Replaceable,
+}
+
 /// Un document PDF ouvert en mémoire.
 ///
 /// Le fichier source est lu une seule fois puis n'est plus jamais touché : toute
@@ -48,6 +61,9 @@ struct Editing {
     /// Retouches calculées : (page, version des modifications, empreinte de
     /// la couche).
     retouched: Vec<((u32, u64, u64), Arc<Retouched>)>,
+    /// Besoin de reconnaissance de chaque page déjà examinée (le document
+    /// source ne change pas).
+    recognition: HashMap<u32, RecognitionNeed>,
 }
 
 impl Document {
@@ -171,27 +187,53 @@ impl Document {
     }
 
     /// Vrai si la page doit passer par la reconnaissance de texte : elle ne
-    /// contient aucun texte (ni visible ni invisible) mais dessine quelque
-    /// chose (image d'un scan, texte vectorisé).
+    /// contient aucun texte mais dessine quelque chose (image d'un scan, texte
+    /// vectorisé), ou son seul texte est la couche invisible d'un OCR
+    /// précédent, posée sur un scan (cf. [`RecognitionNeed`]).
     pub fn needs_recognition(&mut self, index: u32) -> Result<bool> {
-        if !self.text_lines(index)?.is_empty() {
+        Ok(self.recognition_need(index)? != RecognitionNeed::None)
+    }
+
+    /// Ce que la reconnaissance du texte apporterait à la page ; le résultat
+    /// est retenu, la page n'est examinée qu'une fois.
+    pub fn recognition_need(&mut self, index: u32) -> Result<RecognitionNeed> {
+        if let Some(&need) = self.editing.recognition.get(&index) {
+            return Ok(need);
+        }
+        let need = if self.text_lines(index)?.is_empty() {
+            if self.page_model(index)?.objects().is_empty() {
+                RecognitionNeed::None
+            } else {
+                RecognitionNeed::Missing
+            }
+        } else if self.has_replaceable_text(index)? {
+            RecognitionNeed::Replaceable
+        } else {
+            RecognitionNeed::None
+        };
+        self.editing.recognition.insert(index, need);
+        Ok(need)
+    }
+
+    /// Vrai si le texte de la page est une couche invisible posée sur un scan
+    /// (cf. [`scanned::has_replaceable_text`]).
+    fn has_replaceable_text(&mut self, index: u32) -> Result<bool> {
+        let size = self.page_size(index)?;
+        let page = self.inner.find_page(index as i32)?;
+        // Un texte invisible demande un mode de rendu (`3 Tr`) : sans opérateur
+        // `Tr`, la page est écartée sans interpréter son contenu.
+        if !has_render_mode(&editing::page_contents(&page)?) {
             return Ok(false);
         }
-        Ok(!self.page_model(index)?.objects().is_empty())
+        let model = self.page_model(index)?;
+        let area = f64::from(size.width) * f64::from(size.height);
+        scanned::has_replaceable_text(&page, &model, area)
     }
 
     /// Transformation de l'espace de la page PDF vers l'espace d'affichage
     /// (origine en haut à gauche, rotation `/Rotate` comprise).
     pub fn display_matrix(&mut self, index: u32) -> Result<Matrix> {
         Ok(self.page_model(index)?.display_matrix())
-    }
-
-    /// Texte d'une page augmenté de la couche de texte `layer`, pour la
-    /// recherche.
-    pub fn page_text_with_layer(&mut self, index: u32, layer: &TextLayer) -> Result<PageText> {
-        let native = self.page_text(index)?;
-        let to_display = self.display_matrix(index)?;
-        Ok(native.with_lines(&layer_lines(layer, &to_display)))
     }
 
     /// Texte brut d'une page, dans l'ordre de lecture établi par MuPDF ; les mots
@@ -493,4 +535,33 @@ fn measure_page(doc: &mupdf::Document, index: i32) -> PageSize {
             height: b.y1 - b.y0,
         })
         .unwrap_or(PageSize::A4)
+}
+
+/// Vrai si le flux de contenu `source` contient l'opérateur `Tr` (mode de
+/// rendu du texte), précédé d'un blanc et suivi d'un blanc, d'un délimiteur ou
+/// de la fin du flux. Un nom comme `/TrebuchetMS` ne compte pas.
+fn has_render_mode(source: &[u8]) -> bool {
+    let is_space = |b: u8| matches!(b, b' ' | b'\n' | b'\r' | b'\t' | b'\x0c' | b'\0');
+    source.windows(2).enumerate().any(|(start, pair)| {
+        pair == b"Tr"
+            && start > 0
+            && is_space(source[start - 1])
+            && source
+                .get(start + 2)
+                .is_none_or(|&next| is_space(next) || b"/[]()<>{}%".contains(&next))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_render_mode;
+
+    #[test]
+    fn repere_le_mode_de_rendu() {
+        assert!(has_render_mode(b"BT 3 Tr /F1 10 Tf"));
+        assert!(has_render_mode(b"BT 3\nTr"));
+        assert!(has_render_mode(b"3 Tr/F1 10 Tf"));
+        assert!(!has_render_mode(b"BT /TrebuchetMS 10 Tf (Trois) Tj"));
+        assert!(!has_render_mode(b"Tr"));
+    }
 }

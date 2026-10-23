@@ -8,7 +8,7 @@ use std::thread;
 use edit::{FontChoice, PageEdits, ScanCandidate, ScanStyle, TextLayer};
 
 use crate::content::geometry::Matrix;
-use crate::document::{self, layer_lines, Document};
+use crate::document::{self, layer_lines, Document, RecognitionNeed};
 use crate::editing::ObjectInfo;
 use crate::error::{PdfError, Result};
 use crate::outline::OutlineEntry;
@@ -265,12 +265,7 @@ impl DocumentHandle {
         layer: Arc<TextLayer>,
     ) -> Result<Vec<TextMatch>> {
         let query = query.to_owned();
-        self.run(move |worker| {
-            let native = worker.page_text(index)?;
-            let to_display = worker.doc.display_matrix(index)?;
-            let text = native.with_lines(&layer_lines(&layer, &to_display));
-            Ok(text.search(&query))
-        })?
+        self.run(move |worker| Ok(worker.page_text_with_layer(index, &layer)?.search(&query)))?
     }
 
     /// Caractères de la page et leur emprise, ligne par ligne, pour la
@@ -286,12 +281,7 @@ impl DocumentHandle {
         index: u32,
         layer: Arc<TextLayer>,
     ) -> Result<Vec<GlyphLine>> {
-        self.run(move |worker| {
-            let native = worker.page_text(index)?;
-            let to_display = worker.doc.display_matrix(index)?;
-            let text = native.with_lines(&layer_lines(&layer, &to_display));
-            Ok(text.glyph_lines())
-        })?
+        self.run(move |worker| Ok(worker.page_text_with_layer(index, &layer)?.glyph_lines()))?
     }
 
     /// Lignes de texte d'une page (texte invisible compris), avec leur emprise
@@ -300,10 +290,15 @@ impl DocumentHandle {
         self.run(move |worker| worker.doc.text_lines(index))?
     }
 
-    /// Vrai si la page ne contient aucun texte mais dessine quelque chose :
-    /// elle doit passer par la reconnaissance de texte.
+    /// Vrai si la page doit passer par la reconnaissance de texte (cf.
+    /// [`Document::needs_recognition`]).
     pub fn needs_recognition(&self, index: u32) -> Result<bool> {
         self.run(move |worker| worker.doc.needs_recognition(index))?
+    }
+
+    /// Ce que la reconnaissance du texte apporterait à une page.
+    pub fn recognition_need(&self, index: u32) -> Result<RecognitionNeed> {
+        self.run(move |worker| worker.doc.recognition_need(index))?
     }
 
     /// Transformation de l'espace de la page PDF vers son espace d'affichage.
@@ -395,6 +390,21 @@ impl Worker {
         let text = Arc::new(self.doc.page_text(index)?);
         self.texts.insert(index, Arc::clone(&text));
         Ok(text)
+    }
+
+    /// Texte d'une page suivi de sa couche de texte `layer`. Le texte
+    /// invisible d'un OCR précédent, que `layer` remplace, n'en fait plus
+    /// partie.
+    fn page_text_with_layer(&mut self, index: u32, layer: &TextLayer) -> Result<PageText> {
+        let replaced =
+            !layer.is_empty() && self.doc.recognition_need(index)? == RecognitionNeed::Replaceable;
+        let native = if replaced {
+            Arc::new(PageText::default())
+        } else {
+            self.page_text(index)?
+        };
+        let to_display = self.doc.display_matrix(index)?;
+        Ok(native.with_lines(&layer_lines(layer, &to_display)))
     }
 }
 

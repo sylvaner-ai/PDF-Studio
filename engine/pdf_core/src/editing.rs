@@ -21,12 +21,14 @@ use mupdf::{Buffer, ColorParams, Colorspace, Device, Font, NativeDevice};
 use crate::content::encodings::BaseEncoding;
 use crate::content::font::{code_bytes, FontKind, FontMetrics};
 use crate::content::geometry::{Matrix, Rect};
-use crate::content::interp::{interpret, GraphicsState, Interpretation};
+use crate::content::interp::{interpret, only_invisible_text, GraphicsState, Interpretation};
 use crate::content::layout::{layout_in, Layout, Shaper};
 use crate::content::lexer::{self, Operation};
 use crate::content::objects::{self, Alignment, ObjectKind, PageObject};
 use crate::content::resources::PageResources;
-use crate::content::rewrite::{rewrite, Change, Insertion, NewText, Reshape, ReshapeStep};
+use crate::content::rewrite::{
+    rewrite, without_text, Change, Insertion, NewText, Reshape, ReshapeStep,
+};
 use crate::error::Result;
 use crate::text::PageRect;
 
@@ -253,6 +255,17 @@ impl PageModel {
     /// (origine en haut à gauche, rotation `/Rotate` comprise).
     pub fn display_matrix(&self) -> Matrix {
         self.to_display
+    }
+
+    /// Vrai si le seul texte de la page est invisible, comme la couche de
+    /// texte d'un OCR (cf. [`only_invisible_text`]).
+    pub fn has_only_invisible_text(&self) -> bool {
+        only_invisible_text(&self.ops, &self.run)
+    }
+
+    /// Contenu de la page sans son texte (cf. [`without_text`]).
+    pub(crate) fn without_text(&self) -> Vec<u8> {
+        without_text(&self.source, &self.ops)
     }
 
     /// Convertit un déplacement de l'espace d'affichage vers l'espace de la
@@ -878,7 +891,7 @@ fn order(given: Option<&[u32]>, count: usize) -> Vec<usize> {
 }
 
 /// Contenu de la page : ses flux, mis bout à bout.
-fn page_contents(page: &PdfObject) -> Result<Vec<u8>> {
+pub(crate) fn page_contents(page: &PdfObject) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     let Some(contents) = page.get_dict("Contents")? else {
         return Ok(out);

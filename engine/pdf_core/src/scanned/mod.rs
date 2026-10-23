@@ -163,6 +163,18 @@ pub(crate) struct ScanImage {
     pub placement: Placement,
 }
 
+/// Vrai si le texte de la page est une couche invisible posée sur un scan
+/// (OCR d'un scanner, d'un autre logiciel ou d'un enregistrement précédent) :
+/// aucun texte visible, du texte invisible, et une image qui couvre au moins
+/// la moitié de la page. Une nouvelle reconnaissance remplace alors ce texte.
+pub(crate) fn has_replaceable_text(
+    page: &PdfObject,
+    model: &PageModel,
+    page_area: f64,
+) -> Result<bool> {
+    Ok(model.has_only_invisible_text() && find_scan(page, model, page_area)?.is_some())
+}
+
 /// Cherche l'image d'un scan sur la page décrite par `model` : aucun texte
 /// visible, une image qui couvre au moins la moitié de la page.
 pub(crate) fn find_scan(

@@ -5,7 +5,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use edit::{LayerWord, TextLayer};
-use pdf_core::{write_document, Document, DocumentHandle, OutputPage, Source, SourceData};
+use pdf_core::{
+    write_document, Document, DocumentHandle, OutputPage, RecognitionNeed, Source, SourceData,
+};
 
 fn fixture(name: &str) -> Vec<u8> {
     std::fs::read(
@@ -42,8 +44,10 @@ fn layer() -> Arc<TextLayer> {
 fn detecte_les_pages_scannees() {
     let mut scan = Document::from_bytes(&fixture("scan_simule.pdf"), None).unwrap();
     assert!(scan.needs_recognition(0).unwrap());
+    assert_eq!(scan.recognition_need(0).unwrap(), RecognitionNeed::Missing);
     let mut native = Document::from_bytes(&fixture("texte_simple.pdf"), None).unwrap();
     assert!(!native.needs_recognition(0).unwrap());
+    assert_eq!(native.recognition_need(0).unwrap(), RecognitionNeed::None);
     assert!(!native.text_lines(0).unwrap().is_empty());
 }
 
@@ -80,9 +84,11 @@ fn ecrit_une_couche_invisible_cherchable() {
     let bytes = write_document(&[source], &[page], &[], &[Some(layer())]).unwrap();
 
     let mut doc = Document::from_bytes(&bytes, None).unwrap();
-    assert!(
-        !doc.needs_recognition(0).unwrap(),
-        "la page a désormais du texte"
+    // Le seul texte de la page est la couche invisible posée sur le scan : une
+    // nouvelle lecture la remplacerait.
+    assert_eq!(
+        doc.recognition_need(0).unwrap(),
+        RecognitionNeed::Replaceable
     );
     let lines = doc.text_lines(0).unwrap();
     let texts: Vec<&str> = lines.iter().map(|line| line.text.as_str()).collect();

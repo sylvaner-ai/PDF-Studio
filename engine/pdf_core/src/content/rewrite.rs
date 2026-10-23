@@ -24,7 +24,7 @@ use std::ops::Range;
 
 use super::font::code_bytes;
 use super::geometry::{Matrix, Point, Rect};
-use super::interp::{GraphicsState, Interpretation, PathOp, ShowItem, Subpath};
+use super::interp::{shows_text, GraphicsState, Interpretation, PathOp, ShowItem, Subpath};
 use super::layout::{LaidItem, Layout};
 use super::lexer::Operation;
 use super::objects::PageObject;
@@ -809,6 +809,32 @@ fn write_subpath(
     }
 }
 
+/// Flux `source` (lu en `ops`) sans son texte : chaque opération d'affichage
+/// du texte est retirée, le reste est recopié octet pour octet. `'` et `"`
+/// gardent leur passage à la ligne et leurs espacements, pour que l'état du
+/// texte qui suit ne change pas. Sert à retirer la couche de texte invisible
+/// d'un OCR précédent, remplacée par une nouvelle reconnaissance.
+pub fn without_text(source: &[u8], ops: &[Operation]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(source.len());
+    let mut cursor = 0;
+    for op in ops.iter().filter(|op| shows_text(op)) {
+        if op.span.start < cursor || op.span.end > source.len() {
+            continue;
+        }
+        out.extend_from_slice(&source[cursor..op.span.start]);
+        if op.is("\"") && op.operands.len() >= 3 {
+            write_op(&mut out, &[op.number(0)], "Tw");
+            write_op(&mut out, &[op.number(1)], "Tc");
+        }
+        if op.is("'") || op.is("\"") {
+            write_op(&mut out, &[], "T*");
+        }
+        cursor = op.span.end;
+    }
+    out.extend_from_slice(&source[cursor.min(source.len())..]);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -993,5 +1019,22 @@ mod tests {
         assert_eq!(after.run.units.len(), 1);
         assert_eq!(after.run.units[0].bbox, image_bbox);
         assert!(String::from_utf8_lossy(&after.source).contains("re W\nn"));
+    }
+
+    #[test]
+    fn retire_le_texte_et_garde_le_reste() {
+        let before = page(
+            b"q 100 0 0 50 200 300 cm /Im1 Do Q BT 3 Tr /F1 10 Tf 14 TL 100 700 Td \
+              (un) Tj [(deux) -20 (trois)] TJ (quatre) ' 1 2 (cinq) \" ET",
+        );
+        let source = without_text(&before.source, &before.ops);
+        let after = page(&source);
+        assert!(after.run.glyphs.is_empty());
+        assert_eq!(after.run.units.len(), 1);
+        assert_eq!(after.run.units[0].bbox, before.run.units[0].bbox);
+        let text = String::from_utf8_lossy(&source);
+        assert!(text.contains("/Im1 Do"), "{text}");
+        assert!(text.contains("1 Tw\n2 Tc\nT*"), "{text}");
+        assert!(!text.contains("un") && !text.contains("TJ"), "{text}");
     }
 }

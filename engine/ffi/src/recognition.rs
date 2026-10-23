@@ -11,7 +11,7 @@ use std::sync::Arc;
 use edit::{LayerWord, TextLayer};
 use ocr::{GrayImage, OcrEngine, OcrError, Point, Quad, RecognizedWord};
 use pdf_core::content::geometry::{Matrix, Point as PagePoint};
-use pdf_core::{DocumentHandle, PageRect as CoreRect, TextLine};
+use pdf_core::{DocumentHandle, PageRect as CoreRect, RecognitionNeed, TextLine};
 
 use crate::{EngineError, PageRect};
 
@@ -314,7 +314,12 @@ pub(crate) fn recognize(
         },
     })?;
 
-    let native = handle.text_lines(index)?;
+    // Le texte invisible d'un OCR précédent est remplacé par cette lecture :
+    // il n'écarte aucun mot.
+    let native = match handle.recognition_need(index)? {
+        RecognitionNeed::Replaceable => Vec::new(),
+        _ => handle.text_lines(index)?,
+    };
     let to_display = handle.display_matrix(index)?;
     let to_page = to_display.inverse().ok_or_else(|| EngineError::Failed {
         message: "La reconnaissance du texte a échoué.".to_owned(),

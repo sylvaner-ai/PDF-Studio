@@ -19,7 +19,7 @@ mod text;
 mod textlayer;
 mod writer;
 
-pub use document::Document;
+pub use document::{Document, RecognitionNeed};
 
 /// Vrai si `id` désigne un objet d'une page scannée (pixels de son image).
 pub fn is_scanned_object(id: u32) -> bool {
