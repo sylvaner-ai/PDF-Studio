@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use rustybuzz::ttf_parser::{name_id, Tag};
+use rustybuzz::ttf_parser::{name_id, PlatformId, Tag};
 use rustybuzz::Face;
 
 /// Familles cherchées parmi les polices installées : celles des documents
@@ -345,7 +345,7 @@ fn describe(data: &[u8], index: u32, path: &Path, bundled: bool) -> Option<FaceI
             face.names()
                 .into_iter()
                 .filter(|name| name.name_id == id)
-                .find_map(|name| name.to_string())
+                .find_map(|name| name.to_string().or_else(|| mac_roman(&name)))
                 .filter(|text| !text.trim().is_empty())
         })
     };
@@ -368,6 +368,25 @@ fn describe(data: &[u8], index: u32, path: &Path, bundled: bool) -> Option<FaceI
         serif: serif_class(&face),
         bundled,
     })
+}
+
+/// Nom en codage Macintosh Roman, que `ttf-parser` ne décode pas (polices
+/// anciennes du Mac, comme Helvetica, sans noms Unicode pour leur famille).
+fn mac_roman(name: &rustybuzz::ttf_parser::name::Name) -> Option<String> {
+    /// Caractères des octets 0x80 à 0xFF.
+    const HIGH: &str = "ÄÅÇÉÑÖÜáàâäãåçéèêëíìîïñóòôöõúùûü†°¢£§•¶ß®©™´¨≠ÆØ∞±≤≥¥µ∂∑∏π∫ªºΩæø\
+                        ¿¡¬√ƒ≈∆«»…\u{a0}ÀÃÕŒœ–—“”‘’÷◊ÿŸ⁄€‹›\u{fb01}\u{fb02}‡·‚„‰ÂÊÁËÈÍÎÏÌÓÔ\u{f8ff}ÒÚÛÙıˆ˜¯˘˙˚¸˝˛ˇ";
+    if name.platform_id != PlatformId::Macintosh || name.encoding_id != 0 {
+        return None;
+    }
+    let high: Vec<char> = HIGH.chars().collect();
+    name.name
+        .iter()
+        .map(|&byte| match byte {
+            0..=0x7F => Some(char::from(byte)),
+            _ => high.get(usize::from(byte - 0x80)).copied(),
+        })
+        .collect()
 }
 
 /// À empattements ou linéale, d'après la classification PANOSE de la table
@@ -417,5 +436,21 @@ pub(crate) mod tests {
         assert_eq!(caladea.serif, Some(true));
         assert!(catalog.load(0).is_some());
         assert!(catalog.find("Inconnue").is_none());
+    }
+
+    #[test]
+    fn lit_les_noms_macintosh() {
+        let name = |platform_id, name: &'static [u8]| rustybuzz::ttf_parser::name::Name {
+            platform_id,
+            encoding_id: 0,
+            language_id: 0,
+            name_id: name_id::FAMILY,
+            name,
+        };
+        assert_eq!(
+            mac_roman(&name(PlatformId::Macintosh, b"Helvetica \x8e\xd5")).as_deref(),
+            Some("Helvetica é’")
+        );
+        assert_eq!(mac_roman(&name(PlatformId::Windows, b"Arial")), None);
     }
 }
