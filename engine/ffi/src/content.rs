@@ -4,7 +4,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use edit::{FontChoice, ObjectEdit, PageEdits, TableEdit, TextReplacement};
+use edit::{
+    FontChoice, ObjectEdit, PageEdits, ScanStyle, ScanText, TableEdit, TextLayer, TextReplacement,
+};
 use pdf_core::content::objects::ObjectKind;
 use pdf_core::{CellInfo, ObjectInfo, TableInfo};
 
@@ -72,6 +74,113 @@ pub struct PageObjectItem {
     pub table: Option<u32>,
     /// Grille d'un tableau.
     pub grid: Option<TableGridItem>,
+    /// Objet d'une page scannée : ses pixels sont retouchés dans l'image (les
+    /// lignes et les colonnes de ses tableaux ne se réorganisent pas).
+    pub scanned: bool,
+    /// Texte retouché d'une ligne scannée : réglages et polices candidates.
+    pub scan: Option<ScanTextItem>,
+}
+
+/// Réglages du rendu d'un texte dans un scan (longueurs en points).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct ScanStyleItem {
+    /// Nom PostScript de la police.
+    pub font: String,
+    /// Famille de la police.
+    pub family: String,
+    /// Corps, en points.
+    pub size: f32,
+    /// Interlettrage, en points.
+    pub spacing: f32,
+    /// Graisse ajoutée, de -1 à 1.
+    pub weight: f32,
+    /// Flou, en points.
+    pub blur: f32,
+    /// Grain de l'encre (sur 255).
+    pub noise: f32,
+    /// Couleur : rouge, vert, bleu, de 0 à 1.
+    pub red: f32,
+    /// Vert.
+    pub green: f32,
+    /// Bleu.
+    pub blue: f32,
+    /// Crénage appliqué.
+    pub kerning: bool,
+}
+
+/// Police retrouvée sur une ligne scannée.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct ScanCandidateItem {
+    /// Nom PostScript.
+    pub font: String,
+    /// Famille.
+    pub family: String,
+    /// Ressemblance avec le scan, de 0 à 1.
+    pub score: f32,
+}
+
+/// Texte retouché d'une ligne scannée.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct ScanTextItem {
+    /// Réglages actuels.
+    pub style: ScanStyleItem,
+    /// Réglages mesurés sur le scan.
+    pub measured: ScanStyleItem,
+    /// Polices candidates, de la plus proche à la moins proche.
+    pub candidates: Vec<ScanCandidateItem>,
+}
+
+impl From<&ScanStyle> for ScanStyleItem {
+    fn from(style: &ScanStyle) -> Self {
+        let [red, green, blue] = style.color;
+        ScanStyleItem {
+            font: style.font.clone(),
+            family: style.family.clone(),
+            size: style.size,
+            spacing: style.spacing,
+            weight: style.weight,
+            blur: style.blur,
+            noise: style.noise,
+            red,
+            green,
+            blue,
+            kerning: style.kerning,
+        }
+    }
+}
+
+impl From<&ScanStyleItem> for ScanStyle {
+    fn from(item: &ScanStyleItem) -> Self {
+        ScanStyle {
+            font: item.font.clone(),
+            family: item.family.clone(),
+            size: item.size.clamp(2.0, 400.0),
+            spacing: item.spacing.clamp(-10.0, 50.0),
+            weight: item.weight.clamp(-1.0, 1.0),
+            blur: item.blur.clamp(0.0, 10.0),
+            noise: item.noise.clamp(0.0, 80.0),
+            color: [item.red, item.green, item.blue].map(|c| c.clamp(0.0, 1.0)),
+            kerning: item.kerning,
+        }
+    }
+}
+
+impl From<&ScanText> for ScanTextItem {
+    fn from(text: &ScanText) -> Self {
+        ScanTextItem {
+            style: ScanStyleItem::from(&text.style),
+            measured: ScanStyleItem::from(&text.measured),
+            candidates: text
+                .candidates
+                .iter()
+                .map(|c| ScanCandidateItem {
+                    font: c.font.clone(),
+                    family: c.family.clone(),
+                    score: c.score,
+                })
+                .collect(),
+        }
+    }
 }
 
 /// Grille d'un tableau, modifications comprises.
@@ -160,6 +269,8 @@ impl From<ObjectInfo> for PageObjectItem {
             missing: info.missing,
             table: info.table,
             grid: info.grid.map(TableGridItem::from),
+            scanned: info.scanned,
+            scan: info.scan.as_ref().map(ScanTextItem::from),
         }
     }
 }
@@ -223,6 +334,8 @@ pub struct ObjectEditItem {
     pub fingerprint: String,
     /// Modifications d'un tableau.
     pub table: Option<TableEditItem>,
+    /// Texte retouché d'une ligne scannée, sous forme texte.
+    pub scan: Option<String>,
 }
 
 /// Modifications d'un tableau, telles que les conserve la récupération.
@@ -301,6 +414,7 @@ impl ObjectEditItem {
             font: edit.text.as_ref().map(|text| TextFont::from(&text.font)),
             fingerprint,
             table: edit.table.as_ref().map(TableEditItem::from),
+            scan: edit.scan.as_ref().map(ScanText::to_record),
         }
     }
 
@@ -317,6 +431,7 @@ impl ObjectEditItem {
                     .map_or(FontChoice::Original, FontChoice::from),
             }),
             table: self.table.as_ref().map(TableEdit::from),
+            scan: self.scan.as_deref().and_then(ScanText::from_record),
         }
     }
 }
@@ -325,6 +440,9 @@ impl ObjectEditItem {
 #[derive(uniffi::Object)]
 pub struct ContentEdits {
     pub(crate) edits: Arc<PageEdits>,
+    /// Couche de texte d'une page reconnue : les objets d'un scan en
+    /// dépendent.
+    pub(crate) layer: Option<Arc<TextLayer>>,
 }
 
 #[uniffi::export]

@@ -21,6 +21,10 @@ préférées à qualité équivalente.
 | `thiserror` | erreurs Rust | MIT ou Apache-2.0 |
 | `unicode-normalization` | repli des accents pour la recherche, comparaison des textes reconnus | MIT ou Apache-2.0 |
 | Vision (framework de macOS) | reconnaissance du texte des scans (jalon 5) | fourni avec macOS |
+| `rustybuzz` 0.20 | mise en forme du texte réécrit dans un scan (jalon 7) | MIT |
+| `ttf-parser` 0.25 (via `rustybuzz`) | lecture des polices du catalogue (jalon 7) | MIT ou Apache-2.0 |
+| `ab_glyph_rasterizer` 0.1 | rastérisation des glyphes à la résolution du scan (jalon 7) | Apache-2.0 |
+| `core-text` 20.1 (déjà utilisé par `font-kit`) | fichiers des polices installées sur le Mac, pour le catalogue de l'appariement (jalon 7) | MIT ou Apache-2.0 |
 
 **AGPL-3.0 (MuPDF, jbig2dec) :** cette licence oblige à fournir le code source à
 quiconque reçoit le logiciel ou l'utilise à travers un réseau. Pour un usage
@@ -46,9 +50,15 @@ soit une licence commerciale d'Artifex, soit le passage à PDFium (BSD).
 
 ## Polices embarquées
 
-Aucune à ce jour. La couche de texte invisible des pages reconnues (jalon 5)
+| Police | Rôle | Licence |
+|---|---|---|
+| Carlito (régulier, gras, italique, gras italique) | candidate de l'appariement des scans, équivalent métrique de Calibri (jalon 7) | SIL OFL 1.1 |
+| Caladea (régulier, gras, italique, gras italique) | candidate de l'appariement des scans, équivalent métrique de Cambria (jalon 7) | SIL OFL 1.1 |
+
+Elles sont fournies dans `app/Resources/Fonts`, avec le texte de leur licence
+(`OFL.txt`). La couche de texte invisible des pages reconnues (jalon 5)
 utilise une police jamais peinte, « GlyphLessFont », construite par le code du
 moteur (`pdf_core/src/textlayer.rs`) : elle ne reprend aucune police existante.
 Le jeu de test OCR intègre DejaVu Sans (licence Bitstream Vera, libre) dans
-`tests/fixtures/ocr/petits_caracteres.pdf`. Les polices libres (OFL) prévues pour l'appariement de polices
-des scans seront listées ici au jalon 7.
+`tests/fixtures/ocr/petits_caracteres.pdf` ; celui de la retouche des scans
+(`tests/fixtures/scan_retouche.pdf`) est dessiné avec Carlito et Caladea.

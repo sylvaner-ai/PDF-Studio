@@ -21,9 +21,11 @@ extension PageEditing {
         items.first { $0.id == cell.table }?.grid?.cells.first { $0.row == cell.row && $0.column == cell.column }
     }
 
-    /// Vrai si l'action est possible sur la cellule courante.
+    /// Vrai si l'action est possible sur la cellule courante (les lignes et
+    /// les colonnes d'un tableau scanné ne se réorganisent pas).
     func canPerform(_ action: TableAction) -> Bool {
-        guard let table = selectedTable, table.movable, let grid = table.grid, let cell = currentCell else {
+        guard let table = selectedTable, table.movable, !table.scanned, let grid = table.grid,
+              let cell = currentCell else {
             return false
         }
         switch action {

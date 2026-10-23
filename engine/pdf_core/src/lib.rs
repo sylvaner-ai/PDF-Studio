@@ -13,12 +13,18 @@ mod fonts;
 mod outline;
 mod page;
 mod qos;
+mod scanned;
 mod service;
 mod text;
 mod textlayer;
 mod writer;
 
 pub use document::Document;
+
+/// Vrai si `id` désigne un objet d'une page scannée (pixels de son image).
+pub fn is_scanned_object(id: u32) -> bool {
+    scanned::is_scan_id(id)
+}
 pub use editing::{CellInfo, ObjectInfo, TableInfo};
 pub use error::{PdfError, Result};
 pub use outline::OutlineEntry;

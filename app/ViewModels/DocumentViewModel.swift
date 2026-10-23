@@ -35,11 +35,20 @@ final class DocumentViewModel {
     var workspace = Workspace.reading {
         didSet {
             guard workspace != oldValue else { return }
+            isComparing = false
             // Le canevas d'abord : un texte en cours de saisie est validé.
             canvas.setEditing(workspace == .editing ? editing : nil)
             if workspace != .editing {
                 editing.endEditing()
             }
+        }
+    }
+    /// Pages montrées sans leurs modifications, pour les comparer à l'original
+    /// (cf. `DocumentViewModel+Comparing.swift`).
+    var isComparing = false {
+        didSet {
+            guard isComparing != oldValue else { return }
+            showComparison()
         }
     }
     /// Sélection et modification des objets des pages (mode Édition).
@@ -324,6 +333,7 @@ extension DocumentViewModel {
 
     private func reloadPages() {
         guard let session else { return }
+        isComparing = false
         pages = session.pages().map { DisplayPage($0, sizes: sourceSizes) }
         // Les rendus doivent trouver les modifications avant que les pages ne changent.
         var edits: [UInt64: ContentEdits] = [:]

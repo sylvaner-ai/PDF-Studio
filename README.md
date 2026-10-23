@@ -17,7 +17,8 @@ locale, hors ligne, sans compte ni télémétrie.
 | 4. Édition des PDF natifs | sélection, déplacement, suppression, texte modifiable | terminé (à valider) |
 | 5. OCR | reconnaissance du texte des scans (Vision), couche de texte invisible | terminé |
 | 6. Structure | détection des tableaux, édition des tableaux | terminé (à valider) |
-| 7 à 9 | scans, design, durcissement | à faire |
+| 7. Scans | retouche des pages scannées : texte réécrit dans la police retrouvée, objets effacés ou déplacés, comparaison avant/après | terminé (à valider) |
+| 8 et 9 | design, durcissement | à faire |
 
 ## Organiser les pages
 
@@ -53,6 +54,16 @@ locale, hors ligne, sans compte ni télémétrie.
   cellule (une cellule vide prend le style de ses voisines) ; le **menu Tableau**
   et le clic droit suppriment, montent ou descendent la ligne, suppriment ou
   déplacent la colonne. Le tableau se resserre, ses filets et ses fonds suivent.
+- **Pages scannées :** une fois la page reconnue (bouton « Reconnaître le texte »),
+  ses lignes, ses tableaux, ses logos et signatures se sélectionnent comme des
+  objets ; les déplacer ou les supprimer retouche l'image (le fond est
+  reconstitué). Réécrire une ligne la redessine dans la police la plus proche du
+  scan ; le **panneau de retouche**, en haut à gauche, propose les trois polices
+  retrouvées (avec leur ressemblance) et règle le corps, la graisse,
+  l'interlettrage, le flou, le grain et la couleur. Une retouche n'est pas un
+  caviardage : les pixels d'origine restent dans le fichier.
+- **Comparer avec l'original** (⌥⌘K, ou le bouton de la barre d'outils) montre
+  les pages sans leurs modifications, à la même place, le temps de comparer.
 - Tout s'annule par ⌘Z, avec l'organisation des pages ; les limites sont décrites
   dans [docs/LIMITES.md](docs/LIMITES.md).
 

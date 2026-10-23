@@ -12,7 +12,9 @@ import Observation
 ///
 /// Un tableau se sélectionne d'un bloc ; la cellule cliquée devient sa
 /// cellule courante, dont la ligne et la colonne peuvent être supprimées ou
-/// déplacées (menu Tableau).
+/// déplacées (menu Tableau). Sur une page scannée, les objets sont retrouvés
+/// dans l'image et leurs pixels retouchés ; le texte réécrit d'une ligne se
+/// règle dans le panneau de retouche.
 @MainActor
 @Observable
 final class PageEditing {
@@ -23,8 +25,9 @@ final class PageEditing {
     /// Bloc dont le texte est en cours de saisie.
     private(set) var textTarget: TextTarget?
     /// Remarque sur la dernière modification du texte (police de
-    /// substitution, débordement, caractères absents).
-    private(set) var notice: String?
+    /// substitution, débordement, caractères absents) ; modifiée aussi par
+    /// `PageEditing+Scans.swift`.
+    var notice: String?
     /// Change quand les objets connus d'une page changent, pour l'inspecteur.
     private(set) var objectsVersion = 0
     /// Cellule courante du tableau sélectionné (modifiée aussi par
@@ -295,7 +298,7 @@ final class PageEditing {
     }
 
     /// Ce qu'il faut savoir du texte modifié.
-    private static func notice(for item: PageObjectItem) -> String? {
+    static func notice(for item: PageObjectItem) -> String? {
         var lines: [String] = []
         if item.substituted, let font = item.displayFontName {
             lines.append(String(localized: "Police de substitution : \(font)."))

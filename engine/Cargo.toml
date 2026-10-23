@@ -5,6 +5,8 @@ members = [
     "edit",
     "ocr",
     "layout",
+    "fonts",
+    "scan",
     "render",
     "ffi",
     "uniffi-bindgen",
@@ -23,6 +25,8 @@ pdf_core = { path = "pdf_core" }
 edit = { path = "edit" }
 ocr = { path = "ocr" }
 layout = { path = "layout" }
+fonts = { path = "fonts" }
+scan = { path = "scan" }
 render = { path = "render" }
 # MuPDF : rendu, extraction et écriture PDF (licence AGPL-3.0, cf. docs/DEPENDANCES.md).
 # Les formats non PDF (EPUB, XPS, HTML…) et le moteur JavaScript sont désactivés.
@@ -30,6 +34,12 @@ mupdf = { version = "0.8", default-features = false, features = ["base14-fonts",
 thiserror = "2"
 # Recherche des polices installées (déjà utilisée par MuPDF, même version).
 font-kit = "0.14"
+# Fichiers des polices installées sur le Mac (déjà utilisée par font-kit, même version).
+core-text = "20.1"
+# Mise en forme du texte (crénage, ligatures) et lecture des polices.
+rustybuzz = "0.20"
+# Rendu des contours des glyphes en couverture anticrénelée.
+ab_glyph_rasterizer = "0.1"
 unicode-normalization = "0.1"
 uniffi = "0.32"
 
@@ -43,3 +53,11 @@ all = { level = "warn", priority = -1 }
 lto = "thin"
 codegen-units = 4
 debug = "line-tables-only"
+
+# Les calculs sur les pixels des scans sont trop lents sans optimisation,
+# même pendant les tests.
+[profile.dev.package.scan]
+opt-level = 3
+
+[profile.dev.package.fonts]
+opt-level = 3

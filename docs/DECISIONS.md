@@ -553,3 +553,87 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
 - **Raisons :** une valeur saisie dans une colonne de montants doit ressembler
   aux autres montants ; l'en-tête, souvent en gras, n'est pris qu'en dernier
   recours.
+
+## D37 — Retouche d'un scan : rustines d'image sans perte posées sur l'original (jalon 7)
+
+- **Retenu :** l'image scannée n'est jamais réencodée. Chaque retouche
+  (texte réécrit, objet effacé ou déplacé) produit des rustines : des images
+  RGB compressées sans perte (Flate) qui ne contiennent que les pixels changés,
+  avec un masque `/SMask` tout-ou-rien, alignées sur la grille de pixels du
+  scan. À l'enregistrement, elles sont ajoutées au flux de contenu
+  (`q … cm /PSRTn Do Q`) après le contenu d'origine, enfermé dans `q … Q`, et
+  avant la couche de texte invisible.
+- **Alternatives :** réécrire toute l'image (JPEG : nouvelle perte sur toute la
+  page ; PNG : fichier bien plus lourd) ; dessiner du texte vectoriel par-dessus
+  (net, donc visible sur un scan flou et granuleux).
+- **Raisons :** la résolution et la qualité du scan sont intactes hors des
+  zones retouchées, le fichier grossit peu, et le rendu des rustines est celui
+  de l'aperçu. Contrepartie assumée : les pixels d'origine restent dans le
+  fichier sous les rustines (voir LIMITES.md, ce n'est pas un caviardage).
+
+## D38 — Espace de pixels canonique, indépendant de la rotation (jalon 7)
+
+- **Retenu :** le scan est analysé dans l'espace de la page sans `/Rotate`
+  (origine en haut à gauche de la `MediaBox`), à la résolution native de
+  l'image (plafonnée à 600 ppp et 60 millions de pixels). Les numéros des
+  objets d'un scan (lignes, tableaux, éléments) sont des empreintes de leur
+  position dans cet espace, marquées par le bit 30 (`SCAN_ID`).
+- **Raisons :** faire pivoter la page (organisation) ne change ni les numéros
+  ni les retouches, et l'annulation reste cohérente ; les rustines tombent sur
+  la grille de pixels du scan quelle que soit la rotation d'affichage.
+
+## D39 — Objets d'un scan : lignes reconnues, tableaux et éléments de l'image (jalon 7)
+
+- **Retenu :** une page est traitée comme un scan si elle n'a aucun texte
+  natif et qu'une image couvre au moins la moitié de la page, et seulement une
+  fois sa couche de texte reconnue (jalon 5). Les lignes viennent de la couche
+  reconnue, coupées par cellule et aux grands blancs ; les filets sont
+  cherchés dans l'image, inclinaison compensée, puis passés à `layout::detect`
+  (D32) pour retrouver les tableaux ; le reste de l'encre (logos, signatures,
+  tampons) forme des éléments, par composantes connexes hors des mots.
+- **Raisons :** réutiliser la reconnaissance et la détection des tableaux
+  existantes ; un objet du scan se sélectionne, se déplace et se supprime
+  comme un objet natif, avec les mêmes commandes et la même annulation.
+
+## D40 — Effacement : fond estimé, Telea, grain réinjecté (jalon 7)
+
+- **Retenu :** l'encre à effacer est sélectionnée par seuil local autour de
+  l'objet, avec une marge ; la zone est remplie par l'algorithme de Telea
+  (propagation depuis le bord), mélangé à la couleur du papier estimée loin du
+  bord ; le grain du papier, mesuré autour, est ajouté ensuite.
+- **Alternatives :** couleur unie (tache visible sur un papier teinté ou
+  granuleux) ; synthèse de texture par patchs (plus lente, plus de risques
+  d'artefacts sur une petite zone).
+- **Raisons :** sur du papier uni, ce qui est la règle des documents
+  administratifs, le résultat est invisible à 100 % ; sur un fond texturé ou
+  tramé, une trace reste visible (voir LIMITES.md).
+
+## D41 — Texte réécrit : police retrouvée, rendu assorti au scan (jalon 7)
+
+- **Retenu :** à la première modification d'une ligne, les mots du scan sont
+  comparés, glyphe par glyphe, au rendu des polices du catalogue (crate
+  `fonts`) : polices fournies (Carlito, Caladea, équivalents métriques de
+  Calibri et Cambria, OFL) et familles bureautiques installées sur le Mac. Les
+  trois plus proches sont gardées avec leur ressemblance (0 à 1). Le corps,
+  l'interlettrage, la graisse, le flou, le grain, la couleur de l'encre et
+  l'inclinaison de la ligne sont mesurés sur le scan. Seuls les mots changés
+  sont effacés et redessinés ; la fin inchangée de la ligne est découpée et
+  décalée telle quelle.
+- **Raisons :** les mots qui ne changent pas gardent leurs pixels d'origine ;
+  le nouveau texte est rendu à la résolution du scan puis flouté et bruité
+  comme lui, pour ne pas paraître plus net. Les réglages mesurés sont gardés
+  (bouton « Réglages mesurés ») et chaque réglage fin est une modification
+  annulable.
+
+## D42 — Comparaison avant/après : pages d'origine dans le même canevas (jalon 7)
+
+- **Retenu :** « Comparer avec l'original » (⌥⌘K, bouton de la barre d'outils)
+  montre les pages sans les modifications de leur contenu, à la même place et
+  au même grossissement ; on bascule d'un état à l'autre. Rien n'est
+  modifiable pendant la comparaison ; une modification ou une annulation y met
+  fin.
+- **Alternative :** deux pages côte à côte (moitié de la largeur chacune, et
+  deux défilements à synchroniser).
+- **Raisons :** une retouche réussie se juge en basculant sur place : l'œil
+  repère le moindre décalage. Le rendu d'origine est mis en cache comme les
+  autres.

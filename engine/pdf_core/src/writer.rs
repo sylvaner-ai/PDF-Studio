@@ -16,7 +16,9 @@ use edit::{PageEdits, TextLayer};
 use mupdf::pdf::{Encryption, PdfDocument, PdfGraftMap, PdfObject, PdfWriteOptions};
 use mupdf::{Buffer, Size};
 
+use crate::document::{has_scan_edits, vector_edits};
 use crate::editing::{self, EmbeddedFonts, FontProvider, PageModel};
+use crate::scanned::{self, ScanModel};
 use crate::textlayer;
 
 use crate::error::{PdfError, Result};
@@ -112,13 +114,14 @@ pub fn write_document(
     } else {
         rebuild(&mut doc, sources, pages, original_count)?;
     }
-    apply_edits(&mut doc, edits)?;
-    apply_layers(&mut doc, layers)?;
+    let layers = apply_edits(&mut doc, edits, layers)?;
+    apply_layers(&mut doc, &layers)?;
 
     let mut options = PdfWriteOptions::default();
     options
         .set_garbage_level(3)
         .set_compress(true)
+        .set_compress_images(true)
         .set_encryption(Encryption::Keep);
     let mut output = Vec::new();
     doc.write_to_with_options(&mut output, options)?;
@@ -129,24 +132,59 @@ pub fn write_document(
 /// Remplace le contenu des pages modifiées. Chaque page est alors un objet
 /// distinct (les pages répétées ont été copiées) : son nouveau contenu ne
 /// s'applique qu'à elle, et les objets partagés (flux, ressources) restent
-/// intacts.
-fn apply_edits(doc: &mut PdfDocument, edits: &[Option<Arc<PageEdits>>]) -> Result<()> {
+/// intacts. Sur une page scannée reconnue, les pixels retouchés sont posés
+/// en calques par-dessus son contenu. Renvoie la couche de texte de chaque
+/// page, retouches comprises.
+fn apply_edits(
+    doc: &mut PdfDocument,
+    edits: &[Option<Arc<PageEdits>>],
+    layers: &[Option<Arc<TextLayer>>],
+) -> Result<Vec<Option<Arc<TextLayer>>>> {
     let mut fonts = FontProvider::default();
     let mut embedded = EmbeddedFonts::new();
+    let mut effective = layers.to_vec();
     for (position, edits) in edits.iter().enumerate() {
         let Some(edits) = edits.as_ref().filter(|edits| !edits.is_empty()) else {
             continue;
         };
         let mut page = doc.find_page(position as i32)?;
         let model = PageModel::load(&page)?;
-        let edited = editing::edit_page(doc, &page, &model, edits, &mut fonts, &mut embedded)?;
-        let stream = doc.add_stream(&Buffer::from_bytes(&edited.content)?, None, false)?;
-        page.dict_put("Contents", stream)?;
-        if let Some(resources) = edited.resources {
-            page.dict_put("Resources", resources)?;
+        let layer = layers.get(position).cloned().flatten();
+        // Retouches du scan, calculées sur le contenu d'origine de la page.
+        let scan = match &layer {
+            Some(layer) if !layer.is_empty() && has_scan_edits(edits) => {
+                let bounds = doc.load_page(position as i32)?.bounds()?;
+                let area = f64::from(bounds.x1 - bounds.x0) * f64::from(bounds.y1 - bounds.y0);
+                match scanned::find_scan(&page, &model, area)? {
+                    Some(image) => {
+                        let base = scanned::render(doc, position as u32, &image.placement)?;
+                        let scan = ScanModel::build(image, base, layer);
+                        let retouched = scanned::retouch(&scan, layer, edits);
+                        Some((image.placement, retouched))
+                    }
+                    None => None,
+                }
+            }
+            _ => None,
+        };
+        let vector = vector_edits(edits);
+        if !vector.is_empty() {
+            let edited =
+                editing::edit_page(doc, &page, &model, &vector, &mut fonts, &mut embedded)?;
+            let stream = doc.add_stream(&Buffer::from_bytes(&edited.content)?, None, false)?;
+            page.dict_put("Contents", stream)?;
+            if let Some(resources) = edited.resources {
+                page.dict_put("Resources", resources)?;
+            }
+        }
+        if let Some((placement, retouched)) = scan {
+            scanned::write_patches(doc, &mut page, &placement, &retouched)?;
+            if let Some(slot) = effective.get_mut(position) {
+                *slot = Some(Arc::new(retouched.layer));
+            }
         }
     }
-    Ok(())
+    Ok(effective)
 }
 
 /// Ajoute aux pages leur couche de texte invisible : un flux de contenu de

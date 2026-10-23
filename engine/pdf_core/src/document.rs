@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use edit::{FontChoice, PageEdits, TextLayer};
+use edit::{FontChoice, PageEdits, ScanCandidate, ScanStyle, TextLayer};
 use mupdf::pdf::PdfDocument;
 
 use crate::content::geometry::{Matrix, Point};
@@ -10,6 +10,7 @@ use crate::editing::{self, EmbeddedFonts, FontProvider, ObjectInfo, PageModel, S
 use crate::error::{PdfError, Result};
 use crate::outline::{self, OutlineEntry};
 use crate::page::{PageContent, PageSize};
+use crate::scanned::{self, is_scan_id, Retouched, ScanModel};
 use crate::text::{PageRect, PageText, TextLine};
 
 /// Un document PDF ouvert en mémoire.
@@ -27,6 +28,13 @@ pub struct Document {
 /// Nombre de pages dont les objets sont gardés en mémoire.
 const MODEL_CACHE_PAGES: usize = 16;
 
+/// Nombre de pages scannées dont le rendu et les objets sont gardés en
+/// mémoire (plusieurs dizaines de mégaoctets chacune).
+const SCAN_CACHE_PAGES: usize = 3;
+
+/// Nombre de versions retouchées de pages scannées gardées en mémoire.
+const RETOUCH_CACHE: usize = 4;
+
 /// État de l'édition du contenu des pages : objets des pages, polices de
 /// substitution chargées et ajoutées au document pour l'aperçu.
 #[derive(Default)]
@@ -35,6 +43,11 @@ struct Editing {
     fonts: FontProvider,
     embedded: EmbeddedFonts,
     scratch: Scratch,
+    /// Pages scannées : empreinte de la couche de texte et objets.
+    scans: HashMap<u32, (u64, Option<Arc<ScanModel>>)>,
+    /// Retouches calculées : (page, version des modifications, empreinte de
+    /// la couche).
+    retouched: Vec<((u32, u64, u64), Arc<Retouched>)>,
 }
 
 impl Document {
@@ -207,14 +220,110 @@ impl Document {
         Ok(self.page_model(index)?.text_structure())
     }
 
-    /// Objets de la page, modifications `edits` comprises.
+    /// Objets de la page, modifications `edits` comprises. Une page scannée
+    /// reconnue (couche de texte `layer`) montre les objets de son image :
+    /// lignes de texte, tableaux, éléments graphiques et filets.
     pub fn page_objects(
         &mut self,
         index: u32,
         edits: Option<&PageEdits>,
+        layer: Option<&TextLayer>,
     ) -> Result<Vec<ObjectInfo>> {
         let model = self.page_model(index)?;
-        Ok(model.infos(edits, &mut self.editing.fonts))
+        let mut infos = model.infos(edits, &mut self.editing.fonts);
+        if let (Some(scan), Some(layer)) = (self.scan_model(index, layer)?, layer) {
+            infos.retain(|info| info.id != scan.image.object);
+            let retouched = edits
+                .filter(|edits| has_scan_edits(edits))
+                .map(|edits| self.retouched(index, &scan, layer, edits));
+            infos.extend(scanned::infos(&scan, edits, retouched.as_deref()));
+        }
+        Ok(infos)
+    }
+
+    /// Réglages mesurés de la ligne scannée `object` et les polices qui lui
+    /// ressemblent le plus ; `None` si ce n'est pas une ligne d'un scan.
+    pub fn scan_style(
+        &mut self,
+        index: u32,
+        object: u32,
+        layer: Option<&TextLayer>,
+    ) -> Result<Option<(ScanStyle, Vec<ScanCandidate>)>> {
+        let (Some(scan), Some(layer)) = (self.scan_model(index, layer)?, layer) else {
+            return Ok(None);
+        };
+        Ok(scan.line(object).map(|line| scan.match_style(line, layer)))
+    }
+
+    /// Couche de texte de la page avec les retouches de son scan : mots
+    /// réécrits, déplacés ou supprimés.
+    pub fn effective_layer(
+        &mut self,
+        index: u32,
+        edits: Option<&PageEdits>,
+        layer: &TextLayer,
+    ) -> Result<TextLayer> {
+        let Some(edits) = edits.filter(|edits| has_scan_edits(edits)) else {
+            return Ok(layer.clone());
+        };
+        match self.scan_model(index, Some(layer))? {
+            Some(scan) => Ok(self.retouched(index, &scan, layer, edits).layer.clone()),
+            None => Ok(layer.clone()),
+        }
+    }
+
+    /// Objets de la page scannée `index` reconnue avec `layer` ; `None` si la
+    /// page n'est pas un scan ou n'est pas reconnue.
+    pub(crate) fn scan_model(
+        &mut self,
+        index: u32,
+        layer: Option<&TextLayer>,
+    ) -> Result<Option<Arc<ScanModel>>> {
+        let Some(layer) = layer.filter(|layer| !layer.is_empty()) else {
+            return Ok(None);
+        };
+        let key = scanned::layer_key(layer);
+        if let Some((known, model)) = self.editing.scans.get(&index) {
+            if *known == key {
+                return Ok(model.clone());
+            }
+        }
+        let size = self.page_size(index)?;
+        let model = self.page_model(index)?;
+        let page = self.inner.find_page(index as i32)?;
+        let area = f64::from(size.width) * f64::from(size.height);
+        let built = match scanned::find_scan(&page, &model, area)? {
+            Some(image) => {
+                let base = scanned::render(&self.inner, index, &image.placement)?;
+                Some(Arc::new(ScanModel::build(image, base, layer)))
+            }
+            None => None,
+        };
+        if self.editing.scans.len() >= SCAN_CACHE_PAGES {
+            self.editing.scans.clear();
+        }
+        self.editing.scans.insert(index, (key, built.clone()));
+        Ok(built)
+    }
+
+    /// Effet des modifications `edits` sur les pixels du scan `scan`.
+    pub(crate) fn retouched(
+        &mut self,
+        index: u32,
+        scan: &ScanModel,
+        layer: &TextLayer,
+        edits: &PageEdits,
+    ) -> Arc<Retouched> {
+        let key = (index, edits.revision(), scanned::layer_key(layer));
+        if let Some((_, done)) = self.editing.retouched.iter().find(|(k, _)| *k == key) {
+            return Arc::clone(done);
+        }
+        let done = Arc::new(scanned::retouch(scan, layer, edits));
+        if self.editing.retouched.len() >= RETOUCH_CACHE {
+            self.editing.retouched.remove(0);
+        }
+        self.editing.retouched.push((key, Arc::clone(&done)));
+        done
     }
 
     /// Police qui dessinera `text` à la place du bloc de texte `object`.
@@ -230,8 +339,46 @@ impl Document {
         )
     }
 
-    /// Contenu affichable de la page avec les modifications `edits`.
-    pub fn edited_page_content(&mut self, index: u32, edits: &PageEdits) -> Result<PageContent> {
+    /// Contenu affichable de la page avec les modifications `edits` ; pour
+    /// une page scannée reconnue (couche `layer`), les pixels retouchés sont
+    /// posés par-dessus.
+    pub fn edited_page_content(
+        &mut self,
+        index: u32,
+        edits: &PageEdits,
+        layer: Option<&TextLayer>,
+    ) -> Result<PageContent> {
+        let size = self.page_size(index)?;
+        let vector = vector_edits(edits);
+        let content = if vector.is_empty() {
+            self.page_content(index)?
+        } else {
+            self.vector_page_content(index, &vector)?
+        };
+        let scan = match layer {
+            Some(layer) if has_scan_edits(edits) => {
+                self.scan_model(index, Some(layer))?.map(|scan| {
+                    (
+                        Arc::clone(&scan),
+                        self.retouched(index, &scan, layer, edits),
+                    )
+                })
+            }
+            _ => None,
+        };
+        match scan {
+            Some((scan, retouched)) => {
+                let list =
+                    scanned::compose(content.display_list(), &scan.image.placement, &retouched)?;
+                Ok(PageContent::new(list, size))
+            }
+            None => Ok(content),
+        }
+    }
+
+    /// Contenu affichable de la page avec les modifications `edits` de son
+    /// contenu (hors retouches d'un scan).
+    fn vector_page_content(&mut self, index: u32, edits: &PageEdits) -> Result<PageContent> {
         let size = self.page_size(index)?;
         let model = self.page_model(index)?;
         let page = self.inner.find_page(index as i32)?;
@@ -266,6 +413,23 @@ impl Document {
                 count: self.page_count(),
             })
     }
+}
+
+/// Vrai si `edits` touche des objets d'un scan.
+pub(crate) fn has_scan_edits(edits: &PageEdits) -> bool {
+    edits.iter().any(|(id, _)| is_scan_id(id))
+}
+
+/// Modifications du contenu de la page, sans les retouches d'un scan.
+pub(crate) fn vector_edits(edits: &PageEdits) -> PageEdits {
+    PageEdits::new(
+        edits
+            .iter()
+            .filter(|(id, _)| !is_scan_id(*id))
+            .map(|(id, edit)| (id, edit.clone()))
+            .collect(),
+        edits.revision(),
+    )
 }
 
 /// Mots d'une couche de texte, ligne par ligne, avec leur emprise dans

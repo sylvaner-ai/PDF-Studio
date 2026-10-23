@@ -10,6 +10,8 @@
 
 use std::collections::BTreeMap;
 
+use crate::scan::ScanText;
+
 /// Police d'un texte remplacé.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum FontChoice {
@@ -75,6 +77,8 @@ pub struct ObjectEdit {
     pub text: Option<TextReplacement>,
     /// Modifications d'un tableau.
     pub table: Option<TableEdit>,
+    /// Nouveau texte d'une ligne d'une page scannée, dessiné dans l'image.
+    pub scan: Option<ScanText>,
 }
 
 impl ObjectEdit {
@@ -88,6 +92,7 @@ impl ObjectEdit {
         !self.deleted
             && !self.is_moved()
             && self.text.is_none()
+            && self.scan.is_none()
             && self.table.as_ref().is_none_or(TableEdit::is_unchanged)
     }
 }

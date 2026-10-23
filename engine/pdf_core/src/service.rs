@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::{mpsc, Arc};
 use std::thread;
 
-use edit::{FontChoice, PageEdits, TextLayer};
+use edit::{FontChoice, PageEdits, ScanCandidate, ScanStyle, TextLayer};
 
 use crate::content::geometry::Matrix;
 use crate::document::{self, layer_lines, Document};
@@ -149,27 +149,64 @@ impl DocumentHandle {
         self.run(move |worker| worker.page_content(index))?
     }
 
-    /// Contenu préparé d'une page avec les modifications `edits` ; la dernière
+    /// Contenu préparé d'une page avec les modifications `edits` (et, pour une
+    /// page scannée reconnue, sa couche de texte `layer`) ; la dernière
     /// version de chaque page est mise en cache.
     pub fn edited_page_content(
         &self,
         index: u32,
         edits: Arc<PageEdits>,
+        layer: Option<Arc<TextLayer>>,
     ) -> Result<Arc<PageContent>> {
         if edits.is_empty() {
             return self.page_content(index);
         }
-        self.run(move |worker| worker.edited_page_content(index, &edits))?
+        self.run(move |worker| worker.edited_page_content(index, &edits, layer.as_deref()))?
     }
 
     /// Objets d'une page (blocs de texte, images, tracés…), modifications
-    /// `edits` comprises.
+    /// `edits` comprises ; une page scannée reconnue (couche `layer`) montre
+    /// les objets de son image.
     pub fn page_objects(
         &self,
         index: u32,
         edits: Option<Arc<PageEdits>>,
+        layer: Option<Arc<TextLayer>>,
     ) -> Result<Vec<ObjectInfo>> {
-        self.run(move |worker| worker.doc.page_objects(index, edits.as_deref()))?
+        self.run(move |worker| {
+            worker
+                .doc
+                .page_objects(index, edits.as_deref(), layer.as_deref())
+        })?
+    }
+
+    /// Réglages mesurés de la ligne scannée `object` et les polices qui lui
+    /// ressemblent le plus ; `None` si ce n'est pas une ligne d'un scan.
+    pub fn scan_style(
+        &self,
+        index: u32,
+        object: u32,
+        layer: Option<Arc<TextLayer>>,
+    ) -> Result<Option<(ScanStyle, Vec<ScanCandidate>)>> {
+        self.run(move |worker| worker.doc.scan_style(index, object, layer.as_deref()))?
+    }
+
+    /// Couche de texte `layer` de la page avec les retouches de son scan.
+    pub fn effective_layer(
+        &self,
+        index: u32,
+        edits: Option<Arc<PageEdits>>,
+        layer: Arc<TextLayer>,
+    ) -> Result<Arc<TextLayer>> {
+        if !edits.as_ref().is_some_and(|edits| !edits.is_empty()) {
+            return Ok(layer);
+        }
+        self.run(move |worker| {
+            worker
+                .doc
+                .effective_layer(index, edits.as_deref(), &layer)
+                .map(Arc::new)
+        })?
     }
 
     /// Police qui dessinera `text` à la place du bloc de texte `object` de la
@@ -261,7 +298,9 @@ impl DocumentHandle {
 struct Worker {
     doc: Document,
     contents: Lru<Arc<PageContent>>,
-    edited: Lru<(u64, Arc<PageContent>)>,
+    /// Contenu modifié : version des modifications, empreinte de la couche
+    /// de texte.
+    edited: Lru<((u64, u64), Arc<PageContent>)>,
     texts: Lru<Arc<PageText>>,
 }
 
@@ -275,15 +314,20 @@ impl Worker {
         Ok(content)
     }
 
-    fn edited_page_content(&mut self, index: u32, edits: &PageEdits) -> Result<Arc<PageContent>> {
-        if let Some((revision, content)) = self.edited.get(index) {
-            if revision == edits.revision() {
+    fn edited_page_content(
+        &mut self,
+        index: u32,
+        edits: &PageEdits,
+        layer: Option<&TextLayer>,
+    ) -> Result<Arc<PageContent>> {
+        let key = (edits.revision(), layer.map_or(0, crate::scanned::layer_key));
+        if let Some((known, content)) = self.edited.get(index) {
+            if known == key {
                 return Ok(content);
             }
         }
-        let content = Arc::new(self.doc.edited_page_content(index, edits)?);
-        self.edited
-            .insert(index, (edits.revision(), Arc::clone(&content)));
+        let content = Arc::new(self.doc.edited_page_content(index, edits, layer)?);
+        self.edited.insert(index, (key, Arc::clone(&content)));
         Ok(content)
     }
 

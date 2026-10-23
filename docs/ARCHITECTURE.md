@@ -8,7 +8,8 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
 ┌──────────────────────── Application SwiftUI (app/) ──────────────────────────┐
 │ Views/        DocumentWindow, DocumentView (lecteur), SidebarView,           │
 │               DocumentWindowBridge (fermeture), ExportOptions, SearchField ; │
-│               EditingBadge, RecognitionViews (bouton et avancement OCR) ;    │
+│               EditingBadge, RecognitionViews (bouton et avancement OCR),     │
+│               ScanRetouchPanel (réglages du texte réécrit d'un scan) ;       │
 │               Canvas/ : PageCanvasView (AppKit),                             │
 │               PageTileView, EditingOverlayView (+Tables),                    │
 │               InlineTextEditor ;                                             │
@@ -17,10 +18,10 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
 │               +Exporting, +Recognizing), DisplayPage, CanvasController,      │
 │               SearchModel, OutlineTree, PageLayout, PageRenderer,            │
 │               FileSaver, RecoveryStore, PageExporter,                        │
-│               PageEditing (+Tables)                                          │
+│               PageEditing (+Tables, +Scans), DocumentViewModel+Comparing     │
 │ Recognition/  VisionTextReader (Vision), VisionTextRecognizer (pour Rust)    │
 │ App/          PDFStudioApp, ViewerCommands, PageCommands et TableCommands    │
-│               (menus),                                                       │
+│               (menus), BundledFonts (polices fournies),                      │
 │               DocumentOpener, DocumentReference (signets de sécurité)        │
 │ Bridge/       EngineBridge.swift + Generated/ (liaisons UniFFI générées)     │
 └───────────────────────────────┬──────────────────────────────────────────────┘
@@ -40,18 +41,24 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
 │ render/     rastérisation RGBA : page entière ou zone, rotation d'affichage  │
 │ layout/     géométrie de la structure : filets, quadrillages, tableaux à     │
 │             filets, réorganisation des lignes et colonnes (sans dépendance)  │
+│ fonts/      catalogue des polices candidates, mise en forme et rendu des     │
+│             glyphes, appariement d'une police à une ligne scannée            │
+│ scan/       pixels d'un scan : fond et grain, sélection de l'encre,          │
+│             effacement (Telea), extraction et pose, texte assorti au scan,   │
+│             filets et éléments de l'image                                    │
 │ pdf_core/   ouverture, pages, métadonnées, plan, texte et recherche ;        │
 │             écriture d'un PDF réorganisé ; fil dédié par document ;          │
 │             choix des polices standard ; content/ : lecture du flux de       │
 │             contenu, objets des pages, mise en page et réécriture ;          │
 │             editing : polices, aperçu et application des modifications ;     │
-│             textlayer : couche de texte invisible des pages reconnues        │
+│             textlayer : couche de texte invisible des pages reconnues ;      │
+│             scanned/ : objets d'une page scannée, retouche, rustines         │
 │ (MuPDF)     analyse, rendu, extraction du texte, écriture                    │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Le crate `fonts` prévu par le cahier des charges sera créé au jalon 7 ; `edit`
-l'a été au jalon 3, `ocr` au jalon 5, `layout` au jalon 6 (D31). Au jalon 4, la mise en page du texte modifié et le choix de sa police sont restés
+Le crate `edit` a été créé au jalon 3, `ocr` au jalon 5, `layout` au jalon 6
+(D31), `fonts` et `scan` au jalon 7. Au jalon 4, la mise en page du texte modifié et le choix de sa police sont restés
 dans `pdf_core` (`content::layout`, `editing`), car ils reposent sur
 l'interprétation du flux de contenu et sur MuPDF.
 
@@ -186,6 +193,37 @@ l'interprétation du flux de contenu et sur MuPDF.
   texte d'une cellule (`set_cell_text`). `PageEditing+Tables` garde la cellule
   courante ; `EditingOverlayView+Tables` dessine la grille, désigne la cellule
   et propose le menu contextuel ; `TableCommands` donne le menu Tableau.
+
+## Retouche des pages scannées
+
+- **Objets d'un scan.** Une fois la page reconnue (couche de texte), et si
+  elle n'a pas de texte natif mais une image qui en couvre au moins la moitié,
+  `pdf_core::scanned` rend l'image dans un espace de pixels sans rotation, à sa
+  résolution native (D38), et construit un `ScanModel` : lignes (couche
+  reconnue), tableaux (filets de l'image redressés, `layout::detect`) et
+  éléments (encre hors des mots et des filets) (D39). Ils remplacent l'image
+  parmi les objets de la page, avec des numéros marqués `SCAN_ID`.
+- **Modifications.** Elles sont rangées comme les autres (`ObjectEdit` :
+  suppression, déplacement), plus `ScanText` pour une ligne réécrite : texte,
+  réglages actuels et mesurés, polices candidates. `scanned::retouch` calcule
+  les rustines en deux temps : réécriture des lignes sur place (mots changés
+  effacés et redessinés, fin de ligne décalée), puis suppressions et
+  déplacements (sélection de l'encre, extraction, effacement par `scan::inpaint`,
+  pose décalée). La couche de texte est mise à jour en conséquence.
+- **Police et rendu.** `ScanModel::match_style` mesure la ligne
+  (`scan::line::observe` : ligne de base, corps, couleur, grain) et demande à
+  `fonts::match_line` les trois polices les plus proches (D41) ; `scan::draw`
+  rend le texte avec `rustybuzz` et `ab_glyph_rasterizer`, puis le floute et le
+  bruite comme le scan.
+- **Aperçu et enregistrement.** L'aperçu ajoute les rustines à la liste
+  d'affichage de la page ; l'enregistrement les écrit en images sans perte
+  (`/PSRTn`) entre le contenu d'origine et la couche de texte (D37).
+- **Interface.** L'`EditSession` réécrit une ligne (`replace_text`), change ses
+  réglages (`set_scan_style`, `choose_scan_candidate`, `reset_scan_style`).
+  `PageEditing+Scans` et `ScanRetouchPanel` donnent le panneau de retouche ;
+  `DocumentViewModel+Comparing` montre les pages d'origine (D42).
+  `BundledFonts` désigne au moteur les polices fournies (`set_font_directories`)
+  et les rend disponibles à la saisie.
 
 ## Reconnaissance du texte (OCR)
 

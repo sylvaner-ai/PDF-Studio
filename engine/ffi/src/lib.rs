@@ -17,7 +17,10 @@ mod qos;
 mod recognition;
 mod session;
 
-pub use content::{ContentEdits, ObjectEditItem, PageObjectItem, PageObjectKind, TextFont};
+pub use content::{
+    ContentEdits, ObjectEditItem, PageObjectItem, PageObjectKind, ScanCandidateItem, ScanStyleItem,
+    ScanTextItem, TextFont,
+};
 pub use recognition::{
     default_recognition_settings, LayerWordItem, OcrImage, PageRecognition, RecognitionSettings,
     RecognizedText, RecognizedWordItem, TextRecognizer,
@@ -227,9 +230,11 @@ impl PdfDocument {
         scale: f32,
         rotation: i32,
     ) -> Result<RenderedPage, EngineError> {
-        let content = self
-            .handle
-            .edited_page_content(index, Arc::clone(&edits.edits))?;
+        let content = self.handle.edited_page_content(
+            index,
+            Arc::clone(&edits.edits),
+            edits.layer.clone(),
+        )?;
         Ok(render::render(&content, scale, Rotation::from_degrees(rotation))?.into())
     }
 
@@ -246,9 +251,11 @@ impl PdfDocument {
         width: u32,
         height: u32,
     ) -> Result<RenderedPage, EngineError> {
-        let content = self
-            .handle
-            .edited_page_content(index, Arc::clone(&edits.edits))?;
+        let content = self.handle.edited_page_content(
+            index,
+            Arc::clone(&edits.edits),
+            edits.layer.clone(),
+        )?;
         let region = Region {
             x,
             y,
@@ -313,6 +320,18 @@ pub(crate) fn search_matches(found: Vec<pdf_core::TextMatch>) -> Vec<SearchMatch
                 .collect(),
         })
         .collect()
+}
+
+/// Désigne les dossiers des polices fournies avec l'application (retouche
+/// des scans) ; à appeler au lancement, avant toute retouche.
+#[uniffi::export]
+pub fn set_font_directories(directories: Vec<String>) {
+    fonts::catalog::set_bundled_directories(
+        directories
+            .into_iter()
+            .map(std::path::PathBuf::from)
+            .collect(),
+    );
 }
 
 /// Version du moteur, affichée dans « À propos ».

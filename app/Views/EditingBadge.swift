@@ -58,9 +58,12 @@ struct EditingBadge: View {
             return String(localized: "Cet objet ne peut pas être modifié.")
         }
         if let grid = item.grid {
-            return Self.tableDetail(grid, cell: editing.currentCell)
+            return Self.tableDetail(grid, cell: editing.currentCell, scanned: item.scanned)
         }
         var parts: [String] = []
+        if item.scanned {
+            parts.append(String(localized: "retrouvé dans l'image scannée"))
+        }
         if item.kind == .text {
             if let font = item.displayFontName {
                 let size = item.fontSize.formatted(.number.precision(.fractionLength(0...1)))
@@ -87,7 +90,7 @@ struct EditingBadge: View {
     }
 
     /// Taille du tableau, cellule courante et marche à suivre.
-    private static func tableDetail(_ grid: TableGridItem, cell: TableCellItem?) -> String {
+    private static func tableDetail(_ grid: TableGridItem, cell: TableCellItem?, scanned: Bool) -> String {
         var parts = [String(localized: "\(grid.rows) lignes × \(grid.columns) colonnes")]
         if let cell {
             parts.append(String(localized: "cellule ligne \(cell.row + 1), colonne \(cell.column + 1)"))
@@ -95,8 +98,14 @@ struct EditingBadge: View {
                 parts.append(String(localized: "le texte saisi dépasse de la cellule"))
             }
         }
-        let help = String(localized: "double-clic pour modifier une cellule, menu Tableau pour ses lignes et colonnes")
-        parts.append(help)
+        if scanned {
+            // Les lignes et les colonnes d'un tableau scanné ne se réorganisent pas.
+            parts.append(String(localized: "tableau scanné : double-clic pour modifier le texte d'une cellule"))
+        } else {
+            parts.append(
+                String(localized: "double-clic pour modifier une cellule, menu Tableau pour ses lignes et colonnes")
+            )
+        }
         return parts.joined(separator: " · ")
     }
 }

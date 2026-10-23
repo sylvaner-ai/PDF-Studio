@@ -843,6 +843,100 @@ def ocr_documents() -> None:
     ocr_anglais()
 
 
+# MARK: - Retouche d'un scan (jalon 7)
+
+FONTS = OUT.parent.parent / "app" / "Resources" / "Fonts"
+
+
+def scan_retouche() -> None:
+    """Facture scannée en couleur à 200 ppp : texte Caladea et Carlito, tableau
+    à filets, logo, ligne de signature ; légèrement inclinée, floue et bruitée.
+    Écrit aussi scan_retouche.mots.tsv : les mots et leur emprise dans l'espace
+    de la page (ce qu'aurait lu la reconnaissance), pour les tests sans Vision."""
+    rng = random.Random(SEED + 7)
+    dpi = 200
+    w, h = int(8.27 * dpi), int(11.69 * dpi)
+    img = Image.new("RGB", (w, h), (242, 239, 230))
+    draw = ImageDraw.Draw(img)
+    serif = ImageFont.truetype(str(FONTS / "Caladea-Regular.ttf"), round(11 * dpi / 72))
+    sans_bold = ImageFont.truetype(str(FONTS / "Carlito-Bold.ttf"), round(16 * dpi / 72))
+    sans = ImageFont.truetype(str(FONTS / "Carlito-Regular.ttf"), round(10 * dpi / 72))
+    ink = (28, 30, 48)
+    words = []  # (texte, ligne, x, y_base, police)
+    line_number = 0
+
+    def write(x, y, text, font, fill=ink):
+        nonlocal line_number
+        cursor = x
+        for word in text.split(" "):
+            draw.text((cursor, y), word, fill=fill, font=font, anchor="ls")
+            words.append((word, line_number, cursor, y, font))
+            cursor += font.getlength(word + " ")
+        line_number += 1
+
+    write(160, 260, "Facture n° 2026-0412", sans_bold)
+    write(160, 360, "Montant total : 1 250,00 € TTC", serif)
+    write(160, 420, "Échéance : 30 avril 2026", serif)
+    write(160, 480, "Référence client : DUR-0412", serif)
+    # Tableau 3 × 3 à filets.
+    x0, y0, cw, rh = 160, 600, 360, 70
+    for i in range(4):
+        draw.line([(x0, y0 + i * rh), (x0 + 3 * cw, y0 + i * rh)], fill=ink, width=3)
+        draw.line([(x0 + i * cw, y0), (x0 + i * cw, y0 + 3 * rh)], fill=ink, width=3)
+    cells = [["Désignation", "Quantité", "Prix"], ["Audit", "2", "800,00"], ["Formation", "1", "450,00"]]
+    for r, row in enumerate(cells):
+        for c, text in enumerate(row):
+            write(x0 + c * cw + 20, y0 + r * rh + 46, text, sans)
+    # Logo : disque rouge et carré bleu.
+    draw.ellipse([1180, 150, 1300, 270], fill=(200, 40, 40))
+    draw.rectangle([1320, 170, 1420, 270], fill=(40, 60, 170))
+    # Ligne de signature.
+    draw.line([(900, 1500), (1400, 1500)], fill=ink, width=3)
+    write(160, 1100, "Merci de votre confiance.", serif)
+
+    angle = 0.4
+    img = img.rotate(angle, resample=Image.BICUBIC, fillcolor=(242, 239, 230))
+    img = img.filter(ImageFilter.GaussianBlur(0.7))
+    pixels = img.load()
+    for _ in range(3000):
+        x, y = rng.randrange(w), rng.randrange(h)
+        v = rng.randrange(-25, 25)
+        r, g, b = pixels[x, y]
+        pixels[x, y] = (max(0, min(255, r + v)), max(0, min(255, g + v)), max(0, min(255, b + v)))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    buf.seek(0)
+
+    # Emprise des mots, tournée comme l'image (sens trigonométrique autour du
+    # centre), puis dans l'espace de la page (points, ordonnées vers le haut).
+    import math
+    theta = math.radians(angle)
+    cx, cy = w / 2, h / 2
+    scale = 72 / dpi
+    page_h = A4[1]
+
+    def to_page(x, y):
+        dx, dy = x - cx, y - cy
+        rx = cx + dx * math.cos(theta) + dy * math.sin(theta)
+        ry = cy - dx * math.sin(theta) + dy * math.cos(theta)
+        return rx * scale * (A4[0] / (w * scale)), page_h - ry * scale * (page_h / (h * scale))
+
+    rows = []
+    for word, line, x, y, font in words:
+        ascent, descent = font.getmetrics()
+        right = x + font.getlength(word)
+        corners = [(x, y + descent), (right, y + descent), (right, y - ascent), (x, y - ascent)]
+        quad = [v for corner in corners for v in to_page(*corner)]
+        rows.append("\t".join([word, str(line)] + [f"{v:.2f}" for v in quad]))
+    (OUT / "scan_retouche.mots.tsv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    c = new_canvas("scan_retouche.pdf", title="Scan à retoucher")
+    from reportlab.lib.utils import ImageReader
+    c.drawImage(ImageReader(buf), 0, 0, width=A4[0], height=A4[1])
+    c.showPage()
+    c.save()
+
+
 def pas_un_pdf() -> None:
     (OUT / "pas_un_pdf.pdf").write_text("Ceci est un fichier texte, pas un PDF.\n", encoding="utf-8")
 
@@ -857,6 +951,7 @@ def main() -> None:
     tableau()
     tableaux()
     scan_simule()
+    scan_retouche()
     chiffre()
     pdf20()
     organisation()
