@@ -27,7 +27,8 @@ extension PageCanvasView {
     }
 
     /// Touches de la sélection : flèches (1 pt, 10 pt avec ⇧), ⌫ et ⌦,
-    /// Retour pour modifier un texte, Échap pour tout désélectionner.
+    /// Retour pour modifier un texte (ou la cellule courante d'un tableau),
+    /// Échap pour tout désélectionner.
     func handleEditingKey(_ event: NSEvent, editing: PageEditing) -> Bool {
         let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
         guard flags.subtracting(.shift).isEmpty, editing.hasSelection, let page = editing.page else { return false }
@@ -37,6 +38,10 @@ extension PageCanvasView {
         case 51, 117:
             editing.deleteSelection()
         case 36, 76:
+            if editing.selectedTable != nil, let cell = editing.cell {
+                editing.beginCellEditing(cell)
+                return true
+            }
             let items = editing.selectedItems
             guard items.count == 1, let item = items.first, item.editable else { return false }
             editing.beginTextEditing(page: page, object: item.id)

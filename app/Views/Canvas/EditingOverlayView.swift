@@ -6,18 +6,22 @@ import AppKit
 /// droite, sont tournées comme la page à l'écran. Un clic sélectionne le plus
 /// petit objet sous le pointeur (le fond de page est ignoré), ⇧-clic l'ajoute
 /// ou le retire, un glisser déplace la sélection ou trace un rectangle de
-/// sélection, un double-clic sur un texte ouvre sa saisie. Les mots reconnus
-/// douteux d'une page scannée sont surlignés en orange.
+/// sélection, un double-clic sur un texte ouvre sa saisie. Un tableau se
+/// sélectionne d'un bloc, par-dessus ses textes et ses filets : le clic
+/// désigne aussi sa cellule courante, un double-clic ouvre la saisie de la
+/// cellule, un clic droit le menu de ses lignes et colonnes. Les mots
+/// reconnus douteux d'une page scannée sont surlignés en orange.
 @MainActor
 final class EditingOverlayView: NSView {
     weak var editing: PageEditing?
-    private var page: DisplayPage?
+    private(set) var page: DisplayPage?
     /// Rotation de la page à l'écran.
-    private var rotation = DisplayRotation()
+    private(set) var rotation = DisplayRotation()
     private var hovered: UInt32?
     private var drag: Drag?
     private var editor: InlineTextEditor?
     private var editorObject: UInt32?
+    var editorCell: PageEditing.CellTarget?
 
     private enum Drag {
         /// Déplacement de la sélection depuis `start` ; il commence au-delà
@@ -56,6 +60,10 @@ final class EditingOverlayView: NSView {
             if editorObject != target.object, let item = items.first(where: { $0.id == target.object }) {
                 openEditor(for: item)
             }
+        } else if let target = editing.cellTarget, target.page == page.id {
+            if editorCell != target {
+                openCellEditor(for: target)
+            }
         } else if editor != nil {
             removeEditor()
         }
@@ -64,9 +72,19 @@ final class EditingOverlayView: NSView {
 
     // MARK: - Géométrie
 
-    private var items: [PageObjectItem] {
+    var items: [PageObjectItem] {
         guard let page, let editing else { return [] }
         return editing.objects(on: page) ?? []
+    }
+
+    /// Objets qu'un clic peut atteindre : ni le fond de page, ni ce qui
+    /// appartient à un tableau (le tableau les couvre).
+    private var hittableItems: [PageObjectItem] {
+        let all = self.items
+        let tables = Set(all.filter { $0.kind == .table }.map(\.id))
+        return all.filter { item in
+            !item.background && !(item.table.map { tables.contains($0) } ?? false)
+        }
     }
 
     /// Emprise d'un objet dans la vue.
@@ -76,15 +94,15 @@ final class EditingOverlayView: NSView {
     }
 
     /// Un point de l'écran, en unités de la vue (qui suit le grossissement).
-    private var screenPoint: CGFloat {
+    var screenPoint: CGFloat {
         max(abs(convert(NSSize(width: 1, height: 1), from: nil).width), 0.01)
     }
 
     /// Objet sous le pointeur : le plus petit, à égalité le plus haut placé.
-    private func object(at point: CGPoint) -> PageObjectItem? {
+    func object(at point: CGPoint) -> PageObjectItem? {
         let tolerance = 3 * screenPoint
-        return items.reversed()
-            .filter { !$0.background && frame(of: $0).insetBy(dx: -tolerance, dy: -tolerance).contains(point) }
+        return hittableItems.reversed()
+            .filter { frame(of: $0).insetBy(dx: -tolerance, dy: -tolerance).contains(point) }
             .min { area(frame(of: $0)) < area(frame(of: $1)) }
     }
 
@@ -114,6 +132,15 @@ final class EditingOverlayView: NSView {
         }
         if event.clickCount == 2, hit.editable, !extend {
             editing.beginTextEditing(page: page.id, object: hit.id)
+            return
+        }
+        if hit.kind == .table, !extend, let cell = cell(at: point, in: hit) {
+            if event.clickCount == 2 {
+                editing.beginCellEditing(cell)
+                return
+            }
+            editing.selectCell(cell)
+            drag = .move(start: point, offset: .zero, started: false)
             return
         }
         let isSelected = editing.page == page.id && editing.selected.contains(hit.id)
@@ -158,7 +185,7 @@ final class EditingOverlayView: NSView {
                 width: abs(current.x - start.x), height: abs(current.y - start.y)
             )
             guard area.width >= screenPoint || area.height >= screenPoint else { return }
-            let touched = items.filter { !$0.background && frame(of: $0).intersects(area) }.map(\.id)
+            let touched = hittableItems.filter { frame(of: $0).intersects(area) }.map(\.id)
             editing.select(base.union(touched), on: page.id)
         default:
             break
@@ -222,6 +249,10 @@ final class EditingOverlayView: NSView {
             }
         }
 
+        if offset == .zero, selected.count == 1, let table = selected.first, let grid = table.grid {
+            drawGrid(grid, current: editing.currentCell, unit: unit)
+        }
+
         if case let .marquee(start, current, _) = drag {
             let area = CGRect(
                 x: min(start.x, current.x), y: min(start.y, current.y),
@@ -237,6 +268,10 @@ final class EditingOverlayView: NSView {
         }
     }
 
+    override func menu(for event: NSEvent) -> NSMenu? {
+        tableMenu(at: convert(event.locationInWindow, from: nil))
+    }
+
     /// Mots reconnus douteux, à vérifier.
     private func drawDoubtfulWords(_ words: [RecognizedWordItem], page: DisplayPage, unit: CGFloat) {
         for word in words {
@@ -247,7 +282,7 @@ final class EditingOverlayView: NSView {
         }
     }
 
-    private func stroke(_ rect: CGRect, _ color: NSColor, width: CGFloat, dashed: Bool = false) {
+    func stroke(_ rect: CGRect, _ color: NSColor, width: CGFloat, dashed: Bool = false) {
         let path = NSBezierPath(rect: rect)
         path.lineWidth = width
         if dashed {
@@ -260,37 +295,45 @@ final class EditingOverlayView: NSView {
     // MARK: - Saisie du texte
 
     private func openEditor(for item: PageObjectItem) {
+        openEditor(bounds: frame(of: item), text: item.text ?? "", font: Self.font(for: item))
+        editorObject = item.id
+    }
+
+    func openEditor(bounds: CGRect, text: String, font: NSFont) {
         removeEditor()
-        let bounds = frame(of: item)
         // Le texte se saisit à l'horizontale, même sur une page tournée.
         let size = rotation.swapsAxes ? CGSize(width: bounds.height, height: bounds.width) : bounds.size
-        let font = Self.font(for: item)
         let frame = CGRect(
             origin: bounds.origin,
             size: CGSize(width: max(size.width, 80), height: max(size.height, font.pointSize * 1.3))
         )
         let editor = InlineTextEditor(frame: frame)
-        editor.configure(text: item.text ?? "", font: font)
+        editor.configure(text: text, font: font)
         editor.onFinish = { [weak self] text in
             self?.editorDidFinish(text)
         }
         addSubview(editor)
         self.editor = editor
-        editorObject = item.id
         window?.makeFirstResponder(editor)
         editor.selectAll(nil)
         needsDisplay = true
     }
 
     private func editorDidFinish(_ text: String?) {
+        let cell = editorCell != nil
         removeEditor()
-        editing?.endTextEditing(text: text)
+        if cell {
+            editing?.endCellEditing(text: text)
+        } else {
+            editing?.endTextEditing(text: text)
+        }
     }
 
     private func removeEditor() {
         guard let editor else { return }
         self.editor = nil
         editorObject = nil
+        editorCell = nil
         editor.onFinish = nil
         let focused = window?.firstResponder === editor
         editor.removeFromSuperview()
@@ -301,84 +344,8 @@ final class EditingOverlayView: NSView {
     }
 
     /// Police de saisie : celle du bloc si elle est installée sur le Mac.
-    private static func font(for item: PageObjectItem) -> NSFont {
+    static func font(for item: PageObjectItem) -> NSFont {
         let size = CGFloat(max(item.fontSize, 4))
         return item.displayFontName.flatMap { NSFont(name: $0, size: size) } ?? .systemFont(ofSize: size)
-    }
-}
-
-/// Saisie du texte d'un bloc, posée sur la page : Retour valide, ⇧Retour ou
-/// ⌥Retour passe à la ligne, Échap annule, un clic ailleurs valide.
-@MainActor
-final class InlineTextEditor: NSTextView, NSTextViewDelegate {
-    /// Fin de la saisie : le texte, ou `nil` si elle est annulée.
-    var onFinish: (@MainActor (String?) -> Void)?
-    private var finished = false
-    /// Historique propre à la saisie, distinct de celui du document.
-    private lazy var typingUndo = UndoManager()
-
-    func configure(text: String, font: NSFont) {
-        string = text
-        self.font = font
-        textColor = .black
-        insertionPointColor = .black
-        backgroundColor = .white
-        drawsBackground = true
-        isRichText = false
-        importsGraphics = false
-        allowsUndo = true
-        isAutomaticQuoteSubstitutionEnabled = false
-        isAutomaticDashSubstitutionEnabled = false
-        isAutomaticTextReplacementEnabled = false
-        textContainerInset = .zero
-        textContainer?.lineFragmentPadding = 0
-        textContainer?.widthTracksTextView = true
-        isHorizontallyResizable = false
-        isVerticallyResizable = true
-        minSize = frame.size
-        maxSize = CGSize(width: frame.width, height: .greatestFiniteMagnitude)
-        delegate = self
-        setAccessibilityLabel(String(localized: "Texte du bloc"))
-    }
-
-    /// Termine la saisie, une seule fois.
-    func finish(commit: Bool) {
-        guard !finished else { return }
-        finished = true
-        onFinish?(commit ? string : nil)
-    }
-
-    override func resignFirstResponder() -> Bool {
-        let resigned = super.resignFirstResponder()
-        if resigned, !finished {
-            // Clic ailleurs : la saisie est validée une fois le changement de
-            // répondeur terminé.
-            finished = true
-            let (text, onFinish) = (string, onFinish)
-            Task { @MainActor in onFinish?(text) }
-        }
-        return resigned
-    }
-
-    func undoManager(for view: NSTextView) -> UndoManager? {
-        typingUndo
-    }
-
-    func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-        switch selector {
-        case #selector(NSResponder.insertNewline(_:)):
-            let flags = NSApp.currentEvent?.modifierFlags ?? []
-            if flags.contains(.shift) || flags.contains(.option) {
-                textView.insertNewlineIgnoringFieldEditor(nil)
-            } else {
-                finish(commit: true)
-            }
-            return true
-        case #selector(NSResponder.cancelOperation(_:)):
-            finish(commit: false)
-            return true
-        default:
-            return false
-        }
     }
 }

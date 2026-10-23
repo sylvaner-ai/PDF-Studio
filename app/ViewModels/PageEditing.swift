@@ -9,6 +9,10 @@ import Observation
 /// contenu ne change pas. La sélection porte sur une seule page à la fois.
 /// Chaque modification passe par ``DocumentViewModel/perform(_:)`` : elle
 /// s'annule par ⌘Z comme l'organisation des pages.
+///
+/// Un tableau se sélectionne d'un bloc ; la cellule cliquée devient sa
+/// cellule courante, dont la ligne et la colonne peuvent être supprimées ou
+/// déplacées (menu Tableau).
 @MainActor
 @Observable
 final class PageEditing {
@@ -23,10 +27,29 @@ final class PageEditing {
     private(set) var notice: String?
     /// Change quand les objets connus d'une page changent, pour l'inspecteur.
     private(set) var objectsVersion = 0
+    /// Cellule courante du tableau sélectionné (modifiée aussi par
+    /// `PageEditing+Tables.swift`).
+    var cell: CellTarget?
+    /// Cellule vide dont le texte est en cours de saisie (ouverte par
+    /// `PageEditing+Tables.swift`).
+    var cellTarget: CellTarget?
 
     struct TextTarget: Equatable {
         let page: UInt64
         let object: UInt32
+    }
+
+    /// Cellule d'un tableau : ligne et colonne de son coin supérieur gauche.
+    struct CellTarget: Equatable {
+        let page: UInt64
+        let table: UInt32
+        let row: UInt32
+        let column: UInt32
+    }
+
+    /// Modification de la ligne ou de la colonne de la cellule courante.
+    enum TableAction: CaseIterable {
+        case deleteRow, deleteColumn, moveRowUp, moveRowDown, moveColumnLeft, moveColumnRight
     }
 
     @ObservationIgnored weak var model: DocumentViewModel?
@@ -47,6 +70,8 @@ final class PageEditing {
         page = nil
         selected = []
         textTarget = nil
+        cell = nil
+        cellTarget = nil
         notice = nil
     }
 
@@ -56,6 +81,8 @@ final class PageEditing {
         page = nil
         selected = []
         textTarget = nil
+        cell = nil
+        cellTarget = nil
         notice = nil
         if let previous {
             onChange?(previous)
@@ -72,6 +99,8 @@ final class PageEditing {
             self.page = nil
             selected = []
             textTarget = nil
+            cell = nil
+            cellTarget = nil
         }
     }
 
@@ -86,6 +115,11 @@ final class PageEditing {
             load(page)
         }
         return known?.items
+    }
+
+    /// Objets connus de la page `id`, sans en demander le chargement.
+    func knownItems(on id: UInt64) -> [PageObjectItem]? {
+        objects[id]?.items
     }
 
     /// Objets sélectionnés, tels que connus.
@@ -113,9 +147,13 @@ final class PageEditing {
             self.loading[id] = nil
             guard let items else { return }
             self.objects[id] = (revision, items)
-            // Des objets sélectionnés ont pu disparaître (annulation d'une copie…).
+            // Des objets sélectionnés ont pu disparaître (annulation d'une copie…),
+            // la cellule courante avec sa ligne ou sa colonne.
             if self.page == id {
                 self.selected.formIntersection(items.map(\.id))
+                if let cell = self.cell, self.cellItem(cell, in: items) == nil {
+                    self.cell = nil
+                }
             }
             self.objectsVersion += 1
             self.onChange?(id)
@@ -165,6 +203,9 @@ final class PageEditing {
         if selected.isEmpty {
             self.page = nil
         }
+        if let cell, cell.page != self.page || selected != [cell.table] {
+            self.cell = nil
+        }
         notice = nil
         if let previous, previous != page {
             onChange?(previous)
@@ -178,6 +219,32 @@ final class PageEditing {
     }
 
     var hasSelection: Bool { page != nil && !selected.isEmpty }
+
+    /// Sélectionne un tableau et fait de `cell` sa cellule courante.
+    func selectCell(_ cell: CellTarget) {
+        select([cell.table], on: cell.page)
+        self.cell = cell
+        onChange?(cell.page)
+    }
+
+    /// Termine la saisie d'une cellule ; `text` la remplit s'il a changé (vide :
+    /// la cellule redevient vide).
+    func endCellEditing(text: String?) {
+        guard let target = cellTarget else { return }
+        cellTarget = nil
+        defer { onChange?(target.page) }
+        let original = objects[target.page].flatMap { cellItem(target, in: $0.items)?.text } ?? ""
+        guard let text, text != original, let model else { return }
+        var result: PageObjectItem?
+        let done = model.perform {
+            result = try $0.setCellText(
+                page: target.page, table: target.table, row: target.row, column: target.column, text: text
+            )
+        }
+        guard done, let cell = result?.grid?.cells.first(where: { $0.row == target.row && $0.column == target.column })
+        else { return }
+        notice = cell.overflow ? String(localized: "Le texte dépasse de la cellule.") : nil
+    }
 
     // MARK: - Modifications
 
