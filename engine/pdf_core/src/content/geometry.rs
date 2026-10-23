@@ -268,6 +268,28 @@ impl Rect {
     }
 }
 
+impl From<Rect> for layout::Rect {
+    fn from(rect: Rect) -> Self {
+        layout::Rect {
+            x0: rect.x0,
+            y0: rect.y0,
+            x1: rect.x1,
+            y1: rect.y1,
+        }
+    }
+}
+
+impl From<layout::Rect> for Rect {
+    fn from(rect: layout::Rect) -> Self {
+        Rect {
+            x0: rect.x0,
+            y0: rect.y0,
+            x1: rect.x1,
+            y1: rect.y1,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -5,8 +5,13 @@
 //! le nouveau texte reprend sa matrice, son corps, son échelle horizontale et
 //! son espacement des caractères, si bien qu'il occupe la même place et suit
 //! la même orientation.
+//!
+//! Dans une cellule de tableau, le texte occupe la largeur de la cellule, moins
+//! la marge d'origine du côté où il est aligné : un montant aligné à droite
+//! s'allonge vers la gauche, un texte trop long passe à la ligne, et le
+//! débordement est signalé quand il dépasse le bas de la cellule.
 
-use super::geometry::{Matrix, Rect};
+use super::geometry::{Matrix, Point, Rect};
 use super::interp::Interpretation;
 use super::objects::{Alignment, TextBlock};
 
@@ -64,6 +69,18 @@ pub struct Layout {
 
 /// Met en page `text` dans le bloc `block`, avec la police `shaper`.
 pub fn layout(run: &Interpretation, block: &TextBlock, text: &str, shaper: &dyn Shaper) -> Layout {
+    layout_in(run, block, text, shaper, block.cell)
+}
+
+/// Met en page `text` dans le bloc `block`, dans la cellule `cell` (espace de
+/// la page) s'il y en a une, plutôt que dans celle du bloc.
+pub fn layout_in(
+    run: &Interpretation,
+    block: &TextBlock,
+    text: &str,
+    shaper: &dyn Shaper,
+    cell: Option<Rect>,
+) -> Layout {
     let first_glyph = &run.glyphs[block.lines[0].style];
     let state = &run.states[first_glyph.state];
     let frame = first_glyph.tm;
@@ -105,7 +122,21 @@ pub fn layout(run: &Interpretation, block: &TextBlock, text: &str, shaper: &dyn 
     // colonne d'un encadré) n'est pas remis en page comme un paragraphe :
     // chaque nouvelle ligne reprend la place de la ligne d'origine.
     let list = count >= 2 && block.text.matches('\n').count() + 1 == count;
-    let wraps = count >= 2 && !list;
+    // Bornes intérieures de la cellule, dans l'espace du texte.
+    let inner = cell.filter(|_| !list).map(|rect| {
+        let y = block.lines[0].left.y;
+        let a = to_text.apply(Point::new(rect.x0, y)).x;
+        let b = to_text.apply(Point::new(rect.x1, y)).x;
+        let (start, end) = (a.min(b), a.max(b));
+        let margin = match block.alignment {
+            Alignment::Right => end - right,
+            Alignment::Center => (lowest_left - start).min(end - right),
+            Alignment::Left | Alignment::Justified => lowest_left - start,
+        }
+        .max(0.0);
+        (start + margin, end - margin)
+    });
+    let wraps = (count >= 2 && !list) || inner.is_some();
 
     let mut missing = Vec::new();
     let mut measure = |c: char| -> Option<(Vec<u8>, f64)> {
@@ -160,10 +191,18 @@ pub fn layout(run: &Interpretation, block: &TextBlock, text: &str, shaper: &dyn 
         let mut current_width = 0.0;
         for (index, word) in words.iter().enumerate() {
             let line_index = lines.len() + breaks.len();
-            let available = match block.alignment {
-                Alignment::Left | Alignment::Justified if line_index == 0 => right - left_first,
-                Alignment::Left | Alignment::Justified => right - left,
-                Alignment::Right | Alignment::Center => right - lowest_left,
+            let available = match (block.alignment, inner) {
+                (Alignment::Left | Alignment::Justified, Some((_, end))) if line_index == 0 => {
+                    end - left_first
+                }
+                (Alignment::Left | Alignment::Justified, Some((_, end))) => end - left,
+                (Alignment::Right, Some((start, _))) => right - start,
+                (Alignment::Center, Some((start, end))) => end - start,
+                (Alignment::Left | Alignment::Justified, None) if line_index == 0 => {
+                    right - left_first
+                }
+                (Alignment::Left | Alignment::Justified, None) => right - left,
+                (Alignment::Right | Alignment::Center, None) => right - lowest_left,
             };
             let added = if current.is_empty() {
                 word.width
@@ -193,7 +232,10 @@ pub fn layout(run: &Interpretation, block: &TextBlock, text: &str, shaper: &dyn 
             let width: f64 = members.iter().map(|&w| words[w].width).sum::<f64>()
                 + space.1 * members.len().saturating_sub(1) as f64;
             let line_left = if k == 0 { left_first } else { left };
-            let available = right - line_left;
+            let available = match inner {
+                Some((_, end)) => end - line_left,
+                None => right - line_left,
+            };
             let own = originals.get(k).copied().unwrap_or(originals[count - 1]);
             let x = match block.alignment {
                 Alignment::Right if list => own.1 - width,
@@ -234,7 +276,7 @@ pub fn layout(run: &Interpretation, block: &TextBlock, text: &str, shaper: &dyn 
             lines.push(LaidLine { x, y, items, width });
         }
     }
-    if lines.len() > count {
+    if lines.len() > count && cell.is_none() {
         overflow = true;
     }
 
@@ -251,6 +293,11 @@ pub fn layout(run: &Interpretation, block: &TextBlock, text: &str, shaper: &dyn 
         );
         rect.union(&to_page.apply_rect(extent))
     });
+    if let Some(cell) = cell {
+        if lines.len() > count && bbox.y0 < cell.y0 - 0.5 {
+            overflow = true;
+        }
+    }
 
     Layout {
         lines,
@@ -375,6 +422,29 @@ mod tests {
         );
         assert_eq!(layout.lines[1].y, -12.0);
         assert!(!layout.overflow);
+    }
+
+    #[test]
+    fn dans_une_cellule() {
+        // Montant aligné à droite dans une cellule de 100 à 200 :
+        // le nouveau montant, plus long, s'allonge vers la gauche.
+        let ops = parse(b"BT /F1 10 Tf 175 505 Td (12,50) Tj ET");
+        let mut resources = TestResources { font: test_font() };
+        let page = Rect::new(0.0, 0.0, 600.0, 800.0);
+        let run = interpret(&ops, &mut resources, page);
+        let objects = build(&ops, &run, page);
+        let mut block = objects[0].text.clone().unwrap();
+        block.alignment = Alignment::Right;
+        block.cell = Some(Rect::new(100.0, 500.0, 200.0, 520.0));
+        let layout = layout(&run, &block, "1 234,50", &Ascii);
+        assert_eq!(layout.lines.len(), 1);
+        let line = &layout.lines[0];
+        assert!((line.x + line.width - 25.0).abs() < 1e-9, "{line:?}");
+        assert!(!layout.overflow);
+        // Trop long pour la cellule : passe à la ligne et dépasse le bas.
+        let layout = layout_in(&run, &block, "aaaa bbbb cccc dddd eeee", &Ascii, block.cell);
+        assert_eq!(layout.lines.len(), 2);
+        assert!(layout.overflow);
     }
 
     #[test]

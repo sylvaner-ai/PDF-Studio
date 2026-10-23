@@ -11,7 +11,7 @@ mod editor;
 mod history;
 mod layer;
 
-pub use content::{FontChoice, ObjectEdit, PageEdits, TextReplacement};
+pub use content::{FontChoice, ObjectEdit, PageEdits, TableEdit, TextReplacement};
 pub use editor::{EditError, Editor, PageEntry, PageOrigin, Recognition, RestoredPage, Result};
 pub use history::{Command, History};
 pub use layer::{LayerWord, TextLayer};

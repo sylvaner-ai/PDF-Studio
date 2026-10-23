@@ -19,7 +19,7 @@ mod textlayer;
 mod writer;
 
 pub use document::Document;
-pub use editing::ObjectInfo;
+pub use editing::{CellInfo, ObjectInfo, TableInfo};
 pub use error::{PdfError, Result};
 pub use outline::OutlineEntry;
 pub use page::{PageContent, PageSize};

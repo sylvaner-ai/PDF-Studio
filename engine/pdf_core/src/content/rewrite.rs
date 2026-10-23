@@ -13,13 +13,18 @@
 //! - Un objet autre que du texte est supprimé en retirant ses plages
 //!   d'opérations, déplacé en les entourant de `q M cm … Q`. Un tracé qui
 //!   détoure ce qui suit garde son détourage (`W n`).
+//! - Les tracés d'un tableau réorganisé sont réécrits sous-chemin par
+//!   sous-chemin ([`Reshape`]) : un filet disparaît avec sa ligne, un autre
+//!   change de longueur ou de place.
+//! - Un texte saisi dans une cellule vide est dessiné après l'objet texte du
+//!   bloc dont il reprend le style ([`Insertion`]).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Range;
 
 use super::font::code_bytes;
-use super::geometry::Matrix;
-use super::interp::{GraphicsState, Interpretation, ShowItem};
+use super::geometry::{Matrix, Point, Rect};
+use super::interp::{GraphicsState, Interpretation, PathOp, ShowItem, Subpath};
 use super::layout::{LaidItem, Layout};
 use super::lexer::Operation;
 use super::objects::PageObject;
@@ -43,12 +48,113 @@ pub struct Change {
     pub offset: (f64, f64),
     /// Nouveau texte (bloc de texte modifiable seulement).
     pub text: Option<NewText>,
+    /// Déformation de ses tracés par les tableaux qu'il traverse.
+    pub reshape: Option<Reshape>,
 }
 
 impl Change {
     fn moved(&self) -> bool {
         self.offset != (0.0, 0.0)
     }
+}
+
+/// Effet d'un tableau modifié sur les sous-chemins compris dans son emprise.
+#[derive(Clone, Debug)]
+pub struct ReshapeStep {
+    /// Emprise du tableau, dans l'espace de la page (tolérance comprise).
+    pub area: Rect,
+    /// Le tableau est supprimé.
+    pub deleted: bool,
+    /// Lignes et colonnes supprimées ou déplacées.
+    pub restructure: Option<layout::Restructure>,
+    /// Déplacement du tableau.
+    pub offset: (f64, f64),
+}
+
+/// Déformation des tracés d'un objet : un effet par tableau qu'il traverse.
+#[derive(Clone, Debug, Default)]
+pub struct Reshape {
+    /// Effets, dans l'ordre.
+    pub steps: Vec<ReshapeStep>,
+}
+
+impl Reshape {
+    /// Opérations d'un sous-chemin après déformation, dans l'espace de la
+    /// page ; `None` s'il disparaît.
+    pub fn apply(&self, subpath: &Subpath) -> Option<Vec<PathOp>> {
+        let mut items = subpath.items.clone();
+        for step in &self.steps {
+            let bbox = Rect::bounding(items.iter().flat_map(|i| i.points.iter().copied()));
+            let inside = !bbox.is_empty()
+                && bbox.x0 >= step.area.x0
+                && bbox.x1 <= step.area.x1
+                && bbox.y0 >= step.area.y0
+                && bbox.y1 <= step.area.y1;
+            if !inside {
+                continue;
+            }
+            if step.deleted {
+                return None;
+            }
+            let lbox = layout::Rect::from(bbox);
+            if let Some(restructure) = &step.restructure {
+                if restructure.removes(&lbox) {
+                    return None;
+                }
+                for item in &mut items {
+                    for point in &mut item.points {
+                        let (x, y) = restructure.map(&lbox, point.x, point.y);
+                        *point = Point::new(x, y);
+                    }
+                }
+            }
+            for item in &mut items {
+                for point in &mut item.points {
+                    *point = Point::new(point.x + step.offset.0, point.y + step.offset.1);
+                }
+            }
+        }
+        Some(items)
+    }
+
+    /// Emprise de l'objet `units` (tracés) après déformation ; vide si tous
+    /// ses sous-chemins disparaissent.
+    pub fn bbox(&self, run: &Interpretation, units: &[usize]) -> Rect {
+        let mut out = Rect::EMPTY;
+        for &u in units {
+            let unit = &run.units[u];
+            if unit.subpaths.is_empty() || unit.clips {
+                out = out.union(&unit.bbox);
+                continue;
+            }
+            let points = Rect::bounding(unit.subpaths.iter().flat_map(Subpath::points));
+            // Épaisseur du trait : ce qui dépasse des points.
+            let margin = if points.is_empty() {
+                0.0
+            } else {
+                (points.x0 - unit.bbox.x0).max(0.0)
+            };
+            for subpath in &unit.subpaths {
+                if let Some(items) = self.apply(subpath) {
+                    let rect = Rect::bounding(items.iter().flat_map(|i| i.points.iter().copied()));
+                    out = out.union(&rect.inflate(margin));
+                }
+            }
+        }
+        out
+    }
+}
+
+/// Texte saisi dans une cellule vide, dans le style d'un bloc de référence.
+#[derive(Clone, Debug)]
+pub struct Insertion {
+    /// Objet texte (`BT … ET`) du bloc de référence : le texte est dessiné
+    /// juste après, avec son état graphique.
+    pub text_object: usize,
+    /// Texte mis en page (dans l'espace du bloc de référence).
+    pub text: NewText,
+    /// Déplacement jusqu'à la cellule, dans l'espace de la page.
+    pub offset: (f64, f64),
 }
 
 /// Contenu à écrire à la place des opérations d'origine.
@@ -72,14 +178,23 @@ pub fn rewrite(
     run: &Interpretation,
     objects: &[PageObject],
     changes: &BTreeMap<u32, Change>,
+    insertions: &[Insertion],
 ) -> Vec<u8> {
     let mut edits = Edits::default();
     let mut removed: HashSet<usize> = HashSet::new();
+    for insertion in insertions {
+        let snippet = replaced_text(run, &insertion.text, insertion.offset, |state| {
+            insertion_ctm(run, insertion.text_object, state)
+        });
+        insert_after_text_object(&mut edits, run, ops, insertion.text_object, snippet);
+    }
     for (&id, change) in changes {
         let Some(object) = objects.get(id as usize).filter(|object| object.id == id) else {
             continue;
         };
-        if !object.movable || (!change.deleted && !change.moved() && change.text.is_none()) {
+        let untouched =
+            !change.deleted && !change.moved() && change.text.is_none() && change.reshape.is_none();
+        if !object.movable || untouched {
             continue;
         }
         match &object.text {
@@ -523,7 +638,17 @@ fn segment_replacement(
     segment: &Range<usize>,
     change: &Change,
 ) -> Vec<u8> {
-    let bytes = &source[ops[segment.start].span.start..ops[segment.end - 1].span.end];
+    let original = &source[ops[segment.start].span.start..ops[segment.end - 1].span.end];
+    let reshaped = match (&change.reshape, change.deleted) {
+        (Some(reshape), false) => {
+            Some(reshaped_segment(source, ops, run, object, segment, reshape))
+        }
+        _ => None,
+    };
+    let bytes: &[u8] = reshaped.as_deref().unwrap_or(original);
+    if !change.deleted && !change.moved() {
+        return bytes.to_vec();
+    }
     let mut out = Vec::new();
     // Un tracé hors groupe qui détoure la suite : son détourage reste.
     let clip = object
@@ -561,6 +686,127 @@ fn segment_replacement(
         }
     }
     out
+}
+
+/// Opérations d'une plage, les sous-chemins de l'objet déformés par
+/// `reshape` : un sous-chemin qui disparaît est retiré, un tracé dont tous
+/// les sous-chemins disparaissent l'est avec sa peinture. Un tracé qui
+/// détoure n'est jamais déformé.
+fn reshaped_segment(
+    source: &[u8],
+    ops: &[Operation],
+    run: &Interpretation,
+    object: &PageObject,
+    segment: &Range<usize>,
+    reshape: &Reshape,
+) -> Vec<u8> {
+    // Pour chaque opération de construction : (tracé, sous-chemin).
+    let mut owner: HashMap<usize, (usize, usize)> = HashMap::new();
+    let mut fates: HashMap<(usize, usize), Option<Vec<PathOp>>> = HashMap::new();
+    let mut emptied: Vec<Range<usize>> = Vec::new();
+    for &u in &object.units {
+        let unit = &run.units[u];
+        if unit.clips || unit.subpaths.is_empty() {
+            continue;
+        }
+        let mut any = false;
+        let mut changed = false;
+        for (k, subpath) in unit.subpaths.iter().enumerate() {
+            let fate = reshape.apply(subpath);
+            any |= fate.is_some();
+            // Un sous-chemin qui part du point courant (sans `m`) dépend du
+            // précédent : il est réécrit dès que le tracé change.
+            let implicit = ops
+                .get(subpath.ops.start)
+                .is_some_and(|op| op.operator != b"m" && op.operator != b"re");
+            let unchanged = fate.as_ref().is_some_and(|items| *items == subpath.items);
+            if unchanged && !(implicit && changed) {
+                continue;
+            }
+            changed = true;
+            for op in subpath.ops.clone() {
+                owner.insert(op, (u, k));
+            }
+            fates.insert((u, k), fate);
+        }
+        if !any {
+            emptied.push(unit.ops.clone());
+        }
+    }
+    let mut out = Vec::new();
+    for index in segment.clone() {
+        if emptied.iter().any(|range| range.contains(&index)) {
+            continue;
+        }
+        match owner.get(&index) {
+            Some(&(u, k)) => {
+                let subpath = &run.units[u].subpaths[k];
+                if index != subpath.ops.start {
+                    continue;
+                }
+                if let Some(Some(items)) = fates.get(&(u, k)) {
+                    write_subpath(&mut out, ops, run, subpath, items);
+                }
+            }
+            None => {
+                out.extend_from_slice(&source[ops[index].span.clone()]);
+                out.push(b'\n');
+            }
+        }
+    }
+    out
+}
+
+/// Écrit un sous-chemin aux points `items` (espace de la page), dans l'espace
+/// utilisateur de ses opérations.
+fn write_subpath(
+    out: &mut Vec<u8>,
+    ops: &[Operation],
+    run: &Interpretation,
+    subpath: &Subpath,
+    items: &[PathOp],
+) {
+    for (position, item) in items.iter().enumerate() {
+        let operator = ops[item.op].operator.as_slice();
+        let ctm = run
+            .ctm_before
+            .get(item.op)
+            .copied()
+            .unwrap_or(Matrix::IDENTITY);
+        let Some(inverse) = ctm.inverse() else {
+            continue;
+        };
+        let user: Vec<Point> = item.points.iter().map(|&p| inverse.apply(p)).collect();
+        let numbers: Vec<f64> = user.iter().flat_map(|p| [p.x, p.y]).collect();
+        // Début implicite d'un sous-chemin qui ne commence pas par `m`.
+        if position == 0 && operator != b"m" && operator != b"re" {
+            write_op(out, &numbers, "m");
+            continue;
+        }
+        match operator {
+            b"re" if user.len() == 4 => {
+                let axis = |a: f64, b: f64| (a - b).abs() < 1e-6;
+                if axis(user[0].y, user[1].y) && axis(user[0].x, user[3].x) {
+                    let (w, h) = (user[1].x - user[0].x, user[3].y - user[0].y);
+                    write_op(out, &[user[0].x, user[0].y, w, h], "re");
+                } else {
+                    write_op(out, &numbers[0..2], "m");
+                    for point in &user[1..] {
+                        write_op(out, &[point.x, point.y], "l");
+                    }
+                    write_op(out, &[], "h");
+                }
+            }
+            b"m" | b"l" | b"c" | b"v" | b"y" => {
+                let name = String::from_utf8_lossy(operator).into_owned();
+                write_op(out, &numbers, &name);
+            }
+            _ => {}
+        }
+    }
+    if subpath.closed && !subpath.rect {
+        write_op(out, &[], "h");
+    }
 }
 
 #[cfg(test)]
@@ -602,6 +848,7 @@ mod tests {
                 &self.run,
                 &self.objects,
                 &changes,
+                &[],
             ))
         }
 

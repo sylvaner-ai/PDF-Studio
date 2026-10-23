@@ -13,7 +13,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
-use crate::content::{ObjectEdit, PageEdits, TextReplacement};
+use crate::content::{ObjectEdit, PageEdits, TableEdit, TextReplacement};
 use crate::history::{Command, History};
 use crate::layer::TextLayer;
 
@@ -340,6 +340,22 @@ impl Editor {
     ) -> Result<()> {
         self.edit_objects(page, &[object], "la modification du texte", |edit| {
             edit.text = text.clone();
+        })
+    }
+
+    /// Modifie le tableau `table` d'une page : `change` reçoit ses
+    /// modifications actuelles ; `name` nomme l'action à annuler.
+    pub fn edit_table(
+        &mut self,
+        page: u64,
+        table: u32,
+        name: &'static str,
+        change: impl Fn(&mut TableEdit),
+    ) -> Result<()> {
+        self.edit_objects(page, &[table], name, |edit| {
+            let mut table = edit.table.clone().unwrap_or_default();
+            change(&mut table);
+            edit.table = (!table.is_unchanged()).then_some(table);
         })
     }
 
@@ -715,6 +731,42 @@ mod tests {
             editor.delete_objects(page, &[]),
             Err(EditError::EmptySelection)
         );
+    }
+
+    #[test]
+    fn modifie_un_tableau() {
+        let mut editor = Editor::new(1);
+        let page = editor.pages()[0].id;
+        editor
+            .edit_table(page, 9, "la suppression de la ligne", |table| {
+                table.rows = Some(vec![0, 2]);
+            })
+            .unwrap();
+        let replacement = TextReplacement {
+            text: "12".into(),
+            font: crate::FontChoice::Original,
+        };
+        editor
+            .edit_table(page, 9, "la saisie dans la cellule", |table| {
+                table.cells.insert((2, 1), replacement.clone());
+            })
+            .unwrap();
+        let table = editor.content(page).unwrap().get(9).unwrap().table.clone();
+        let table = table.unwrap();
+        assert_eq!(table.rows, Some(vec![0, 2]));
+        assert_eq!(table.cells[&(2, 1)], replacement);
+        assert_eq!(editor.undo_name(), Some("la saisie dans la cellule"));
+
+        // Revenu à l'état d'origine, le tableau n'est plus modifié.
+        editor
+            .edit_table(page, 9, "la modification du tableau", |table| {
+                table.rows = None;
+                table.cells.clear();
+            })
+            .unwrap();
+        assert!(editor.content(page).is_none());
+        assert!(editor.undo());
+        assert!(editor.content(page).unwrap().get(9).is_some());
     }
 
     #[test]
