@@ -30,7 +30,7 @@ struct RecognitionBadge: View {
     let stop: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Design.Spacing.medium) {
             ProgressView(value: progress.fraction)
                 .frame(width: 120)
             Text(progress.isStopping
@@ -40,10 +40,10 @@ struct RecognitionBadge: View {
             Button("Arrêter", action: stop)
                 .disabled(progress.isStopping)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.regularMaterial, in: Capsule())
-        .padding(.bottom, 16)
+        .padding(.horizontal, Design.Spacing.large)
+        .padding(.vertical, Design.Spacing.small)
+        .floatingBadge()
+        .padding(.bottom, Design.Spacing.large)
         .accessibilityElement(children: .contain)
     }
 }
@@ -54,10 +54,10 @@ struct NoticeBadge: View {
 
     var body: some View {
         Label(text, systemImage: "text.viewfinder")
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(.regularMaterial, in: Capsule())
-            .padding(.bottom, 16)
+            .padding(.horizontal, Design.Spacing.large)
+            .padding(.vertical, Design.Spacing.small)
+            .floatingBadge()
+            .padding(.bottom, Design.Spacing.large)
             .allowsHitTesting(false)
     }
 }

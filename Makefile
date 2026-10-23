@@ -6,6 +6,8 @@
 #   make bench     banc d'essai des moteurs de rendu (cf. docs/RENDER_BENCHMARK.md)
 #   make ocr-bench banc d'essai des moteurs OCR (cf. docs/OCR_BENCHMARK.md)
 #   make fixtures  régénère le jeu de PDF de test
+#   make icon      régénère les images de l'icône depuis app/Resources/AppIcon.svg
+#   make snapshots captures d'écran de l'interface, en mode clair et sombre
 #
 # Le chemin du dépôt peut contenir des espaces et se trouver dans un dossier
 # synchronisé par iCloud Drive. Deux conséquences :
@@ -32,7 +34,7 @@ APP_NAME      := PDF Studio.app
 PDFIUM_URL    := https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz
 PDFIUM_DIR    := .tools/pdfium
 
-.PHONY: build engine bindings project test test-engine test-app lint bench ocr-bench fixtures clean
+.PHONY: build engine bindings project test test-engine test-app lint bench ocr-bench fixtures icon snapshots clean
 
 build: project
 	xcodebuild -project "$(XCODE_PROJECT)" -scheme PDFStudio -configuration Release \
@@ -125,6 +127,27 @@ ocr-bench:
 
 fixtures:
 	python3 tests/fixtures/generate.py
+
+# Images de l'icône (jeu d'icônes de macOS), depuis sa source SVG ; demande
+# resvg-py et Pillow (pip install resvg-py pillow). Les images sont versionnées :
+# la compilation n'en a pas besoin.
+icon:
+	python3 tools/icon/render_icon.py
+
+# Captures d'écran de l'interface sur le jeu de test, en mode clair et sombre
+# (cf. app/Tests/DesignSnapshotTests.swift). Le test écrit dans les caches du bac
+# à sable de l'application ; les images sont copiées hors d'iCloud, dans
+# SNAPSHOTS_OUT. Les fenêtres apparaissent quelques secondes à l'écran.
+SNAPSHOTS_OUT     := $(PDFSTUDIO_BUILD_ROOT)/snapshots
+SNAPSHOTS_SANDBOX := $(HOME)/Library/Containers/fr.sylvainrobert.pdfstudio/Data/Library/Caches/Snapshots
+
+snapshots: project
+	TEST_RUNNER_PDFSTUDIO_SNAPSHOTS=1 xcodebuild -project "$(XCODE_PROJECT)" -scheme PDFStudio \
+		-configuration Debug -derivedDataPath "$(DERIVED_DATA)" -destination 'platform=macOS,arch=arm64' \
+		test -only-testing:PDFStudioTests/DesignSnapshotTests
+	rm -rf "$(SNAPSHOTS_OUT)"
+	cp -R "$(SNAPSHOTS_SANDBOX)" "$(SNAPSHOTS_OUT)"
+	@echo "Captures : $(SNAPSHOTS_OUT)"
 
 clean:
 	$(CARGO) clean $(CARGO_FLAGS)

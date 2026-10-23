@@ -41,7 +41,11 @@ targets:
       # Liaisons générées par `make bindings` à partir du moteur Rust.
       - path: Bridge/Generated/pdfstudio_ffi.swift
         optional: true
-      - Resources
+      # L'icône (Assets.xcassets) est produite depuis AppIcon.svg par `make icon` :
+      # la source n'est pas copiée dans l'application.
+      - path: Resources
+        excludes:
+          - AppIcon.svg
     preBuildScripts:
       - name: Moteur Rust et liaisons UniFFI
         basedOnDependencyAnalysis: false
@@ -78,6 +82,7 @@ targets:
         PRODUCT_NAME: PDF Studio
         PRODUCT_MODULE_NAME: PDFStudio
         PRODUCT_BUNDLE_IDENTIFIER: fr.sylvainrobert.pdfstudio
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         LIBRARY_SEARCH_PATHS: '"$(SRCROOT)/Bridge/Generated"'
         OTHER_LDFLAGS:
           - -lpdfstudio_ffi

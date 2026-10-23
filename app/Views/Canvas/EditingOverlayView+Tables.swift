@@ -94,9 +94,10 @@ extension EditingOverlayView {
         }
     }
 
+    /// Trace un contour ; il s'épaissit si « Augmenter le contraste » est activé.
     func stroke(_ rect: CGRect, _ color: NSColor, width: CGFloat, dashed: Bool = false) {
         let path = NSBezierPath(rect: rect)
-        path.lineWidth = width
+        path.lineWidth = width * (NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 1.5 : 1)
         if dashed {
             path.setLineDash([4 * width, 3 * width], count: 2, phase: 0)
         }
@@ -104,14 +105,9 @@ extension EditingOverlayView {
         path.stroke()
     }
 
-    /// Objets qu'un clic peut atteindre : ni le fond de page, ni ce qui
-    /// appartient à un tableau (le tableau les couvre).
+    /// Objets qu'un clic peut atteindre (cf. `Array.selectable`).
     var hittableItems: [PageObjectItem] {
-        let all = self.items
-        let tables = Set(all.filter { $0.kind == .table }.map(\.id))
-        return all.filter { item in
-            !item.background && !(item.table.map { tables.contains($0) } ?? false)
-        }
+        items.selectable
     }
 
     /// Police de saisie : celle du bloc si elle est installée sur le Mac.

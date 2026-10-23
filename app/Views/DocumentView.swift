@@ -8,7 +8,12 @@ struct DocumentView: View {
     private let onRelocate: (DocumentReference) -> Void
 
     init(reference: DocumentReference, onRelocate: @escaping (DocumentReference) -> Void = { _ in }) {
-        _model = State(initialValue: DocumentViewModel(reference: reference))
+        self.init(model: DocumentViewModel(reference: reference), onRelocate: onRelocate)
+    }
+
+    /// Affiche un document dont le modèle existe déjà (captures d'écran des tests).
+    init(model: DocumentViewModel, onRelocate: @escaping (DocumentReference) -> Void = { _ in }) {
+        _model = State(initialValue: model)
         self.onRelocate = onRelocate
     }
 
@@ -21,13 +26,19 @@ struct DocumentView: View {
             .focusedSceneValue(\.documentModel, model)
             .background(DocumentWindowBridge(model: model, isModified: model.isModified))
             .overlay(alignment: .bottom) {
-                if let activity = model.activity {
-                    ActivityBadge(text: activity)
-                } else if let progress = model.recognition {
-                    RecognitionBadge(progress: progress) { model.stopRecognition() }
-                } else if let notice = model.notice {
-                    NoticeBadge(text: notice)
+                ZStack {
+                    if let activity = model.activity {
+                        ActivityBadge(text: activity)
+                            .floatingTransition(from: .bottom)
+                    } else if let progress = model.recognition {
+                        RecognitionBadge(progress: progress) { model.stopRecognition() }
+                            .floatingTransition(from: .bottom)
+                    } else if let notice = model.notice {
+                        NoticeBadge(text: notice)
+                            .floatingTransition(from: .bottom)
+                    }
                 }
+                .interfaceAnimation(value: bottomBadge)
             }
             .alert(
                 replaceTitle,
@@ -70,7 +81,19 @@ struct DocumentView: View {
             }
             .onChange(of: undoManager) { _, manager in model.undoManager = manager }
             .onDisappear { model.close() }
-            .task { await model.open() }
+            .task {
+                // Un document déjà ouvert (captures d'écran des tests) ne l'est pas deux fois.
+                if model.phase == .opening {
+                    await model.open()
+                }
+            }
+    }
+
+    /// Bandeau affiché au bas de la fenêtre, pour en animer l'apparition.
+    private var bottomBadge: Int {
+        if model.activity != nil { return 1 }
+        if model.recognition != nil { return 2 }
+        return model.notice != nil ? 3 : 0
     }
 
     @ViewBuilder
@@ -88,7 +111,7 @@ struct DocumentView: View {
                 .font(.title3)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(32)
+                .padding(Design.Spacing.wide)
         case .ready:
             if let renderer = model.renderer {
                 ReaderView(model: model, renderer: renderer)
@@ -156,64 +179,106 @@ struct ReaderView: View {
             SidebarView(model: model, renderer: renderer)
                 .navigationSplitViewColumnWidth(min: 140, ideal: 168, max: 260)
         } detail: {
-            switch model.workspace {
-            case .reading, .editing:
-                // Une seule branche : le canevas reste le même en passant de la
-                // lecture à l'édition.
-                PageCanvas(renderer: renderer, controller: model.canvas)
-                    .accessibilityLabel(Text("Pages du document"))
-                    .overlay(alignment: .bottom) {
-                        if model.isComparing {
-                            ComparisonBadge()
-                        } else if model.workspace == .editing {
-                            EditingBadge(editing: model.editing)
-                        }
-                    }
-                    .overlay(alignment: .topLeading) {
-                        if model.workspace == .editing, !model.isComparing,
-                           let line = model.editing.selectedScanLine, let scan = line.scan {
-                            ScanRetouchPanel(editing: model.editing, scan: scan)
-                                .id(line.id)
-                        }
-                    }
-                    .overlay(alignment: .topTrailing) {
-                        if let search = model.search, search.isPresented {
-                            SearchPanel(search: search)
-                        }
-                    }
-            case .organizing:
-                PageGrid(
-                    model: model,
-                    renderer: renderer,
-                    pages: model.pages,
-                    selection: model.selection,
-                    display: model.canvas.rotation,
-                    thumbnailWidth: model.gridThumbnailWidth
-                )
+            ZStack {
+                switch model.workspace {
+                case .reading, .editing:
+                    // Une seule branche : le canevas reste le même en passant de la
+                    // lecture à l'édition.
+                    canvas
+                        .transition(.opacity)
+                case .organizing:
+                    PageGrid(
+                        model: model,
+                        renderer: renderer,
+                        pages: model.pages,
+                        selection: model.selection,
+                        display: model.canvas.rotation,
+                        thumbnailWidth: model.gridThumbnailWidth
+                    )
+                    .transition(.opacity)
+                }
             }
+            .interfaceAnimation(value: model.workspace == .organizing)
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Toggle(isOn: $model.isComparing) {
-                    Label("Comparer avec l'original", systemImage: "square.split.2x1")
-                }
-                .help(Text("Montrer les pages sans leurs modifications, pour les comparer (⌥⌘K)"))
-                .disabled(!model.canCompare && !model.isComparing)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                RecognitionMenu(model: model)
-            }
-            ToolbarItem(placement: .primaryAction) {
                 Picker("Présentation", selection: $model.workspace) {
                     Label("Lecture", systemImage: "doc.text").tag(Workspace.reading)
-                    Label("Organisation des pages", systemImage: "square.grid.2x2").tag(Workspace.organizing)
+                    Label("Pages", systemImage: "square.grid.2x2").tag(Workspace.organizing)
                     Label("Édition", systemImage: "pencil").tag(Workspace.editing)
                 }
                 .pickerStyle(.segmented)
                 .labelStyle(.iconOnly)
                 .help(Text("Lecture (⌘1), organisation des pages (⌘2) ou édition du contenu (⌘3)"))
             }
+            ToolbarItem(placement: .primaryAction) {
+                RecognitionMenu(model: model)
+            }
+            // La comparaison ne sert qu'à contrôler des retouches : elle n'apparaît
+            // qu'en mode Édition (elle reste au menu Présentation, ⌥⌘K).
+            if model.workspace == .editing {
+                ToolbarItem(placement: .primaryAction) {
+                    Toggle(isOn: $model.isComparing) {
+                        Label("Comparer avec l'original", systemImage: "square.split.2x1")
+                    }
+                    .help(Text("Montrer les pages sans leurs modifications, pour les comparer (⌥⌘K)"))
+                    .disabled(!model.canCompare && !model.isComparing)
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button { model.save() } label: {
+                    Label("Enregistrer", systemImage: "square.and.arrow.down")
+                }
+                .help(Text("Enregistrer les modifications (⌘S)"))
+                .disabled(!model.canSave)
+            }
         }
+    }
+
+    /// Pages du document, avec ce qui se pose dessus : bandeau du mode Édition ou
+    /// de la comparaison, panneau de retouche d'un scan, recherche.
+    private var canvas: some View {
+        PageCanvas(renderer: renderer, controller: model.canvas)
+            .accessibilityLabel(Text("Pages du document"))
+            .overlay(alignment: .bottom) {
+                ZStack {
+                    if model.isComparing {
+                        ComparisonBadge()
+                            .floatingTransition(from: .bottom)
+                    } else if model.workspace == .editing {
+                        EditingBadge(editing: model.editing)
+                            .floatingTransition(from: .bottom)
+                    }
+                }
+                .interfaceAnimation(value: model.isComparing ? 2 : model.workspace == .editing ? 1 : 0)
+            }
+            .overlay(alignment: .topLeading) {
+                ZStack {
+                    if model.workspace == .editing, !model.isComparing,
+                       let line = model.editing.selectedScanLine, let scan = line.scan {
+                        ScanRetouchPanel(editing: model.editing, scan: scan)
+                            .id(line.id)
+                            .floatingTransition(from: .top)
+                    }
+                }
+                .interfaceAnimation(value: scanPanelKey)
+            }
+            .overlay(alignment: .topTrailing) {
+                ZStack {
+                    if let search = model.search, search.isPresented {
+                        SearchPanel(search: search)
+                            .floatingTransition(from: .top)
+                    }
+                }
+                .interfaceAnimation(value: model.search?.isPresented == true)
+            }
+    }
+
+    /// Ligne scannée dont le panneau de retouche est ouvert.
+    private var scanPanelKey: UInt32? {
+        guard model.workspace == .editing, !model.isComparing,
+              let line = model.editing.selectedScanLine, line.scan != nil else { return nil }
+        return line.id
     }
 }
 
@@ -222,10 +287,10 @@ struct ComparisonBadge: View {
     var body: some View {
         Label("Pages d'origine, sans les modifications. ⌥⌘K pour revenir aux pages modifiées.",
               systemImage: "square.split.2x1")
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(.regularMaterial, in: Capsule())
-            .padding(.bottom, 16)
+            .padding(.horizontal, Design.Spacing.large)
+            .padding(.vertical, Design.Spacing.small)
+            .floatingBadge()
+            .padding(.bottom, Design.Spacing.large)
             .allowsHitTesting(false)
     }
 }
@@ -236,7 +301,7 @@ struct SearchPanel: View {
     let search: SearchModel
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Design.Spacing.small) {
             SearchField(
                 text: search.query,
                 focusRequest: search.focusRequest,
@@ -248,7 +313,6 @@ struct SearchPanel: View {
             .frame(width: 220)
             if let status = search.status {
                 Text(status)
-                    .font(.callout)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
                     .fixedSize()
@@ -271,12 +335,10 @@ struct SearchPanel: View {
             .accessibilityLabel(Text("Fermer la recherche"))
         }
         .buttonStyle(.borderless)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator))
-        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
-        .padding(12)
+        .padding(.horizontal, Design.Spacing.medium)
+        .padding(.vertical, Design.Spacing.small)
+        .floatingPanel()
+        .padding(Design.Spacing.medium)
     }
 }
 
@@ -285,15 +347,15 @@ struct ActivityBadge: View {
     let text: String
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Design.Spacing.small) {
             ProgressView()
                 .controlSize(.small)
             Text(text)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.regularMaterial, in: Capsule())
-        .padding(.bottom, 16)
+        .padding(.horizontal, Design.Spacing.large)
+        .padding(.vertical, Design.Spacing.small)
+        .floatingBadge()
+        .padding(.bottom, Design.Spacing.large)
         .accessibilityElement(children: .combine)
     }
 }
@@ -306,10 +368,8 @@ struct PasswordPrompt: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "lock")
-                .font(.system(size: 32, weight: .ultraLight))
-                .foregroundStyle(.tertiary)
+        VStack(spacing: Design.Spacing.medium) {
+            EmptyStateSymbol(name: "lock")
             Text(wrongAttempt
                  ? LocalizedStringKey("Le mot de passe est incorrect.")
                  : LocalizedStringKey("Ce document est protégé par un mot de passe."))
@@ -323,7 +383,7 @@ struct PasswordPrompt: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(password.isEmpty)
         }
-        .padding(32)
+        .padding(Design.Spacing.wide)
         .onAppear { focused = true }
     }
 }
