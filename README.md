@@ -19,7 +19,7 @@ locale, hors ligne, sans compte ni télémétrie.
 | 6. Structure | détection des tableaux, édition des tableaux | terminé (à valider) |
 | 7. Scans | retouche des pages scannées : texte réécrit dans la police retrouvée, objets effacés ou déplacés, comparaison avant/après | terminé (à valider) |
 | 8. Design | finition visuelle, animations, mode sombre, icône, accessibilité | terminé (à valider) |
-| 9. Durcissement | performances, récupération, documentation, jeu de tests | à faire |
+| 9. Durcissement | performances, récupération, documentation, jeu de tests | terminé (à valider) |
 
 ## Organiser les pages
 
@@ -70,6 +70,37 @@ locale, hors ligne, sans compte ni télémétrie.
 - Tout s'annule par ⌘Z, avec l'organisation des pages ; les limites sont décrites
   dans [docs/LIMITES.md](docs/LIMITES.md).
 
+## Sécurité des documents
+
+- **Aucun original modifié sans confirmation :** le fichier ouvert est lu une fois
+  en mémoire ; seul ⌘S le réécrit, après confirmation et copie de l'original
+  dans les sauvegardes (30 copies au plus). L'application est dans le bac à
+  sable de macOS, sans aucune autorisation réseau : elle ne peut émettre
+  aucune connexion.
+- **Plantage ou coupure :** les modifications non enregistrées sont retenues au
+  fil de l'eau (au plus une demi-seconde de retard) et proposées à la
+  réouverture du document (Restaurer ou Ignorer). Un enregistrement interrompu
+  est détecté à la réouverture, et le fichier rétabli dans sa version
+  précédente.
+- **Fichiers abîmés :** une erreur du moteur sur une page n'interrompt que
+  l'opération en cours ; un PDF illisible est refusé avec un message en
+  français.
+- Les sauvegardes et les modifications retenues sont dans
+  `~/Library/Containers/fr.sylvainrobert.pdfstudio/Data/Library/Application Support/PDF Studio`.
+
+## Critères d'acceptation (§9 du cahier des charges)
+
+| Critère | État |
+|---|---|
+| Compilation en une commande, lancement sur macOS 14+ | `make build` ; vérifié sur macOS 27 (Apple Silicon), macOS 14 non essayé |
+| Fonctionnalités du §4 sur le jeu de test | testées automatiquement (`make test`) ; à valider à l'usage |
+| 10 textes modifiés dans des PDF natifs, identiques à 100 % de zoom | évaluation de Sylvain à faire |
+| 10 textes modifiés dans des scans, indiscernables dans au moins 7 cas | évaluation de Sylvain à faire ; échecs à consigner dans LIMITES |
+| OCR ≥ 98 % sur des scans propres en français | atteint : 98,63 à 99,68 % avec Vision ([banc d'essai](docs/OCR_BENCHMARK.md)) |
+| Interface conforme au §5 | revue visuelle de Sylvain (`make snapshots` aide à la refaire) |
+| Aucun original modifié sans confirmation, aucune connexion réseau | vérifié par des tests (`CrashRecoveryTests`, `PrivacyTests`) et par le bac à sable |
+| Documentation à jour | README, ARCHITECTURE, DECISIONS, LIMITES, DEPENDANCES |
+
 ## Prérequis
 
 - macOS 14 ou plus récent sur Apple Silicon, Xcode 16 ou plus récent ;
@@ -86,6 +117,7 @@ make bench      # banc d'essai MuPDF / PDFium (télécharge PDFium pour la mesur
 make fixtures   # régénère le jeu de PDF de test
 make icon       # régénère les images de l'icône depuis app/Resources/AppIcon.svg
 make snapshots  # captures d'écran de l'interface, en mode clair et sombre
+make perf       # mesures de performance (§6), rapport dans ~/Library/Caches/PDFStudio/perf
 ```
 
 Le premier `make build` compile MuPDF et prend plusieurs minutes ; les suivants
@@ -105,3 +137,5 @@ noms.
 - [Dépendances et licences](docs/DEPENDANCES.md)
 - [Limites connues](docs/LIMITES.md)
 - [Banc d'essai du rendu](docs/RENDER_BENCHMARK.md)
+- [Banc d'essai de l'OCR](docs/OCR_BENCHMARK.md)
+- [Mesures de performance](docs/PERFORMANCES.md)

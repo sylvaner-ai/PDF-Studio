@@ -32,6 +32,12 @@ personnel, sans distribution ni service en ligne, elle n'impose aucune obligatio
 Une distribution future de PDF Studio exigerait soit de publier son code sous AGPL,
 soit une licence commerciale d'Artifex, soit le passage à PDFium (BSD).
 
+**Aucune bibliothèque réseau** (jalon 9, D55) : l'arbre des dépendances du
+moteur intégré à l'application (`cargo tree -p pdfstudio_ffi`) ne contient ni
+client HTTP, ni environnement asynchrone, ni bibliothèque TLS ; `tokio`, présent
+dans `Cargo.lock`, n'y vient que des outils de développement. Le jalon 9
+n'ajoute aucune dépendance.
+
 ## Outils de développement (non intégrés)
 
 | Outil | Rôle | Licence |

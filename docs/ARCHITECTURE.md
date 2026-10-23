@@ -18,7 +18,7 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
 │ ViewModels/   DocumentViewModel (+Saving, +Recovery, +Inserting,             │
 │               +Exporting, +Recognizing), DisplayPage, CanvasController,      │
 │               SearchModel, OutlineTree, PageLayout, PageRenderer,            │
-│               FileSaver, RecoveryStore, PageExporter,                        │
+│               FileSaver, RecoveryStore, RecoveryWriter, PageExporter,        │
 │               PageEditing (+Tables, +Scans), DocumentViewModel+Comparing     │
 │ Recognition/  VisionTextReader (Vision), VisionTextRecognizer (pour Rust)    │
 │ App/          PDFStudioApp, ViewerCommands, PageCommands et TableCommands    │
@@ -71,6 +71,11 @@ l'interprétation du flux de contenu et sur MuPDF.
   requête, ce fil adopte la qualité de service (QoS) du fil qui attend la
   réponse, ce qui évite les inversions de priorité signalées par macOS ; les
   appels système correspondants sont fournis par le crate `ffi`.
+- **Panique isolée.** Chaque requête s'exécute sous `catch_unwind` : une panique
+  du code Rust devient une erreur « panique du moteur » pour cette requête
+  seule, et le fil continue de servir le document (D50). Le plan d'un document
+  est vérifié avant d'être lu par MuPDF (`outline::prepare`), car un plan
+  abîmé faisait planter la bibliothèque `mupdf`.
 - **Rendu parallèle.** Pour chaque page, ce fil construit une *liste d'affichage*
   MuPDF (`PageContent`, mise en cache pour 48 pages). Cette liste est `Send + Sync` :
   sa rastérisation (la partie coûteuse) s'exécute sur le fil de l'appelant, donc en
@@ -268,12 +273,18 @@ l'interprétation du flux de contenu et sur MuPDF.
 
 - **Écriture.** `EditSession.export_pdf` produit les octets du nouveau PDF à partir
   des octets lus à l'ouverture (décision D12) ; `FileSaver` les écrit après
-  confirmation et copie de sauvegarde, puis relit le résultat (D13).
+  confirmation et copie de sauvegarde, puis relit le résultat (D13). Pendant la
+  réécriture, une note dans `Sauvegardes/Écritures en cours` permet de rétablir
+  le fichier à sa réouverture si l'écriture a été interrompue (D52).
 - **Récupération.** `RecoveryStore` retient, à chaque modification non enregistrée,
   l'organisation des pages, les modifications de leur contenu (D22), le texte
   reconnu des pages scannées et des copies des documents dont elles viennent
   (D14).
-  Les copies orphelines sont supprimées au lancement.
+  Les copies orphelines sont supprimées au lancement. Depuis le jalon 9, ces
+  écritures passent par `RecoveryWriter`, une file série hors du fil principal
+  qui regroupe les demandes rapprochées (au plus 0,5 s d'attente) et relit
+  seulement les pages modifiées depuis l'écriture précédente (D51) ; quitter
+  l'application écrit aussitôt ce qui attend.
 - **Exportations.** Extraction et scission passent par `export_pages` ; les images
   sont rendues par le moteur et encodées par ImageIO ; le texte vient de
   `plain_text`, page par page. Tout se fait hors du fil principal, pages figées.
@@ -316,12 +327,20 @@ lancé depuis Xcode reste donc à jour.
 
 ## Tests
 
-- `make test-engine` : tests Rust (`cargo test`) sur `tests/fixtures/`.
+- `make test-engine` : tests Rust (`cargo test`) sur `tests/fixtures/`, dont
+  `engine/ffi/tests/robustesse.rs` : les PDF du jeu de test, abîmés de façon
+  déterministe, parcourus par l'interface du moteur sans panique ni blocage
+  (D54) ; `PDFSTUDIO_ROBUSTESSE=25` multiplie les tirages.
 - `make ocr-bench` : banc d'essai des moteurs OCR (`docs/OCR_BENCHMARK.md`).
 - `make test-app` : tests XCTest du pont, du rendu, de la recherche, de la
   géométrie d'affichage, de l'organisation, de l'enregistrement, de la
   récupération, des exportations, de l'édition du contenu et de la
-  reconnaissance du texte par Vision, hébergés dans l'application.
+  reconnaissance du texte par Vision, hébergés dans l'application ; depuis le
+  jalon 9, aussi l'arrêt imprévu et l'enregistrement interrompu
+  (`CrashRecoveryTests`) et l'absence d'autorisation réseau (`PrivacyTests`).
+- `make perf` : mesures de performance du §6 dans l'application compilée avec
+  optimisations (`PerformanceTests`, ignoré par `make test-app`) ; rapport dans
+  `~/Library/Caches/PDFStudio/perf/rapport.md` (D54).
 - `tests/fixtures/generate.py` régénère le jeu de PDF publics, dont
   `organisation.pdf` (signets, liens, champs, note, numérotation et métadonnées à
   préserver) et `signature_factice.pdf` (champ de signature) pour le jalon 3,

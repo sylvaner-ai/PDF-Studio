@@ -750,3 +750,108 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
 - **Raisons :** aucune autorisation macOS n'est demandée ; la revue visuelle
   du design se refait en une commande après chaque changement. Les matériaux
   translucides y paraissent sans le flou de l'arrière-plan.
+
+## D50 — Une requête du moteur qui panique échoue seule (jalon 9)
+
+- **Retenu :** le fil d'un document (`DocumentHandle`) exécute chaque requête
+  sous `catch_unwind` : une panique du code Rust devient l'erreur « panique du
+  moteur : … », renvoyée à l'appelant, et le fil continue de servir les
+  requêtes suivantes ; l'analyse du fichier à l'ouverture est protégée de la
+  même façon (le document est alors refusé comme invalide). Le fil d'un
+  document dispose d'une pile de 16 Mio, pour les documents très imbriqués.
+- **Plan d'un document abîmé :** avant de le lire, le moteur parcourt le plan
+  (`/Outlines`) lui-même. Une entrée sans titre reçoit un titre vide (en
+  mémoire seulement) ; un plan dont une entrée est illisible, qui boucle, qui
+  dépasse 64 niveaux ou 100 000 entrées est ignoré : le document s'ouvre sans
+  signets. Ces deux cas faisaient planter l'application (accès mémoire invalide
+  dans la bibliothèque `mupdf`), découverts par le test de robustesse (D54).
+- **Alternatives :** laisser UniFFI convertir la panique (elle fait planter
+  l'application si la fonction appelée ne renvoie pas d'erreur) ; corriger la
+  bibliothèque `mupdf` (dépendance externe, correction hors de notre contrôle).
+- **Raisons :** une erreur sur une page ne doit jamais fermer toutes les
+  fenêtres ni perdre des modifications ; le fil reste cohérent, car ses
+  requêtes ne font que lire le document ouvert (les modifications vivent dans
+  la session d'édition) et un résultat n'entre dans ses caches qu'une fois
+  calculé.
+
+## D51 — Récupération écrite hors du fil principal, au plus 0,5 s après la modification (jalon 9)
+
+- **Retenu :** `RecoveryWriter` reçoit les écritures de récupération de toutes
+  les fenêtres sur une file série de priorité « utilitaire ». Les écritures
+  rapprochées d'un même document sont regroupées : la dernière est faite au
+  plus 0,5 s après la première. La lecture des modifications dans le moteur,
+  l'encodage JSON et l'écriture du fichier s'y font ; les modifications et
+  couches de texte déjà lues sont gardées par page et par état de la page, si
+  bien qu'une modification ne relit que sa page. Les suppressions (document
+  enregistré, modifications abandonnées) passent par la même file, après
+  l'écriture en cours, et annulent celle qui attend. Quitter l'application,
+  ouvrir un document ou copier la version d'ouverture écrit d'abord ce qui
+  attend.
+- **Alternative :** l'écriture immédiate sur le fil principal (jalons 3 à 8).
+- **Raisons :** chaque modification relisait toutes les pages modifiées du
+  document sur le fil principal ; sur un document de 600 pages reconnues, cela
+  devenait perceptible (§6 : 60 images par seconde). Un arrêt brutal fait
+  perdre au plus la dernière demi-seconde de modifications.
+
+## D52 — Enregistrement interrompu : un journal pour rétablir le fichier (jalon 9)
+
+- **Retenu :** avant de réécrire un fichier en place (D13), `FileSaver` pose
+  une note dans `Sauvegardes/Écritures en cours` : chemin du fichier, copie de
+  sauvegarde et empreinte SHA-256 du contenu à écrire. Elle est retirée une
+  fois l'écriture vérifiée, ou l'original rétabli. Si une note subsiste à
+  l'ouverture du document (arrêt de l'application ou du Mac pendant
+  l'écriture), le fichier est comparé à l'empreinte : identique, l'écriture
+  était complète ; sinon la copie de sauvegarde est remise en place et un
+  bandeau le signale. Si la copie est introuvable, la note est gardée et un
+  message nomme la copie attendue. La copie d'une écriture en cours n'est
+  jamais supprimée par la limite des 30 copies.
+- **Alternative :** l'écriture atomique par échange de fichiers, écartée en D13.
+- **Raisons :** la réécriture en place garde l'emplacement, les étiquettes et
+  la synchronisation du fichier (D13) ; le journal ferme le dernier cas où un
+  original pouvait rester à moitié écrit (§6 : aucun original modifié sans
+  confirmation).
+
+## D53 — Appariement des polices d'un scan en parallèle (jalon 9)
+
+- **Retenu :** l'évaluation des polices candidates d'une ligne scannée (D41) se
+  répartit sur les cœurs du Mac (fils de `std::thread::scope`, autant que de
+  cœurs disponibles) ; l'affinage des trois meilleures familles aussi. Le
+  classement est identique à celui du calcul en série.
+- **Raisons :** c'est l'étape la plus longue de la réécriture d'une ligne
+  scannée ; les candidates sont indépendantes. Aucune dépendance ajoutée.
+
+## D54 — Jeu de tests du durcissement (jalon 9)
+
+- **Retenu :**
+  - **Robustesse du moteur** (`engine/ffi/tests/robustesse.rs`, dans
+    `make test-engine`) : seize PDF du jeu de test, abîmés de façon
+    déterministe (fichier tronqué, octets ou chiffres remplacés, bloc effacé,
+    mots-clés de structure altérés), plus de 200 cas, parcourus comme le fait
+    l'application (ouverture, rendu, texte, recherche, plan, objets, couche de
+    texte, modifications, enregistrement et relecture, annulation). Une erreur
+    est admise ; une panique, un blocage de plus de 60 s ou un PDF enregistré
+    illisible font échouer le test. `PDFSTUDIO_ROBUSTESSE=25` multiplie les
+    tirages.
+  - **Arrêt imprévu** (`CrashRecoveryTests`, `InterruptedWriteTests`) :
+    modifications retenues puis restaurées dans une nouvelle fenêtre, original
+    intact, enregistrement interrompu rétabli, ⌘S sans confirmation ne touche
+    pas au fichier.
+  - **Confidentialité** (`PrivacyTests`) : l'application signée est dans le
+    bac à sable sans autorisation réseau.
+  - **Performances** (`make perf`, `PerformanceTests`, hors de
+    `make test-app`) : ouverture, défilement, reconnaissance, réécriture d'une
+    ligne scannée et écriture de la récupération, mesurés dans l'application
+    compilée avec optimisations ; rapport dans
+    `~/Library/Caches/PDFStudio/perf/rapport.md`.
+- **Raisons :** §8, jalon 9 ; les mesures de performance dépendent de la
+  machine et ne doivent pas faire échouer les tests ordinaires.
+
+## D55 — Aucune connexion réseau : garantie par le bac à sable (jalon 9)
+
+- **Retenu :** l'application est dans le bac à sable de macOS sans les
+  autorisations `network.client` ni `network.server` : le système refuse toute
+  connexion, quel que soit le code. Un test le vérifie sur l'application
+  signée (D54). Le moteur ne dépend d'aucune bibliothèque réseau (vérifié par
+  `cargo tree`), et le code Swift n'emploie aucune API réseau.
+- **Raisons :** §6 (aucune connexion réseau) ; une garantie du système vaut
+  mieux qu'une relecture du code.
