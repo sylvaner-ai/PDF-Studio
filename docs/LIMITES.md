@@ -382,3 +382,8 @@ complété à chaque jalon.
 - **Pages figées :** pendant la lecture, rien ne se modifie, y compris
   l'organisation des pages ; sur un long document scanné, il faut attendre la
   fin ou arrêter la lecture.
+- **Ancienne couche :** ses opérations d'affichage sont retirées, mais les
+  réglages du texte qui les entouraient (police, position) restent dans le
+  contenu, sans effet, ainsi que la police de l'ancienne couche dans les
+  ressources de la page : chaque relecture suivie d'un enregistrement ajoute
+  quelques kilo-octets au fichier.
