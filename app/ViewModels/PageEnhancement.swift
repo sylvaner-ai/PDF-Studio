@@ -42,6 +42,7 @@ final class PageEnhancement {
     struct Key: Hashable {
         let page: UInt64
         let source: DisplayPage.Source?
+        let quarterTurns: Int
         let editRevision: UInt64
         let settings: EnhancementSettings
     }
@@ -85,6 +86,10 @@ final class PageEnhancement {
     @ObservationIgnored weak var model: DocumentViewModel?
     /// Traitement en cours, à interrompre.
     @ObservationIgnored private(set) var task: Task<Void, Never>?
+    /// Un aperçu se calcule.
+    @ObservationIgnored private var isComputingPreview = false
+    /// Page dont l'aperçu est demandé, à calculer après celui en cours.
+    @ObservationIgnored private var wantedPreview: DisplayPage?
 
     private static let settingsKey = "enhancementSettings"
     /// Largeur de l'aperçu, en pixels.
@@ -101,23 +106,61 @@ final class PageEnhancement {
     }
 
     func key(for page: DisplayPage) -> Key {
-        Key(page: page.id, source: page.source, editRevision: page.editRevision, settings: settings)
+        Key(
+            page: page.id, source: page.source, quarterTurns: page.quarterTurns,
+            editRevision: page.editRevision, settings: settings
+        )
     }
 
     // MARK: - Aperçu
 
     /// Calcule l'aperçu de `page`, s'il n'est pas déjà celui affiché.
+    ///
+    /// Un seul aperçu se calcule à la fois : le moteur ne peut pas
+    /// interrompre une page commencée, et les demandes faites entre-temps (on
+    /// feuillette les pages) ne s'empilent pas : seule la dernière est
+    /// calculée, une fois la page en cours terminée.
     func loadPreview(of page: DisplayPage) async {
-        let key = self.key(for: page)
-        guard preview?.key != key, let session = model?.session else { return }
-        isPreviewing = true
-        previewFailure = nil
-        let settings = settings
+        wantedPreview = page
+        guard !isComputingPreview else { return }
+        isComputingPreview = true
+        defer {
+            isComputingPreview = false
+            isPreviewing = false
+        }
+        while let page = wantedPreview {
+            wantedPreview = nil
+            let key = self.key(for: page)
+            guard preview?.key != key, let session = model?.session else { continue }
+            isPreviewing = true
+            previewFailure = nil
+            let result = await Self.render(page, settings: settings, session: session)
+            // Une autre page ou d'autres réglages entre-temps : ce résultat est périmé.
+            guard wantedPreview == nil, let current = model?.pages.first(where: { $0.id == page.id }),
+                  self.key(for: current) == key else { continue }
+            switch result {
+            case let .success(rendered):
+                preview = Preview(
+                    key: key, result: rendered.result, report: rendered.result.report(),
+                    before: rendered.before, after: rendered.after
+                )
+            case let .failure(error):
+                preview = nil
+                previewFailure = (error as? EngineError)?.userMessage
+                    ?? String(localized: "L'aperçu n'a pas pu être calculé.")
+            }
+        }
+    }
+
+    /// Améliore `page` et rend ses images avant et après, hors du fil principal.
+    private static func render(
+        _ page: DisplayPage, settings: EnhancementSettings, session: EditSession
+    ) async -> Result<Rendered, Error> {
         let recognizer: VisionTextRecognizer? = settings.orientation ? VisionTextRecognizer() : nil
         let size = page.baseSize
         let turns = page.quarterTurns
-        let width = Self.previewWidth
-        let result = await Task.detached(priority: .userInitiated) {
+        let width = previewWidth
+        return await Task.detached(priority: .userInitiated) {
             Result { () -> Rendered in
                 let result = try session.enhancePage(page: page.id, settings: settings, recognizer: recognizer)
                 let report = result.report()
@@ -136,21 +179,6 @@ final class PageEnhancement {
                 return Rendered(result: result, before: PageImage(cgImage: before), after: PageImage(cgImage: after))
             }
         }.value
-        // Une autre page ou d'autres réglages entre-temps : ce résultat est périmé.
-        guard !Task.isCancelled, let current = model?.pages.first(where: { $0.id == page.id }),
-              self.key(for: current) == key else { return }
-        isPreviewing = false
-        switch result {
-        case let .success(rendered):
-            preview = Preview(
-                key: key, result: rendered.result, report: rendered.result.report(),
-                before: rendered.before, after: rendered.after
-            )
-        case let .failure(error):
-            preview = nil
-            previewFailure = (error as? EngineError)?.userMessage
-                ?? String(localized: "L'aperçu n'a pas pu être calculé.")
-        }
     }
 
     // MARK: - Traitement

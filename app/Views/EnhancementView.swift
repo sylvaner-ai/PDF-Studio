@@ -86,6 +86,11 @@ private struct EnhancementPreviewArea: View {
 
 /// Deux images de même format superposées : l'image « après » à gauche du
 /// curseur, l'image « avant » à droite ; le curseur se fait glisser.
+///
+/// L'image « avant », ajustée à la place disponible, fixe le format ; tout le
+/// reste se pose dessus en calques, sans placement calculé : la version
+/// précédente, placée tout entière dans un `GeometryReader`, faisait tourner la
+/// mise à jour de l'interface sans fin.
 struct BeforeAfterView: View {
     let before: CGImage
     let after: CGImage
@@ -94,30 +99,41 @@ struct BeforeAfterView: View {
     @State private var split: CGFloat = 0.5
 
     var body: some View {
-        GeometryReader { proxy in
-            let frame = fitted(in: proxy.size)
-            ZStack(alignment: .topLeading) {
-                image(before)
+        image(before)
+            .overlay {
                 image(after)
                     .mask(alignment: .leading) {
-                        Rectangle().frame(width: frame.width * split)
+                        GeometryReader { proxy in
+                            Rectangle().frame(width: proxy.size.width * split)
+                        }
                     }
-                Rectangle()
-                    .fill(Color.accentColor)
-                    .frame(width: 2, height: frame.height)
-                    .offset(x: frame.width * split - 1)
-                    .allowsHitTesting(false)
-                labels(width: frame.width)
             }
-            .frame(width: frame.width, height: frame.height)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0).onChanged { value in
-                    split = min(max(value.location.x / max(frame.width, 1), 0), 1)
+            .overlay {
+                GeometryReader { proxy in
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(width: 2)
+                        .offset(x: proxy.size.width * split - 1)
                 }
-            )
+                .allowsHitTesting(false)
+            }
+            .overlay(alignment: .top) {
+                labels
+            }
+            .overlay {
+                GeometryReader { proxy in
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .gesture(
+                            DragGesture(minimumDistance: 0).onChanged { value in
+                                split = min(max(value.location.x / max(proxy.size.width, 1), 0), 1)
+                            }
+                        )
+                }
+            }
+            .compositingGroup()
             .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
-            .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityElement()
             .accessibilityLabel(Text("Aperçu avant et après"))
             .accessibilityValue(Text("\(Int((split * 100).rounded())) % de la page améliorée"))
@@ -128,23 +144,22 @@ struct BeforeAfterView: View {
                 @unknown default: break
                 }
             }
-        }
     }
 
     private func image(_ image: CGImage) -> some View {
         Image(decorative: image, scale: 1)
             .resizable()
             .interpolation(.high)
+            .aspectRatio(contentMode: .fit)
     }
 
-    private func labels(width: CGFloat) -> some View {
+    private var labels: some View {
         HStack {
             tag("Après")
             Spacer()
             tag("Avant")
         }
-        .frame(width: width)
-        .padding(.top, Design.Spacing.small)
+        .padding(Design.Spacing.small)
         .allowsHitTesting(false)
     }
 
@@ -153,16 +168,7 @@ struct BeforeAfterView: View {
             .font(.caption)
             .padding(.horizontal, Design.Spacing.small)
             .padding(.vertical, 2)
-            .floatingBadge()
-            .padding(.horizontal, Design.Spacing.small)
-    }
-
-    /// Format de l'image ajusté à la place disponible.
-    private func fitted(in size: CGSize) -> CGSize {
-        let width = CGFloat(after.width), height = CGFloat(after.height)
-        guard width > 0, height > 0 else { return .zero }
-        let scale = min(size.width / width, size.height / height)
-        return CGSize(width: width * scale, height: height * scale)
+            .background(.regularMaterial, in: Capsule(style: .continuous))
     }
 }
 
@@ -173,7 +179,7 @@ private struct EnhancementPanel: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Design.Spacing.large) {
+            VStack(alignment: .leading, spacing: Design.Spacing.medium) {
                 Text("Amélioration des pages scannées")
                     .font(.headline)
                 VStack(alignment: .leading, spacing: Design.Spacing.small) {
@@ -181,18 +187,16 @@ private struct EnhancementPanel: View {
                     Toggle("Remettre à l'endroit les pages couchées ou retournées",
                            isOn: $enhancement.settings.orientation)
                 }
-                Picker("Pages", selection: $enhancement.range) {
-                    Text("Toutes").tag(PageEnhancement.Range.all)
-                    Text("Sélection").tag(PageEnhancement.Range.selection)
-                    Text("Page affichée").tag(PageEnhancement.Range.current)
-                }
-                .pickerStyle(.segmented)
-                advanced
-                if let report = currentReport {
-                    Label(report.summary, systemImage: report.status == .toCheck
-                          ? "exclamationmark.triangle" : "info.circle")
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                .fixedSize(horizontal: false, vertical: true)
+                Divider()
+                section("Pages traitées") {
+                    Picker("Pages traitées", selection: $enhancement.range) {
+                        Text("Toutes les pages").tag(PageEnhancement.Range.all)
+                        Text("Pages sélectionnées").tag(PageEnhancement.Range.selection)
+                        Text("Page affichée").tag(PageEnhancement.Range.current)
+                    }
+                    .pickerStyle(.radioGroup)
+                    .labelsHidden()
                 }
                 HStack {
                     Button("Appliquer") { enhancement.apply() }
@@ -203,12 +207,33 @@ private struct EnhancementPanel: View {
                         .disabled(!enhancement.canRestore)
                         .help(Text("Rendre aux pages choisies leur version d'origine"))
                 }
+                if let report = currentReport {
+                    Divider()
+                    section("Page affichée") {
+                        Label(report.summary, systemImage: report.status == .toCheck
+                              ? "exclamationmark.triangle" : "info.circle")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
                 if !pagesToCheck.isEmpty {
+                    Divider()
                     toCheck
                 }
+                Divider()
+                advanced
             }
-            .padding(Design.Spacing.large)
+            .padding(Design.Spacing.medium)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Titre de section et son contenu.
+    private func section(_ title: LocalizedStringKey, @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: Design.Spacing.tight) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+            content()
         }
     }
 
