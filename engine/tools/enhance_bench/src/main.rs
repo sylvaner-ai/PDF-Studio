@@ -9,8 +9,14 @@
 //! la taille du fichier. Le lot de 50 pages est traité à la suite, page par
 //! page, pour le temps total.
 //!
+//! Avec `--profile`, un document quelconque est mesuré page par page comme
+//! l'aperçu de l'application (amélioration, puis rendu avant et après à
+//! 1400 pixels de large) : durées et conclusions seulement, sans rien du
+//! contenu des pages.
+//!
 //! Usage :
 //!   enhance_bench [DOSSIER_DU_JEU] [--out RAPPORT.md]
+//!   enhance_bench --profile DOCUMENT.pdf
 //!
 //! À lancer en mode release pour des durées représentatives.
 
@@ -49,6 +55,11 @@ fn main() {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--out" => out = args.next().map(PathBuf::from),
+            "--profile" => {
+                let path = args.next().expect("--profile DOCUMENT.pdf");
+                profile(&open(Path::new(&path)));
+                return;
+            }
             _ => dir = PathBuf::from(arg),
         }
     }
@@ -105,6 +116,67 @@ fn open(path: &Path) -> Arc<PdfDocument> {
 
 fn file_size(dir: &Path, name: &str) -> u64 {
     std::fs::metadata(dir.join(format!("{name}.pdf"))).map_or(0, |m| m.len())
+}
+
+/// Durées de l'aperçu de chaque page de `document`, comme dans l'application.
+fn profile(document: &Arc<PdfDocument>) {
+    const PREVIEW_WIDTH: f32 = 1400.0;
+    let sizes = document.page_sizes();
+    let session = EditSession::new(Arc::clone(document));
+    println!("| Page | Format (pt) | Conclusion | Quarts de tour | Angle | Amélioration | Rendu avant | Rendu après |");
+    println!("|---:|---|---|---:|---:|---:|---:|---:|");
+    let mut total = Duration::ZERO;
+    for (position, page) in session.pages().iter().enumerate() {
+        let size = &sizes[position];
+        let start = Instant::now();
+        let enhanced = match session.enhance_page(page.id, default_enhancement_settings(), None) {
+            Ok(enhanced) => enhanced,
+            Err(err) => {
+                println!(
+                    "| {} | — | échec : {err} | | | {} ms | | |",
+                    position + 1,
+                    start.elapsed().as_millis()
+                );
+                continue;
+            }
+        };
+        let improve = start.elapsed();
+        let report = enhanced.report();
+        let rotation = i32::from(report.quarter_turns) * 90;
+        let width = if report.quarter_turns % 2 == 1 {
+            size.height
+        } else {
+            size.width
+        };
+        let scale = PREVIEW_WIDTH / width.max(1.0);
+        let start = Instant::now();
+        let before = enhanced
+            .render_original(scale, rotation)
+            .map(|_| start.elapsed());
+        let start = Instant::now();
+        let after = enhanced.render(scale, rotation).map(|_| start.elapsed());
+        let ms = |d: Result<Duration, _>| {
+            d.map_or_else(
+                |_| "échec".to_owned(),
+                |d: Duration| format!("{} ms", d.as_millis()),
+            )
+        };
+        total += improve;
+        println!(
+            "| {} | {:.0} × {:.0} | {} | {} | {} | {} ms | {} | {} |",
+            position + 1,
+            size.width,
+            size.height,
+            status(report.status),
+            report.quarter_turns,
+            degrees(report.measured_angle.map(f64::from)),
+            improve.as_millis(),
+            ms(before),
+            ms(after),
+        );
+    }
+    println!();
+    println!("Amélioration : {:.1} s au total.", total.as_secs_f64());
 }
 
 /// Améliore la page `id` et la compare à sa vérité terrain `expected`.
