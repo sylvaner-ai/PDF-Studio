@@ -13,6 +13,7 @@ use pdf_core::{DocumentHandle, PdfError, Source, SourceData};
 use render::{Region, Rotation};
 
 mod content;
+mod enhancement;
 mod qos;
 mod recognition;
 mod session;
@@ -21,11 +22,15 @@ pub use content::{
     ContentEdits, ObjectEditItem, PageObjectItem, PageObjectKind, ScanCandidateItem, ScanStyleItem,
     ScanTextItem, TextFont,
 };
+pub use enhancement::{
+    default_enhancement_settings, enhancement_settings_from_json, enhancement_settings_to_json,
+    EnhancedPage, EnhancementReport, EnhancementSettings, OrientationStatus, StraighteningStatus,
+};
 pub use recognition::{
     default_recognition_settings, LayerWordItem, OcrImage, PageRecognition, RecognitionSettings,
     RecognizedText, RecognizedWordItem, TextRecognizer,
 };
-pub use session::{EditSession, PageItem, PageKind};
+pub use session::{EditSession, PageItem, PageKind, ReplacedPageItem};
 
 uniffi::setup_scaffolding!();
 

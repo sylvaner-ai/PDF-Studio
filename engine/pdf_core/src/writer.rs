@@ -69,6 +69,23 @@ pub enum OutputPage {
         /// Quarts de tour dans le sens horaire.
         quarter_turns: u8,
     },
+    /// Page `index` du document `sources[source]` (son objet, ses
+    /// annotations, ses liens, les signets qui la visent), dont le contenu et
+    /// les ressources sont remplacés par ceux de la page `content_index` de
+    /// `sources[content_source]` : une page améliorée (cf.
+    /// [`crate::write_enhanced_pages`]).
+    Replaced {
+        /// Document de la page d'origine.
+        source: usize,
+        /// Indice de la page d'origine.
+        index: u32,
+        /// Document de la page améliorée.
+        content_source: usize,
+        /// Indice de la page améliorée.
+        content_index: u32,
+        /// Quarts de tour ajoutés à la rotation propre de la page.
+        quarter_turns: u8,
+    },
 }
 
 /// Écrit le PDF formé de `pages`, à partir de `sources` (la première est la base).
@@ -108,7 +125,17 @@ pub fn write_document(
     let original_count = doc.page_count()?.max(0) as usize;
 
     if is_same_order(pages, original_count) && !has_shared_pages(&doc, original_count)? {
+        let mut others: HashMap<usize, (PdfDocument, PdfGraftMap)> = HashMap::new();
         for (position, page) in pages.iter().enumerate() {
+            if let OutputPage::Replaced {
+                content_source,
+                content_index,
+                ..
+            } = *page
+            {
+                let (other, map) = other_source(&doc, sources, &mut others, content_source)?;
+                replace_content(&mut doc, map, other, content_index, position)?;
+            }
             rotate(&doc, position, page_turns(page))?;
         }
     } else {
@@ -337,19 +364,29 @@ fn invalid(detail: &str) -> PdfError {
 
 fn page_turns(page: &OutputPage) -> u8 {
     match *page {
-        OutputPage::Source { quarter_turns, .. } | OutputPage::Blank { quarter_turns, .. } => {
-            quarter_turns
-        }
+        OutputPage::Source { quarter_turns, .. }
+        | OutputPage::Blank { quarter_turns, .. }
+        | OutputPage::Replaced { quarter_turns, .. } => quarter_turns,
     }
 }
 
-/// Vrai si les pages sont celles de la base, dans leur ordre : seule la rotation
-/// change, et la structure du document reste intacte (numérotation comprise).
+/// Vrai si les pages sont celles de la base, dans leur ordre : seuls la
+/// rotation et le contenu des pages améliorées changent, et la structure du
+/// document reste intacte (numérotation comprise).
 fn is_same_order(pages: &[OutputPage], original_count: usize) -> bool {
     pages.len() == original_count
-        && pages.iter().enumerate().all(|(position, page)| {
-            matches!(*page, OutputPage::Source { source: 0, index, .. } if index as usize == position)
-        })
+        && pages
+            .iter()
+            .enumerate()
+            .all(|(position, page)| match *page {
+                OutputPage::Source {
+                    source: 0, index, ..
+                }
+                | OutputPage::Replaced {
+                    source: 0, index, ..
+                } => index as usize == position,
+                _ => false,
+            })
 }
 
 /// Vrai si un même objet page figure plusieurs fois dans l'arbre des pages :
@@ -414,38 +451,52 @@ fn rebuild(
     tree.dict_put("Count", PdfObject::new_int(0)?)?;
 
     let mut others: HashMap<usize, (PdfDocument, PdfGraftMap)> = HashMap::new();
-    let mut used = HashSet::new();
+    let mut placed = Placed::default();
     for (position, page) in pages.iter().enumerate() {
         let at = position as i32;
         match *page {
-            OutputPage::Source {
-                source: 0, index, ..
-            } => {
-                let original = originals
-                    .get(index as usize)
-                    .ok_or_else(|| invalid("page source inexistante"))?;
-                // Un objet ne figure qu'une fois dans l'arbre, même s'il y était
-                // deux fois dans le fichier : les occurrences suivantes sont copiées.
-                let object = if used.insert(original.as_indirect()?) {
-                    original.try_clone()?
-                } else {
-                    duplicate_page(doc, original)?
-                };
-                doc.insert_page(at, &object)?;
-            }
             OutputPage::Source { source, index, .. } => {
-                let data = sources
-                    .get(source)
-                    .ok_or_else(|| invalid("document source inconnu"))?;
-                let (other, map) = match others.entry(source) {
-                    Entry::Occupied(entry) => entry.into_mut(),
-                    Entry::Vacant(entry) => entry.insert((open(data)?, doc.new_graft_map()?)),
-                };
-                if index >= other.page_count()?.max(0) as u32 {
-                    return Err(invalid("page source inexistante"));
+                place_page(
+                    doc,
+                    sources,
+                    &originals,
+                    &mut others,
+                    &mut placed,
+                    source,
+                    index,
+                    position,
+                )?;
+            }
+            OutputPage::Replaced {
+                source,
+                index,
+                content_source,
+                content_index,
+                ..
+            } => {
+                if source == 0 {
+                    // L'objet d'origine va changer de contenu : une autre
+                    // occurrence de la page, intacte, sera copiée de son état
+                    // d'avant.
+                    if let Some(original) = originals.get(index as usize) {
+                        let number = original.as_indirect()?;
+                        if let Entry::Vacant(entry) = placed.pristine.entry(number) {
+                            entry.insert(detached_copy(original)?);
+                        }
+                    }
                 }
-                graft_page(doc, map, other, index, at)?;
-                copy_annotations(doc, map, other, index, position)?;
+                place_page(
+                    doc,
+                    sources,
+                    &originals,
+                    &mut others,
+                    &mut placed,
+                    source,
+                    index,
+                    position,
+                )?;
+                let (other, map) = other_source(doc, sources, &mut others, content_source)?;
+                replace_content(doc, map, other, content_index, position)?;
             }
             OutputPage::Blank { width, height, .. } => {
                 doc.new_page_at(at, Size { width, height })?;
@@ -507,6 +558,113 @@ fn rebuild(
     catalog.dict_delete("StructTreeRoot")?;
     catalog.dict_delete("MarkInfo")?;
     forget_references(doc, &removed)?;
+    Ok(())
+}
+
+/// Pages de la base déjà placées dans l'arbre des pages.
+#[derive(Default)]
+struct Placed {
+    /// Numéros des objets pages déjà placés.
+    used: HashSet<i32>,
+    /// État d'origine des pages dont l'objet a reçu le contenu d'une page
+    /// améliorée, par numéro d'objet.
+    pristine: HashMap<i32, PdfObject>,
+}
+
+/// Insère à la position `position` la page `index` du document
+/// `sources[source]` : l'objet d'origine pour la base (copié s'il y figure
+/// déjà), une copie avec ses annotations pour un autre document.
+#[allow(clippy::too_many_arguments)]
+fn place_page(
+    doc: &mut PdfDocument,
+    sources: &[SourceData],
+    originals: &[PdfObject],
+    others: &mut HashMap<usize, (PdfDocument, PdfGraftMap)>,
+    placed: &mut Placed,
+    source: usize,
+    index: u32,
+    position: usize,
+) -> Result<()> {
+    let at = position as i32;
+    if source == 0 {
+        let original = originals
+            .get(index as usize)
+            .ok_or_else(|| invalid("page source inexistante"))?;
+        let number = original.as_indirect()?;
+        // Un objet ne figure qu'une fois dans l'arbre, même s'il y était
+        // deux fois dans le fichier : les occurrences suivantes sont copiées.
+        let object = if placed.used.insert(number) {
+            original.try_clone()?
+        } else {
+            let model = placed.pristine.get(&number).unwrap_or(original);
+            duplicate_page(doc, model)?
+        };
+        doc.insert_page(at, &object)?;
+        return Ok(());
+    }
+    let (other, map) = other_source(doc, sources, others, source)?;
+    if index >= other.page_count()?.max(0) as u32 {
+        return Err(invalid("page source inexistante"));
+    }
+    graft_page(doc, map, other, index, at)?;
+    copy_annotations(doc, map, other, index, position)?;
+    Ok(())
+}
+
+/// Document `sources[source]` (autre que la base), ouvert une fois, et la
+/// table des objets déjà copiés depuis lui.
+fn other_source<'a>(
+    doc: &PdfDocument,
+    sources: &[SourceData],
+    others: &'a mut HashMap<usize, (PdfDocument, PdfGraftMap)>,
+    source: usize,
+) -> Result<(&'a PdfDocument, &'a mut PdfGraftMap)> {
+    if source == 0 {
+        return Err(invalid("contenu de remplacement pris dans la base"));
+    }
+    let data = sources
+        .get(source)
+        .ok_or_else(|| invalid("document source inconnu"))?;
+    let (other, map) = match others.entry(source) {
+        Entry::Occupied(entry) => entry.into_mut(),
+        Entry::Vacant(entry) => entry.insert((open(data)?, doc.new_graft_map()?)),
+    };
+    Ok((other, map))
+}
+
+/// Remplace le contenu, les ressources et les cadres de la page `position` par
+/// ceux de la page `index` de `other` (page améliorée). L'objet de la page,
+/// ses annotations et ce qui le vise restent.
+fn replace_content(
+    doc: &mut PdfDocument,
+    map: &mut PdfGraftMap,
+    other: &PdfDocument,
+    index: u32,
+    position: usize,
+) -> Result<()> {
+    if index >= other.page_count()?.max(0) as u32 {
+        return Err(invalid("page améliorée inexistante"));
+    }
+    let source = other.find_page(index as i32)?;
+    let mut target = doc.find_page(position as i32)?;
+    for key in ["Contents", "Resources", "MediaBox", "CropBox", "Rotate"] {
+        // Les attributs absents prennent leur valeur par défaut, et non celle
+        // que la page d'origine hériterait de l'arbre des pages.
+        let value = match (source.get_dict_inheritable(key)?, key) {
+            (Some(value), _) => Some(map.graft_object(&value)?),
+            (None, "CropBox") => source
+                .get_dict_inheritable("MediaBox")?
+                .map(|media| map.graft_object(&media))
+                .transpose()?,
+            (None, "Rotate") => Some(doc.new_int(0)?),
+            (None, "Resources") => Some(doc.new_dict()?),
+            (None, _) => None,
+        };
+        match value {
+            Some(value) => target.dict_put(key, value)?,
+            None => target.dict_delete(key)?,
+        }
+    }
     Ok(())
 }
 

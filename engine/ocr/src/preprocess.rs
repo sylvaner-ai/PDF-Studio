@@ -337,7 +337,16 @@ impl Ink {
     /// ni les filets d'un tableau, ni les bords sombres d'un scan, ni les
     /// grandes images, qui tromperaient la détection d'une page couchée.
     fn sample(image: &GrayImage, dpi: f32, text_only: bool) -> Self {
-        let factor = (dpi / 100.0).round().max(1.0) as u32;
+        Self::sample_at(image, dpi, text_only, 100.0, false)
+    }
+
+    /// Comme [`Ink::sample`], l'image réduite à environ `target` ppp. Avec
+    /// `jitter`, chaque pixel est placé en un point pris au hasard (de façon
+    /// reproductible) dans son carré, et non en son coin : alignés sur la
+    /// grille des pixels, les points donneraient aux angles de pente simple
+    /// (45°, 26,6°…) des profils artificiellement nets.
+    fn sample_at(image: &GrayImage, dpi: f32, text_only: bool, target: f32, jitter: bool) -> Self {
+        let factor = (dpi / target).round().max(1.0) as u32;
         let small = image.downscale(factor);
         let threshold = otsu(&small);
         let mut ink: Vec<bool> = small.pixels.iter().map(|&v| v < threshold).collect();
@@ -354,7 +363,12 @@ impl Ink {
                 if seen % step == 0 {
                     let x = (index as u32 % small.width) as f32;
                     let y = (index as u32 / small.width) as f32;
-                    points.push((x, y));
+                    if jitter {
+                        let (dx, dy) = scatter(index as u64);
+                        points.push((x + dx, y + dy));
+                    } else {
+                        points.push((x, y));
+                    }
                 }
                 seen += 1;
             }
@@ -396,13 +410,19 @@ impl Ink {
             / (total * total)
     }
 
-    /// Angle (en degrés, de −`range` à `range`) qui rend le profil le plus net.
-    fn best_angle(&self, range: f64, transposed: bool) -> (f64, f64) {
+    /// Angle (en degrés, de −`range` à `range`) qui rend le profil le plus
+    /// net, sa netteté et la netteté médiane des angles essayés au pas d'un
+    /// demi-degré.
+    fn best_angle(&self, range: f64, transposed: bool) -> (f64, f64, f64) {
         let mut best = (0.0, self.score(0.0, transposed));
-        let search = |from: f64, to: f64, step: f64, best: &mut (f64, f64)| {
+        let mut coarse = Vec::new();
+        let mut search = |from: f64, to: f64, step: f64, best: &mut (f64, f64)| {
             let mut angle = from;
             while angle <= to + 1e-9 {
                 let score = self.score(angle, transposed);
+                if step >= 0.5 {
+                    coarse.push(score);
+                }
                 if score > best.1 {
                     *best = (angle, score);
                 }
@@ -414,8 +434,21 @@ impl Ink {
         search(center - 0.5, center + 0.5, 0.1, &mut best);
         let center = best.0;
         search(center - 0.1, center + 0.1, 0.02, &mut best);
-        best
+        coarse.sort_unstable_by(f64::total_cmp);
+        let median = coarse.get(coarse.len() / 2).copied().unwrap_or(0.0);
+        (best.0, best.1, median)
     }
+}
+
+/// Décalage reproductible de 0 à 1 pixel sur chaque axe, tiré du rang `seed`
+/// du pixel (mélange de SplitMix64).
+fn scatter(seed: u64) -> (f32, f32) {
+    let mut z = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    let unit = |bits: u64| (bits & 0xFF_FFFF) as f32 / 16_777_216.0;
+    (unit(z), unit(z >> 32))
 }
 
 /// Seuil d'Otsu : sépare au mieux l'encre du papier.
@@ -460,6 +493,32 @@ pub fn estimate_skew(image: &GrayImage, dpi: f32) -> f64 {
     Ink::sample(image, dpi, false).best_angle(10.0, false).0
 }
 
+/// Mesure de l'inclinaison d'une page (cf. [`measure_skew`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Skew {
+    /// Inclinaison des lignes, en degrés (positive : elles descendent vers la
+    /// droite).
+    pub degrees: f64,
+    /// Netteté du profil à cet angle rapportée à la netteté médiane des
+    /// angles essayés : proche de 1 quand aucune direction ne se distingue
+    /// (photographie, page vide), de plusieurs unités pour des lignes de texte.
+    pub prominence: f64,
+    /// Nombre de pixels d'encre examinés (réduits à environ 100 ppp).
+    pub ink: usize,
+}
+
+/// Comme [`estimate_skew`], entre −`range` et `range` degrés, avec la
+/// netteté relative de l'angle trouvé, qui dit si la mesure est fiable.
+pub fn measure_skew(image: &GrayImage, dpi: f32, range: f64) -> Skew {
+    let ink = Ink::sample_at(image, dpi, true, 100.0, true);
+    let (degrees, best, median) = ink.best_angle(range, false);
+    Skew {
+        degrees,
+        prominence: if median > 0.0 { best / median } else { 0.0 },
+        ink: ink.points.len(),
+    }
+}
+
 /// Vrai si les lignes de texte sont verticales : la page est couchée et doit
 /// être tournée d'un quart de tour pour être lue.
 ///
@@ -479,6 +538,102 @@ pub fn is_sideways(image: &GrayImage, dpi: f32) -> bool {
             .fold(0.0, f64::max)
     };
     best(true) > best(false) * 1.5
+}
+
+/// Rapport de l'encre des hampes à celle des jambages, sur les lignes de
+/// texte d'une page inclinée de `skew` degrés : au-dessus de la bande des
+/// lettres basses (b, d, h, l, t, majuscules, chiffres) et au-dessous de la
+/// ligne de base (g, p, q, y). Dans les écritures latines, les hampes sont
+/// bien plus nombreuses : le rapport dépasse nettement 1 sur une page à
+/// l'endroit et passe sous 1 sur une page à l'envers. `None` si la page n'a
+/// pas assez de lignes de texte pour en juger.
+///
+/// Les lignes sont repérées sur le profil de projection de l'encre, à
+/// environ 200 ppp : une ligne est une suite de rangées d'encre entre deux
+/// interlignes vides, et sa bande des lettres basses, les rangées autour du
+/// maximum qui en atteignent la moitié.
+pub fn ascender_ratio(image: &GrayImage, dpi: f32, skew: f64) -> Option<f64> {
+    /// Nombre minimal de lignes examinées.
+    const MIN_LINES: usize = 3;
+    let ink = Ink::sample_at(image, dpi, true, 200.0, false);
+    if ink.points.len() < 2000 {
+        return None;
+    }
+    let (sin, cos) = skew.to_radians().sin_cos();
+    let projected: Vec<f64> = ink
+        .points
+        .iter()
+        .map(|&(x, y)| f64::from(y) * cos - f64::from(x) * sin)
+        .collect();
+    let low = projected.iter().copied().fold(f64::INFINITY, f64::min);
+    let high = projected.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let bins = (high - low).ceil() as usize + 1;
+    let mut profile = vec![0f64; bins];
+    for p in projected {
+        profile[(p - low) as usize] += 1.0;
+    }
+    let mut filled: Vec<f64> = profile.iter().copied().filter(|&v| v > 0.0).collect();
+    filled.sort_unstable_by(f64::total_cmp);
+    let reference = filled[filled.len() * 9 / 10];
+    let gap = (0.04 * reference).max(0.5);
+
+    // Suites de rangées d'encre ; deux suites séparées d'une ou deux rangées
+    // presque vides forment une seule ligne.
+    let mut regions: Vec<(usize, usize)> = Vec::new();
+    let mut y = 0;
+    while y < bins {
+        if profile[y] <= gap {
+            y += 1;
+            continue;
+        }
+        let start = y;
+        let mut end = y;
+        while y < bins {
+            if profile[y] > gap {
+                end = y;
+                y += 1;
+            } else if y + 2 < bins && (profile[y + 1] > gap || profile[y + 2] > gap) {
+                y += 1;
+            } else {
+                break;
+            }
+        }
+        regions.push((start, end));
+    }
+
+    let (mut above, mut below, mut lines) = (0.0, 0.0, 0usize);
+    for (start, end) in regions {
+        let (peak, top) = (start..=end).fold((start, 0.0), |best, y| {
+            if profile[y] > best.1 {
+                (y, profile[y])
+            } else {
+                best
+            }
+        });
+        let half = top / 2.0;
+        let mut core_start = peak;
+        while core_start > start && profile[core_start - 1] >= half {
+            core_start -= 1;
+        }
+        let mut core_end = peak;
+        while core_end < end && profile[core_end + 1] >= half {
+            core_end += 1;
+        }
+        let core = core_end - core_start + 1;
+        let height = end - start + 1;
+        // Trop mince pour être une ligne (bruit, filet), ou plusieurs lignes
+        // jointives : ignorée.
+        if core < 3 || height > 4 * core {
+            continue;
+        }
+        above += profile[start..core_start].iter().sum::<f64>();
+        below += profile[core_end + 1..=end].iter().sum::<f64>();
+        lines += 1;
+    }
+    if lines < MIN_LINES || above + below < 50.0 {
+        return None;
+    }
+    Some((above + 1.0) / (below + 1.0))
 }
 
 impl Ink {

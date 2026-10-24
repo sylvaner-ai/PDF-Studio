@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use edit::{
-    EditError, Editor, PageEdits, PageEntry, PageOrigin, Recognition, RestoredPage, ScanStyle,
-    ScanText, TextLayer, TextReplacement,
+    EditError, Editor, PageEdits, PageEntry, PageOrigin, Recognition, ReplacedPage, RestoredPage,
+    ScanStyle, ScanText, TextLayer, TextReplacement,
 };
 use pdf_core::{OutputPage, SourceData};
 
@@ -65,23 +65,42 @@ pub struct PageItem {
     /// État de la couche de texte de la page reconnue (0 : aucune couche) ;
     /// il change à chaque reconnaissance, annulation comprise.
     pub text_layer_revision: u64,
+    /// Page d'origine d'une page améliorée (mode Amélioration) : celle que
+    /// la page remplace à l'enregistrement, et à laquelle elle peut revenir.
+    pub replaces: Option<ReplacedPageItem>,
+}
+
+/// Page d'origine d'une page améliorée, telle qu'elle était avant.
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+pub struct ReplacedPageItem {
+    /// Ce que la page d'origine affiche.
+    pub kind: PageKind,
+    /// Ses quarts de tour.
+    pub quarter_turns: u8,
 }
 
 impl PageItem {
     fn new(entry: &PageEntry, editor: &Editor) -> Self {
-        let kind = match entry.origin {
-            PageOrigin::Source { source, index } => PageKind::Source { source, index },
-            PageOrigin::Blank { width, height } => PageKind::Blank {
-                size: PageSize { width, height },
-            },
-        };
         PageItem {
             id: entry.id,
-            kind,
+            kind: page_kind(entry.origin),
             quarter_turns: entry.quarter_turns,
             edit_revision: editor.content(entry.id).map_or(0, |edits| edits.revision()),
             text_layer_revision: editor.text_layer_revision(entry.id),
+            replaces: entry.replaces.map(|original| ReplacedPageItem {
+                kind: page_kind(original.origin),
+                quarter_turns: original.quarter_turns,
+            }),
         }
+    }
+}
+
+fn page_kind(origin: PageOrigin) -> PageKind {
+    match origin {
+        PageOrigin::Source { source, index } => PageKind::Source { source, index },
+        PageOrigin::Blank { width, height } => PageKind::Blank {
+            size: PageSize { width, height },
+        },
     }
 }
 
@@ -287,25 +306,34 @@ impl EditSession {
         }
         let mut state = self.lock();
         let mut entries = Vec::with_capacity(pages.len());
+        let origin_of = |kind: PageKind| match kind {
+            PageKind::Source { source, index } => {
+                let known = state.sources.get(source as usize);
+                if known.is_none_or(|known| index >= known.page_count) {
+                    return Err(invalid("page source inexistante"));
+                }
+                Ok(PageOrigin::Source { source, index })
+            }
+            PageKind::Blank { size } if size.width > 0.0 && size.height > 0.0 => {
+                Ok(PageOrigin::Blank {
+                    width: size.width,
+                    height: size.height,
+                })
+            }
+            PageKind::Blank { .. } => Err(invalid("format de page vierge invalide")),
+        };
         for (position, page) in pages.iter().enumerate() {
-            let origin = match page.kind {
-                PageKind::Source { source, index } => {
-                    let known = state.sources.get(source as usize);
-                    if known.is_none_or(|known| index >= known.page_count) {
-                        return Err(invalid("page source inexistante"));
-                    }
-                    PageOrigin::Source { source, index }
-                }
-                PageKind::Blank { size } if size.width > 0.0 && size.height > 0.0 => {
-                    PageOrigin::Blank {
-                        width: size.width,
-                        height: size.height,
-                    }
-                }
-                PageKind::Blank { .. } => return Err(invalid("format de page vierge invalide")),
+            let origin = origin_of(page.kind)?;
+            let replaces = match page.replaces {
+                Some(original) => Some(ReplacedPage {
+                    origin: origin_of(original.kind)?,
+                    quarter_turns: original.quarter_turns % 4,
+                }),
+                None => None,
             };
             entries.push(RestoredPage {
                 origin,
+                replaces,
                 quarter_turns: page.quarter_turns,
                 content: kept
                     .get(position)
@@ -906,7 +934,7 @@ impl EditSession {
 
     /// Document et indice de la page `page` (aucun document pour une page
     /// vierge), et les modifications de son contenu.
-    fn page_source(&self, page: u64) -> Result<PageSource, EngineError> {
+    pub(crate) fn page_source(&self, page: u64) -> Result<PageSource, EngineError> {
         let state = self.lock();
         let entry = state
             .editor
@@ -948,6 +976,19 @@ impl EditSession {
             .ok_or_else(|| invalid("tableau inexistant"))
     }
 
+    /// Applique `change` aux modifications du document.
+    pub(crate) fn with_editor<R>(&self, change: impl FnOnce(&mut Editor) -> R) -> R {
+        change(&mut self.lock().editor)
+    }
+
+    /// Nombre de pages du document source `source` ; `None` s'il n'existe pas.
+    pub(crate) fn source_page_count(&self, source: u32) -> Option<u32> {
+        self.lock()
+            .sources
+            .get(source as usize)
+            .map(|source| source.page_count)
+    }
+
     fn lock(&self) -> MutexGuard<'_, State> {
         // Les opérations ne paniquent pas en laissant l'état à moitié modifié :
         // un verrou empoisonné reste utilisable.
@@ -965,13 +1006,30 @@ impl EditSession {
             .pages()
             .iter()
             .map(|entry| {
-                let page = match entry.origin {
-                    PageOrigin::Source { source, index } => OutputPage::Source {
+                let page = match (entry.origin, entry.replaces.map(|page| page.origin)) {
+                    // Page améliorée : l'objet de la page d'origine, avec le
+                    // contenu de la page améliorée.
+                    (
+                        PageOrigin::Source {
+                            source: content_source,
+                            index: content_index,
+                        },
+                        Some(PageOrigin::Source { source, index }),
+                    ) if (source, index) != (content_source, content_index) => {
+                        OutputPage::Replaced {
+                            source: source as usize,
+                            index,
+                            content_source: content_source as usize,
+                            content_index,
+                            quarter_turns: entry.quarter_turns,
+                        }
+                    }
+                    (PageOrigin::Source { source, index }, _) => OutputPage::Source {
                         source: source as usize,
                         index,
                         quarter_turns: entry.quarter_turns,
                     },
-                    PageOrigin::Blank { width, height } => OutputPage::Blank {
+                    (PageOrigin::Blank { width, height }, _) => OutputPage::Blank {
                         width,
                         height,
                         quarter_turns: entry.quarter_turns,
@@ -997,7 +1055,7 @@ impl EditSession {
 
 /// Document et indice d'une page (aucun document pour une page vierge), et
 /// les modifications de son contenu.
-type PageSource = (Option<Arc<PdfDocument>>, u32, Option<Arc<PageEdits>>);
+pub(crate) type PageSource = (Option<Arc<PdfDocument>>, u32, Option<Arc<PageEdits>>);
 
 /// Document et indice d'une page (aucun document pour une page vierge), et sa
 /// couche de texte.
@@ -1232,6 +1290,7 @@ mod tests {
             quarter_turns: 0,
             edit_revision: 0,
             text_layer_revision: 0,
+            replaces: None,
         });
         session.restore(pages, Vec::new(), Vec::new()).unwrap();
         assert_eq!(
@@ -1250,6 +1309,7 @@ mod tests {
             quarter_turns: 0,
             edit_revision: 0,
             text_layer_revision: 0,
+            replaces: None,
         };
         assert!(session
             .restore(vec![missing], Vec::new(), Vec::new())

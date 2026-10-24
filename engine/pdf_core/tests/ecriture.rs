@@ -408,3 +408,61 @@ fn detecte_les_documents_signes() {
     assert!(!is_signed(&source("organisation.pdf", None)).unwrap());
     assert!(!is_signed(&source("chiffre.pdf", Some("motdepasse"))).unwrap());
 }
+
+fn replaced(index: u32, content_index: u32) -> OutputPage {
+    OutputPage::Replaced {
+        source: 0,
+        index,
+        content_source: 1,
+        content_index,
+        quarter_turns: 0,
+    }
+}
+
+#[test]
+fn une_page_remplacee_garde_signets_liens_et_champs() {
+    // Contenu d'Alpha et de Delta remplacé (comme par une page améliorée),
+    // dans l'ordre d'origine.
+    let sources = [
+        source("organisation.pdf", None),
+        source("texte_simple.pdf", None),
+    ];
+    let order = [replaced(0, 0), page(1), page(2), replaced(3, 0), page(4)];
+    let bytes = write_pdf(&sources, &order).unwrap();
+    let doc = reopen(&bytes);
+
+    assert_eq!(names(&bytes, None), ["-", "Bravo", "Charlie", "-", "Echo"]);
+    let replacement = Document::from_bytes(sources[1].bytes(), None)
+        .unwrap()
+        .plain_text(0)
+        .unwrap();
+    let text = Document::from_bytes(&bytes, None)
+        .unwrap()
+        .plain_text(0)
+        .unwrap();
+    assert_eq!(text, replacement);
+    // Delta héritait d'une rotation de 90° : la page remplacée prend celle de
+    // son nouveau contenu.
+    assert_eq!(rotations(&doc), [0, 0, 0, 0, 90]);
+    assert_eq!(
+        outline(&bytes),
+        outline(source("organisation.pdf", None).bytes())
+    );
+    assert_eq!(link_targets(&doc, 0), [2, 4]);
+    assert_eq!(field_names(&doc), ["nom", "ville"]);
+    assert!(catalog_entry(&doc, "PageLabels").is_some());
+
+    // Dans un nouvel ordre, avec la page d'origine répétée : la copie garde
+    // son contenu d'origine.
+    let order = [page(4), replaced(0, 0), page(0)];
+    let bytes = write_pdf(&sources, &order).unwrap();
+    let doc = reopen(&bytes);
+    assert_eq!(names(&bytes, None), ["Echo", "-", "Alpha"]);
+    assert_eq!(rotations(&doc), [90, 0, 0]);
+    assert!(outline(&bytes).contains(&(s("Alpha"), 0, Some(1))));
+    assert_eq!(link_targets(&doc, 1), [0]);
+    assert_eq!(
+        field_names(&doc),
+        field_names(&reopen(&write(&pages(&[4, 0, 0]))))
+    );
+}

@@ -1,7 +1,7 @@
 //! Modifications d'un document : organisation des pages (ordre, rotation,
 //! suppression, duplication, insertion), contenu de chaque page (objets
-//! supprimés, déplacés, texte remplacé) et couche de texte des pages
-//! reconnues.
+//! supprimés, déplacés, texte remplacé), couche de texte des pages
+//! reconnues et pages améliorées (mode Amélioration).
 //!
 //! Le document n'est pas modifié : on manipule une liste de pages qui désignent
 //! chacune une page d'un document source (ou une page vierge), et pour chaque
@@ -46,6 +46,32 @@ pub struct PageEntry {
     pub origin: PageOrigin,
     /// Quarts de tour dans le sens horaire (0 à 3), ajoutés à la rotation propre
     /// de la page source.
+    pub quarter_turns: u8,
+    /// Page d'origine d'une page améliorée (mode Amélioration) : `origin` est
+    /// alors sa version améliorée, et l'enregistrement en garde l'objet
+    /// (annotations, liens, signets) avec le nouveau contenu.
+    pub replaces: Option<ReplacedPage>,
+}
+
+/// Page d'origine d'une page améliorée, telle qu'elle était avant.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ReplacedPage {
+    /// Page d'origine.
+    pub origin: PageOrigin,
+    /// Ses quarts de tour.
+    pub quarter_turns: u8,
+}
+
+/// Résultat de l'amélioration d'une page, à appliquer par [`Editor::enhance`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Enhancement {
+    /// Identifiant de la page.
+    pub page: u64,
+    /// Version améliorée de la page (image redressée) ; `None` si ses pixels
+    /// ne changent pas.
+    pub origin: Option<PageOrigin>,
+    /// Quarts de tour (sens horaire) qui remettent à l'endroit la page
+    /// d'origine (sans la rotation de l'organisation) ; 0 si elle l'est.
     pub quarter_turns: u8,
 }
 
@@ -172,6 +198,65 @@ impl Editor {
         self.commit("la reconnaissance du texte", state);
     }
 
+    /// Remplace les pages améliorées par leur version améliorée et remet à
+    /// l'endroit celles qui étaient couchées ou retournées, en une seule
+    /// étape d'annulation. Une page dont l'image change perd les
+    /// modifications de son contenu et sa couche de texte, établies sur
+    /// l'ancienne image. Une page qui n'existe plus est ignorée ; une page
+    /// déjà améliorée garde sa page d'origine.
+    pub fn enhance(&mut self, results: &[Enhancement]) {
+        let mut state = self.state.clone();
+        for result in results {
+            let Some(entry) = state.pages.iter_mut().find(|entry| entry.id == result.page) else {
+                continue;
+            };
+            let turns = result.quarter_turns % 4;
+            // Une rotation déjà corrigée à la main n'est pas une amélioration.
+            if result.origin.is_none() && (turns == 0 || turns == entry.quarter_turns) {
+                continue;
+            }
+            let before = ReplacedPage {
+                origin: entry.origin,
+                quarter_turns: entry.quarter_turns,
+            };
+            entry.replaces.get_or_insert(before);
+            if turns != 0 {
+                entry.quarter_turns = turns;
+            }
+            if let Some(origin) = result.origin {
+                entry.origin = origin;
+                state.contents.remove(&result.page);
+                state.layers.remove(&result.page);
+            }
+        }
+        self.commit("l'amélioration des pages", state);
+    }
+
+    /// Rend aux pages améliorées désignées leur page d'origine et sa
+    /// rotation, en une étape d'annulation ; les autres sont ignorées.
+    pub fn restore_originals(&mut self, pages: &[u64]) -> Result<()> {
+        if pages.is_empty() {
+            return Err(EditError::EmptySelection);
+        }
+        let mut state = self.state.clone();
+        for &page in pages {
+            let Some(entry) = state.pages.iter_mut().find(|entry| entry.id == page) else {
+                return Err(EditError::UnknownPage(page));
+            };
+            let Some(original) = entry.replaces.take() else {
+                continue;
+            };
+            if entry.origin != original.origin {
+                entry.origin = original.origin;
+                state.contents.remove(&page);
+                state.layers.remove(&page);
+            }
+            entry.quarter_turns = original.quarter_turns;
+        }
+        self.commit("le retour aux pages d'origine", state);
+        Ok(())
+    }
+
     /// Fait pivoter les pages désignées de `quarter_turns` quarts de tour
     /// (positif : sens horaire).
     pub fn rotate(&mut self, positions: &[usize], quarter_turns: i32) -> Result<()> {
@@ -221,7 +306,10 @@ impl Editor {
             state.pages.push(page);
             if positions.contains(&position) {
                 copies.push(state.pages.len());
-                let copy = self.new_entry(page.origin, page.quarter_turns);
+                let copy = PageEntry {
+                    replaces: page.replaces,
+                    ..self.new_entry(page.origin, page.quarter_turns)
+                };
                 if let Some(content) = self.state.contents.get(&page.id) {
                     state.contents.insert(copy.id, Arc::clone(content));
                 }
@@ -298,7 +386,10 @@ impl Editor {
         }
         let mut state = State::default();
         for page in pages {
-            let entry = self.new_entry(page.origin, page.quarter_turns % 4);
+            let entry = PageEntry {
+                replaces: page.replaces,
+                ..self.new_entry(page.origin, page.quarter_turns % 4)
+            };
             if !page.content.is_empty() {
                 let content = self.new_content(page.content.clone());
                 state.contents.insert(entry.id, content);
@@ -439,6 +530,7 @@ impl Editor {
             id,
             origin,
             quarter_turns,
+            replaces: None,
         }
     }
 
@@ -537,6 +629,8 @@ pub struct RestoredPage {
     pub content: BTreeMap<u32, ObjectEdit>,
     /// Couche de texte d'une page reconnue.
     pub text_layer: Option<TextLayer>,
+    /// Page d'origine d'une page améliorée.
+    pub replaces: Option<ReplacedPage>,
 }
 
 /// Modification du document, retenue par ses états avant et après.
@@ -690,12 +784,14 @@ mod tests {
                 quarter_turns: 5,
                 content,
                 text_layer: None,
+                replaces: None,
             },
             RestoredPage {
                 origin: blank,
                 quarter_turns: 0,
                 content: BTreeMap::new(),
                 text_layer: None,
+                replaces: None,
             },
         ];
         organizer.restore(&pages).unwrap();
@@ -915,6 +1011,98 @@ mod tests {
     }
 
     #[test]
+    fn ameliore_puis_rend_les_pages_d_origine() {
+        let mut editor = Editor::new(3);
+        let ids: Vec<u64> = editor.pages().iter().map(|page| page.id).collect();
+        editor.recognize(vec![Recognition {
+            page: ids[0],
+            layer: layer("Avant"),
+            quarter_turns: 0,
+        }]);
+        editor.delete_objects(ids[0], &[2]).unwrap();
+        let enhanced = |index| PageOrigin::Source { source: 1, index };
+        editor.enhance(&[
+            // Image redressée : la couche et les modifications tombent.
+            Enhancement {
+                page: ids[0],
+                origin: Some(enhanced(0)),
+                quarter_turns: 0,
+            },
+            // Seulement retournée.
+            Enhancement {
+                page: ids[1],
+                origin: None,
+                quarter_turns: 2,
+            },
+            // Déjà droite : rien ne change.
+            Enhancement {
+                page: ids[2],
+                origin: None,
+                quarter_turns: 0,
+            },
+        ]);
+        assert_eq!(editor.undo_name(), Some("l'amélioration des pages"));
+        let pages = editor.pages();
+        assert_eq!(pages[0].origin, enhanced(0));
+        assert_eq!(
+            pages[0].replaces.unwrap().origin,
+            PageOrigin::Source {
+                source: 0,
+                index: 0
+            }
+        );
+        assert!(editor.text_layer(ids[0]).is_none());
+        assert!(editor.content(ids[0]).is_none());
+        assert_eq!(pages[1].quarter_turns, 2);
+        assert_eq!(pages[1].replaces.unwrap().quarter_turns, 0);
+        assert!(pages[2].replaces.is_none());
+
+        // Une deuxième amélioration garde la page d'origine ; la copie d'une
+        // page améliorée l'est aussi.
+        editor.enhance(&[Enhancement {
+            page: ids[0],
+            origin: Some(enhanced(1)),
+            quarter_turns: 0,
+        }]);
+        assert_eq!(
+            editor.pages()[0].replaces.unwrap().origin,
+            PageOrigin::Source {
+                source: 0,
+                index: 0
+            }
+        );
+        let copy = editor.duplicate(&[0]).unwrap()[0];
+        assert!(editor.pages()[copy].replaces.is_some());
+        editor.undo();
+
+        // Page par page : retour à l'original, annulable.
+        editor.restore_originals(&[ids[1]]).unwrap();
+        assert_eq!(editor.undo_name(), Some("le retour aux pages d'origine"));
+        assert_eq!(editor.pages()[1].quarter_turns, 0);
+        assert!(editor.pages()[1].replaces.is_none());
+        assert_eq!(editor.pages()[0].origin, enhanced(1));
+        assert_eq!(
+            editor.restore_originals(&[999]),
+            Err(EditError::UnknownPage(999))
+        );
+
+        // En bloc : ⌘Z rend la couche et les modifications d'avant.
+        editor.undo();
+        editor.undo();
+        editor.undo();
+        assert_eq!(
+            editor.pages()[0].origin,
+            PageOrigin::Source {
+                source: 0,
+                index: 0
+            }
+        );
+        assert!(editor.text_layer(ids[0]).is_some());
+        assert!(editor.content(ids[0]).is_some());
+        assert!(editor.pages().iter().all(|page| page.replaces.is_none()));
+    }
+
+    #[test]
     fn restaure_une_couche_de_texte() {
         let mut editor = Editor::new(1);
         editor
@@ -926,6 +1114,7 @@ mod tests {
                 quarter_turns: 0,
                 content: BTreeMap::new(),
                 text_layer: Some(layer("Retrouvé")),
+                replaces: None,
             }])
             .unwrap();
         let id = editor.pages()[0].id;

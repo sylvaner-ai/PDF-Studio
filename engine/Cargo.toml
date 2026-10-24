@@ -7,6 +7,7 @@ members = [
     "layout",
     "fonts",
     "scan",
+    "enhance",
     "render",
     "ffi",
     "uniffi-bindgen",
@@ -27,6 +28,7 @@ ocr = { path = "ocr" }
 layout = { path = "layout" }
 fonts = { path = "fonts" }
 scan = { path = "scan" }
+enhance = { path = "enhance" }
 render = { path = "render" }
 # MuPDF : rendu, extraction et écriture PDF (licence AGPL-3.0, cf. docs/DEPENDANCES.md).
 # Les formats non PDF (EPUB, XPS, HTML…) et le moteur JavaScript sont désactivés.
@@ -60,4 +62,10 @@ debug = "line-tables-only"
 opt-level = 3
 
 [profile.dev.package.fonts]
+opt-level = 3
+
+[profile.dev.package.ocr]
+opt-level = 3
+
+[profile.dev.package.enhance]
 opt-level = 3

@@ -71,7 +71,7 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for EngineError {
 }
 
 /// Le moteur de l'application, vu comme un [`OcrEngine`].
-struct Foreign(Arc<dyn TextRecognizer>);
+pub(crate) struct Foreign(pub(crate) Arc<dyn TextRecognizer>);
 
 impl OcrEngine for Foreign {
     fn name(&self) -> String {

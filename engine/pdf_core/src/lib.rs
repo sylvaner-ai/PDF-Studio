@@ -8,6 +8,7 @@
 pub mod content;
 mod document;
 mod editing;
+mod enhanced;
 mod error;
 mod fonts;
 mod outline;
@@ -26,6 +27,7 @@ pub fn is_scanned_object(id: u32) -> bool {
     scanned::is_scan_id(id)
 }
 pub use editing::{CellInfo, ObjectInfo, TableInfo};
+pub use enhanced::{write_enhanced_pages, EnhancedImage, PageGeometry, ScanPixels};
 pub use error::{PdfError, Result};
 pub use outline::OutlineEntry;
 pub use page::{PageContent, PageSize};
