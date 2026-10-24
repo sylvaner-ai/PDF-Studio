@@ -165,7 +165,7 @@ fn retrouve_la_police_et_reecrit_le_texte() {
     let scan = doc.scan_model(0, Some(&layer)).unwrap().unwrap();
     let retouched = doc.retouched(0, &scan, &layer, &edits);
     assert!(!retouched.patches.is_empty());
-    let line_zone = super::retouch::line_zone(scan.line(montant.id).unwrap());
+    let line_zone = super::retouch::block_zone(scan.block(montant.id).unwrap());
     for patch in &retouched.patches {
         assert!(
             line_zone.inflate(4).contains_rect(&patch.rect),
@@ -377,5 +377,178 @@ fn apercu_visuel() {
         let mut ppm = format!("P6 {} {} 255\n", part.width, part.height).into_bytes();
         ppm.extend_from_slice(&part.data);
         std::fs::write(format!("{out}/scan_{name}.ppm"), ppm).unwrap();
+    }
+}
+
+/// Couche de texte lue d'un fichier `.mots.tsv` (texte, ligne, quadrilatère).
+fn layer_from(path: &Path) -> TextLayer {
+    let text = std::fs::read_to_string(path).unwrap();
+    TextLayer {
+        words: text
+            .lines()
+            .map(|line| {
+                let fields: Vec<&str> = line.split('\t').collect();
+                let mut quad = [0.0f32; 8];
+                for (k, v) in fields[2..10].iter().enumerate() {
+                    quad[k] = v.parse().unwrap();
+                }
+                LayerWord {
+                    text: fields[0].to_owned(),
+                    quad,
+                    confidence: 0.95,
+                    line: fields[1].parse().unwrap(),
+                }
+            })
+            .collect(),
+        engine: "Vision".into(),
+    }
+}
+
+fn write_ppm(image: &scan::RgbImage, path: &str) {
+    let mut ppm = format!("P6 {} {} 255\n", image.width, image.height).into_bytes();
+    ppm.extend_from_slice(&image.data);
+    std::fs::write(path, ppm).unwrap();
+}
+
+/// Blocs des scans privés (`tests/fixtures/private/*.pN.mots.tsv`, écrits
+/// sur le Mac par `couche_reconnue`) : leurs emprises sont dessinées sur le
+/// scan, et le paragraphe le plus long est réécrit (un mot allongé), pour
+/// l'examen visuel. Rien du contenu n'est affiché.
+#[test]
+#[ignore = "documents privés, examen visuel"]
+fn blocs_des_scans_prives() {
+    init_fonts();
+    let out = std::env::var("SCAN_DEBUG_DIR").unwrap_or_else(|_| "/tmp".into());
+    let dir = fixtures().join("private");
+    let mut layers: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.to_string_lossy().ends_with(".mots.tsv"))
+        .collect();
+    layers.sort();
+    for path in layers {
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let stem = name.trim_end_matches(".mots.tsv");
+        let (doc_name, page) = stem.rsplit_once(".p").unwrap();
+        let index: u32 = page.parse::<u32>().unwrap() - 1;
+        let mut doc = Document::open_file(&dir.join(format!("{doc_name}.pdf")), None).unwrap();
+        let layer = layer_from(&path);
+        let start = std::time::Instant::now();
+        let scan = doc.scan_model(index, Some(&layer)).unwrap().unwrap();
+        let elapsed = start.elapsed();
+        let lines: usize = scan.blocks.iter().map(|b| b.lines.len()).sum();
+        let paragraphs = scan.blocks.iter().filter(|b| b.paragraph).count();
+        eprintln!(
+            "{}… p{} : {} mots, {} lignes, {} blocs dont {} paragraphes ({:.0} ms)",
+            doc_name.chars().take(10).collect::<String>(),
+            index + 1,
+            layer.words.len(),
+            lines,
+            scan.blocks.len(),
+            paragraphs,
+            elapsed.as_secs_f64() * 1000.0
+        );
+        let mut image = (*scan.base).clone();
+        let colors = [
+            [220, 0, 0],
+            [0, 150, 0],
+            [0, 0, 220],
+            [180, 0, 180],
+            [0, 140, 140],
+            [200, 110, 0],
+        ];
+        let frame = |image: &mut scan::RgbImage, r: scan::Rect, c: [u8; 3], w: i32| {
+            for t in 0..w {
+                for x in r.x0..r.x1 {
+                    image.set(x, r.y0 - t, c);
+                    image.set(x, r.y1 + t, c);
+                }
+                for y in r.y0..r.y1 {
+                    image.set(r.x0 - t, y, c);
+                    image.set(r.x1 + t, y, c);
+                }
+            }
+        };
+        for (k, block) in scan.blocks.iter().enumerate() {
+            let c = colors[k % colors.len()];
+            for line in &block.lines {
+                frame(&mut image, line.core, c, 2);
+            }
+            frame(&mut image, block.core.inflate(6), c, 5);
+        }
+        write_ppm(&image, &format!("{out}/blocs-{stem}.ppm"));
+
+        // Réécriture du plus long paragraphe : un mot de sa deuxième ligne
+        // est allongé, le reste suit.
+        let Some(block) = scan
+            .blocks
+            .iter()
+            .filter(|b| b.paragraph)
+            .max_by_key(|b| b.lines.len())
+        else {
+            continue;
+        };
+        let target = block.lines[1].words[block.lines[1].words.len() / 2];
+        let mut changed = false;
+        let words: Vec<String> = block
+            .text
+            .split(' ')
+            .map(|w| {
+                if !changed
+                    && block.words().position(|i| i == target).is_some()
+                    && w.contains(&layer.words[target].text)
+                {
+                    changed = true;
+                    format!("{w}{w}")
+                } else {
+                    w.to_owned()
+                }
+            })
+            .collect();
+        let new_text = words.join(" ");
+        let (style, candidates) = doc
+            .scan_style(index, block.id, Some(&layer))
+            .unwrap()
+            .unwrap();
+        let edits = single(
+            block.id,
+            ObjectEdit {
+                scan: Some(ScanText {
+                    text: new_text,
+                    measured: style.clone(),
+                    style,
+                    candidates,
+                }),
+                ..ObjectEdit::default()
+            },
+            1,
+        );
+        let start = std::time::Instant::now();
+        let retouched = doc.retouched(index, &scan, &layer, &edits);
+        eprintln!(
+            "   réécriture : {} calques, {:.0} ms, débordement {}",
+            retouched.patches.len(),
+            start.elapsed().as_secs_f64() * 1000.0,
+            retouched.overflow.contains(&block.id)
+        );
+        let mut after = (*scan.base).clone();
+        for patch in &retouched.patches {
+            for y in patch.rect.y0..patch.rect.y1 {
+                for x in patch.rect.x0..patch.rect.x1 {
+                    if patch.changed.get(x, y) {
+                        after.set(x, y, patch.pixels.get(x - patch.rect.x0, y - patch.rect.y0));
+                    }
+                }
+            }
+        }
+        let crop = block.core.inflate(40).intersect(&after.bounds());
+        let crop = scan::Rect::new(
+            crop.x0,
+            crop.y0,
+            crop.x1,
+            (crop.y1 + 150).min(after.height as i32),
+        );
+        write_ppm(&scan.base.crop(crop), &format!("{out}/avant-{stem}.ppm"));
+        write_ppm(&after.crop(crop), &format!("{out}/apres-{stem}.ppm"));
     }
 }

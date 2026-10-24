@@ -133,6 +133,9 @@ pub struct RecognitionSettings {
     pub deskew: bool,
     /// Lire une page couchée ou à l'envers, et la remettre à l'endroit.
     pub orientation: bool,
+    /// Relire les mots que le moteur a laissés de côté (encre non lue dans
+    /// la bande d'une ligne) et ramener à leur ligne les emprises trop hautes.
+    pub recover: bool,
 }
 
 /// Réglages retenus par le banc d'essai pour Vision (cf.
@@ -147,6 +150,7 @@ pub fn default_recognition_settings() -> RecognitionSettings {
         binarize: false,
         deskew: true,
         orientation: true,
+        recover: true,
     }
 }
 
@@ -302,6 +306,7 @@ pub(crate) fn recognize(
         binarize: settings.binarize,
         deskew: settings.deskew,
         orientation: settings.orientation,
+        recover: settings.recover,
     };
     let result = ocr::recognize(&engine, &image, &options).map_err(|err| match err {
         OcrError::Cancelled => EngineError::Failed {

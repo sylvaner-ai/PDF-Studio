@@ -65,9 +65,14 @@ impl Selection {
     }
 }
 
-/// Sélectionne l'encre de `zone`. Les composantes dont le centre tombe dans
-/// une zone de `avoid` (lignes voisines) sont laissées.
-pub fn select(image: &RgbImage, zone: Rect, settings: &Selecting, avoid: &[Rect]) -> Selection {
+/// Sélectionne l'encre de `zone`. Les composantes dont le centre `(x, y)`
+/// vérifie `avoid` (encre des lignes voisines) sont laissées.
+pub fn select(
+    image: &RgbImage,
+    zone: Rect,
+    settings: &Selecting,
+    avoid: &dyn Fn(i32, i32) -> bool,
+) -> Selection {
     let bounds = image.bounds();
     let allowed = zone.inflate(settings.margin);
     let search = allowed.inflate(1 + settings.halo).intersect(&bounds);
@@ -91,7 +96,7 @@ pub fn select(image: &RgbImage, zone: Rect, settings: &Selecting, avoid: &[Rect]
             (part.rect.x0 + part.rect.x1) / 2,
             (part.rect.y0 + part.rect.y1) / 2,
         );
-        if avoid.iter().any(|r| r.contains(center.0, center.1)) {
+        if avoid(center.0, center.1) {
             continue;
         }
         if let Some(color) = settings.color {
@@ -310,7 +315,7 @@ mod tests {
     #[test]
     fn efface_le_mot_et_garde_le_filet() {
         let mut image = page();
-        let selection = select(&image, Rect::new(18, 8, 34, 27), &settings(), &[]);
+        let selection = select(&image, Rect::new(18, 8, 34, 27), &settings(), &|_, _| false);
         assert!(!selection.is_empty());
         assert!(!selection.mask.get(50, 25));
         let changed = erase(&mut image, &selection, 1);
@@ -326,7 +331,7 @@ mod tests {
     #[test]
     fn deplace_l_encre() {
         let mut image = page();
-        let selection = select(&image, Rect::new(18, 8, 34, 22), &settings(), &[]);
+        let selection = select(&image, Rect::new(18, 8, 34, 22), &settings(), &|_, _| false);
         let patch = extract(&image, &selection);
         erase(&mut image, &selection, 2);
         apply(&mut image, &patch, 40, 2);

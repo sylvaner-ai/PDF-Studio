@@ -1595,6 +1595,7 @@ mod tests {
             flatten: false,
             deskew: false,
             orientation: false,
+            recover: false,
             ..default_recognition_settings()
         };
         let result = session
@@ -1668,6 +1669,7 @@ mod tests {
             flatten: false,
             deskew: false,
             orientation: false,
+            recover: false,
             ..default_recognition_settings()
         };
         let session = EditSession::new(open("scan_simule.pdf"));
@@ -1731,5 +1733,142 @@ mod tests {
         assert!(!EditSession::new(open("organisation.pdf"))
             .has_signature()
             .unwrap());
+    }
+
+    /// Vision, par le programme du banc d'essai (`vision_ocr --tsv`) : l'image
+    /// lui est passée en BMP.
+    struct VisionProgram(std::path::PathBuf);
+
+    impl TextRecognizer for VisionProgram {
+        fn name(&self) -> String {
+            "Vision".into()
+        }
+
+        fn recognize(
+            &self,
+            image: OcrImage,
+            languages: Vec<String>,
+        ) -> Result<Vec<RecognizedText>, EngineError> {
+            let path =
+                std::env::temp_dir().join(format!("pdfstudio-ocr-{}.bmp", std::process::id()));
+            std::fs::write(&path, gray_bmp(&image)).unwrap();
+            let output = std::process::Command::new(&self.0)
+                .args(["--languages", &languages.join(","), "--tsv"])
+                .arg(&path)
+                .output()
+                .unwrap();
+            let _ = std::fs::remove_file(&path);
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            Ok(String::from_utf8(output.stdout)
+                .unwrap()
+                .lines()
+                .map(|row| {
+                    let fields: Vec<&str> = row.split('\t').collect();
+                    RecognizedText {
+                        text: fields[0].into(),
+                        confidence: fields[1].parse().unwrap(),
+                        line: fields[2].parse().unwrap(),
+                        quad: fields[3..11].iter().map(|v| v.parse().unwrap()).collect(),
+                    }
+                })
+                .collect())
+        }
+    }
+
+    /// Image en niveaux de gris au format BMP (8 bits, palette de gris).
+    fn gray_bmp(image: &OcrImage) -> Vec<u8> {
+        let (w, h) = (image.width as usize, image.height as usize);
+        let row = w.div_ceil(4) * 4;
+        let offset = 14 + 40 + 256 * 4;
+        let size = offset + row * h;
+        let mut out = Vec::with_capacity(size);
+        out.extend_from_slice(b"BM");
+        out.extend_from_slice(&(size as u32).to_le_bytes());
+        out.extend_from_slice(&[0; 4]);
+        out.extend_from_slice(&(offset as u32).to_le_bytes());
+        out.extend_from_slice(&40u32.to_le_bytes());
+        out.extend_from_slice(&(w as i32).to_le_bytes());
+        out.extend_from_slice(&(h as i32).to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&8u16.to_le_bytes());
+        out.extend_from_slice(&[0; 4]);
+        out.extend_from_slice(&((row * h) as u32).to_le_bytes());
+        out.extend_from_slice(&2835i32.to_le_bytes());
+        out.extend_from_slice(&2835i32.to_le_bytes());
+        out.extend_from_slice(&256u32.to_le_bytes());
+        out.extend_from_slice(&[0; 4]);
+        for v in 0..=255u8 {
+            out.extend_from_slice(&[v, v, v, 0]);
+        }
+        // Rangées de bas en haut.
+        for y in (0..h).rev() {
+            out.extend_from_slice(&image.pixels[y * w..(y + 1) * w]);
+            out.resize(out.len() + row - w, 0);
+        }
+        out
+    }
+
+    /// Écrit, à côté de chaque PDF de `PDFSTUDIO_LAYER_DIR`, la couche de texte
+    /// que l'application lirait sur ses pages scannées
+    /// (`nom.pN.mots.tsv`, format de `scan_retouche.mots.tsv`), pour mettre
+    /// au point le regroupement des mots sur de vrais documents. Sur le Mac :
+    ///
+    /// ```text
+    /// swiftc -O -o /tmp/vision_ocr app/Recognition/VisionTextReader.swift \
+    ///     engine/tools/ocr_bench/vision/main.swift
+    /// PDFSTUDIO_VISION=/tmp/vision_ocr PDFSTUDIO_LAYER_DIR=tests/fixtures/private \
+    ///     cargo test --release -p pdfstudio_ffi couche_reconnue -- --ignored
+    /// ```
+    #[test]
+    #[ignore = "lit des PDF avec Vision, sur le Mac"]
+    fn couche_reconnue() {
+        let program = std::env::var("PDFSTUDIO_VISION").expect("PDFSTUDIO_VISION");
+        let directory = std::env::var("PDFSTUDIO_LAYER_DIR").expect("PDFSTUDIO_LAYER_DIR");
+        let mut files: Vec<_> = std::fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+            })
+            .collect();
+        files.sort();
+        for file in files {
+            let Ok(document) = PdfDocument::open(file.to_string_lossy().into_owned(), None) else {
+                eprintln!("illisible : {}", file.display());
+                continue;
+            };
+            let session = EditSession::new(document);
+            let pages = session.pages_to_recognize().unwrap();
+            let all = session.pages();
+            for page in pages {
+                let number = all.iter().position(|p| p.id == page).unwrap() + 1;
+                let result = session
+                    .recognize_page(
+                        page,
+                        Arc::new(VisionProgram(program.clone().into())),
+                        default_recognition_settings(),
+                    )
+                    .unwrap();
+                let mut tsv = String::new();
+                for word in &result.words {
+                    let quad: Vec<String> = word.quad.iter().map(f32::to_string).collect();
+                    tsv.push_str(&format!(
+                        "{}\t{}\t{}\n",
+                        word.text,
+                        word.line,
+                        quad.join("\t")
+                    ));
+                }
+                let stem = file.file_stem().unwrap().to_string_lossy();
+                let out = file.with_file_name(format!("{stem}.p{number}.mots.tsv"));
+                std::fs::write(&out, tsv).unwrap();
+                eprintln!("{} : {} mots", out.display(), result.words.len());
+            }
+        }
     }
 }

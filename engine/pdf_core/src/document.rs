@@ -297,7 +297,9 @@ impl Document {
         let (Some(scan), Some(layer)) = (self.scan_model(index, layer)?, layer) else {
             return Ok(None);
         };
-        Ok(scan.line(object).map(|line| scan.match_style(line, layer)))
+        Ok(scan
+            .block(object)
+            .map(|block| scan.match_style(block, layer)))
     }
 
     /// Couche de texte de la page avec les retouches de son scan : mots

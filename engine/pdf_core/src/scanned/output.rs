@@ -5,7 +5,7 @@ use edit::PageEdits;
 use mupdf::pdf::{PdfDocument, PdfObject};
 use mupdf::{Buffer, ColorParams, Colorspace, Device, DisplayList, Image, Pixmap};
 
-use super::retouch::line_zone;
+use super::retouch::block_zone;
 use super::{Patch, Placement, Retouched, ScanModel};
 use crate::content::geometry::Matrix;
 use crate::content::objects::ObjectKind;
@@ -40,12 +40,12 @@ pub(crate) fn infos(
         Some(placement.pixel_offset(f64::from(edit.dx), f64::from(edit.dy)))
     };
     let mut out = Vec::new();
-    for line in &model.lines {
-        let Some(offset) = table_offset(line.table) else {
+    for block in &model.blocks {
+        let Some(offset) = table_offset(block.table) else {
             continue;
         };
-        let changed = retouched.is_some_and(|r| r.bounds.contains_key(&line.id));
-        let Some(zone) = final_zone(line.id, line.core) else {
+        let changed = retouched.is_some_and(|r| r.bounds.contains_key(&block.id));
+        let Some(zone) = final_zone(block.id, block.core) else {
             continue;
         };
         let zone = if changed {
@@ -53,14 +53,14 @@ pub(crate) fn infos(
         } else {
             zone.offset(offset.0, offset.1)
         };
-        let scan = edit_of(line.id).and_then(|e| e.scan.clone());
+        let scan = edit_of(block.id).and_then(|e| e.scan.clone());
         let size = scan
             .as_ref()
-            .map_or((line.height() / placement.scale * 0.75) as f32, |s| {
+            .map_or((block.height() / placement.scale * 0.75) as f32, |s| {
                 s.style.size
             });
         out.push(ObjectInfo {
-            id: line.id,
+            id: block.id,
             kind: ObjectKind::Text,
             bounds: page_rect(&placement, &zone),
             movable: true,
@@ -68,15 +68,15 @@ pub(crate) fn infos(
             background: false,
             text: Some(
                 scan.as_ref()
-                    .map_or_else(|| line.text.clone(), |s| s.text.clone()),
+                    .map_or_else(|| block.text.clone(), |s| s.text.clone()),
             ),
             font_name: scan.as_ref().map(|s| s.style.font.clone()),
             font_size: size,
             substituted: false,
-            overflow: false,
+            overflow: retouched.is_some_and(|r| r.overflow.contains(&block.id)),
             missing: missing(scan.as_ref()),
-            fingerprint: fingerprint("line", &line_zone(line)),
-            table: line.table,
+            fingerprint: fingerprint("block", &block_zone(block)),
+            table: block.table,
             grid: None,
             scanned: true,
             scan,
