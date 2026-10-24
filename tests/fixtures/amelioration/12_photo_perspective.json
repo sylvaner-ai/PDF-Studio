@@ -1,0 +1,400 @@
+{
+ "fichier": "12_photo_perspective.pdf",
+ "description": "Lettre en français photographiée sur un bureau : perspective, courbure de la feuille, lumière en coin et ombre portée. Sert à évaluer l'option facultative de correction de perspective.",
+ "langues": [
+  "fr"
+ ],
+ "unites": "rectangles [x0, y0, x1, y1] en points sur la page droite, origine en haut à gauche ; coins_page_px : coins de la page droite (haut gauche, haut droit, bas droit, bas gauche) dans l'image scannée, en pixels ; inclinaison positive quand les lignes descendent vers la droite ; quarts de tour dans le sens horaire",
+ "pages": [
+  {
+   "format_pt": [
+    595.28,
+    841.89
+   ],
+   "page_pdf_pt": [
+    864.0,
+    1152.0
+   ],
+   "ppp": 200,
+   "image_px": [
+    2400,
+    3200
+   ],
+   "coins_page_px": [
+    [
+     330.0,
+     260.0
+    ],
+    [
+     2110.0,
+     360.0
+    ],
+    [
+     2230.0,
+     2960.0
+    ],
+    [
+     180.0,
+     2890.0
+    ]
+   ],
+   "a_verifier": false,
+   "papier": [
+    244,
+    241,
+    233
+   ],
+   "couvercle": null,
+   "eclairage": "photo : lumière en coin (haut gauche), ombre portée",
+   "inclinaison_deg": null,
+   "quart_de_tour": 0,
+   "perspective": true,
+   "courbure_px": 22,
+   "flou_px": 1.0,
+   "bruit": 5,
+   "jpeg": 82,
+   "niveaux_de_gris": false,
+   "transparence_verso": 0.0,
+   "zones_fond": [
+    [
+     304.0,
+     444.0,
+     344.0,
+     484.0
+    ],
+    [
+     24.0,
+     24.0,
+     64.0,
+     64.0
+    ],
+    [
+     24.0,
+     764.0,
+     64.0,
+     804.0
+    ],
+    [
+     524.0,
+     84.0,
+     564.0,
+     124.0
+    ],
+    [
+     524.0,
+     744.0,
+     564.0,
+     784.0
+    ],
+    [
+     244.0,
+     144.0,
+     284.0,
+     184.0
+    ],
+    [
+     24.0,
+     464.0,
+     64.0,
+     504.0
+    ],
+    [
+     184.0,
+     624.0,
+     224.0,
+     664.0
+    ],
+    [
+     524.0,
+     344.0,
+     564.0,
+     384.0
+    ],
+    [
+     464.0,
+     544.0,
+     504.0,
+     584.0
+    ]
+   ],
+   "aplats": [],
+   "photos": [],
+   "degrades": [],
+   "filets": [],
+   "lignes": [
+    {
+     "texte": "Atelier Lefèvre",
+     "rect": [
+      72.0,
+      81.2,
+      151.09,
+      95.24
+     ],
+     "corps_pt": 12,
+     "police": "Caladea-Bold",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "8, place de l'Église",
+     "rect": [
+      72.0,
+      97.28,
+      148.03,
+      109.88
+     ],
+     "corps_pt": 10.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "33000 Bordeaux",
+     "rect": [
+      72.0,
+      112.28,
+      140.83,
+      124.88
+     ],
+     "corps_pt": 10.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Bordeaux, le 18 mars 2026",
+     "rect": [
+      405.94,
+      185.92,
+      523.28,
+      198.88
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Objet : devis de rénovation n° D-2026-077",
+     "rect": [
+      72.0,
+      229.56,
+      281.44,
+      242.88
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Bold",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Madame, Monsieur,",
+     "rect": [
+      72.0,
+      265.56,
+      165.12,
+      278.88
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Suite à notre entretien du 14 mars dernier, je vous confirme l'accord conclu pour la rénovation",
+     "rect": [
+      72.0,
+      288.74,
+      510.72,
+      302.06
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "des locaux situés au deuxième étage. Les travaux débuteront le lundi 7 avril et s'achèveront au",
+     "rect": [
+      72.0,
+      303.92,
+      510.74,
+      317.24
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "plus tard le 30 mai, sous réserve des délais de livraison des matériaux.",
+     "rect": [
+      72.0,
+      319.1,
+      397.51,
+      332.42
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Le coût total s'élève à 18 450,00 € hors taxes, soit 22 140,00 € TTC. Un acompte de 30 % sera",
+     "rect": [
+      72.0,
+      342.28,
+      499.04,
+      355.6
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "versé à la signature du devis ; le solde sera réglé à la réception des travaux, après la levée",
+     "rect": [
+      72.0,
+      357.46,
+      483.32,
+      370.78
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "d'éventuelles réserves.",
+     "rect": [
+      72.0,
+      372.64,
+      176.65,
+      385.96
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Je reste à votre disposition pour toute précision complémentaire et vous prie d'agréer, Madame,",
+     "rect": [
+      72.0,
+      395.82,
+      516.23,
+      409.14
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Monsieur, l'expression de mes salutations distinguées.",
+     "rect": [
+      72.0,
+      411.0,
+      325.03,
+      424.32
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Paul Lefèvre",
+     "rect": [
+      365.28,
+      464.18,
+      422.78,
+      477.5
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Gérant",
+     "rect": [
+      365.28,
+      480.9,
+      393.44,
+      493.5
+     ],
+     "corps_pt": 10.5,
+     "police": "Caladea-Italic",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    }
+   ]
+  }
+ ]
+}

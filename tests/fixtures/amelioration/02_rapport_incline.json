@@ -1,0 +1,319 @@
+{
+ "fichier": "02_rapport_incline.pdf",
+ "description": "Rapport en anglais, 200 ppp, incliné de −7,5°.",
+ "langues": [
+  "en"
+ ],
+ "unites": "rectangles [x0, y0, x1, y1] en points sur la page droite, origine en haut à gauche ; coins_page_px : coins de la page droite (haut gauche, haut droit, bas droit, bas gauche) dans l'image scannée, en pixels ; inclinaison positive quand les lignes descendent vers la droite ; quarts de tour dans le sens horaire",
+ "pages": [
+  {
+   "format_pt": [
+    595.28,
+    841.89
+   ],
+   "page_pdf_pt": [
+    595.44,
+    842.04
+   ],
+   "ppp": 200,
+   "image_px": [
+    1654,
+    2339
+   ],
+   "coins_page_px": [
+    [
+     -145.6,
+     118.0
+    ],
+    [
+     1494.3,
+     -97.9
+    ],
+    [
+     1799.6,
+     2221.0
+    ],
+    [
+     159.7,
+     2436.9
+    ]
+   ],
+   "a_verifier": false,
+   "papier": [
+    244,
+    242,
+    236
+   ],
+   "couvercle": [
+    232,
+    232,
+    230
+   ],
+   "eclairage": "uniforme",
+   "inclinaison_deg": -7.5,
+   "quart_de_tour": 0,
+   "perspective": false,
+   "courbure_px": 0,
+   "flou_px": 0.7,
+   "bruit": 4,
+   "jpeg": 80,
+   "niveaux_de_gris": false,
+   "transparence_verso": 0.0,
+   "zones_fond": [
+    [
+     304.0,
+     424.0,
+     344.0,
+     464.0
+    ],
+    [
+     64.0,
+     24.0,
+     104.0,
+     64.0
+    ],
+    [
+     24.0,
+     764.0,
+     64.0,
+     804.0
+    ],
+    [
+     524.0,
+     104.0,
+     564.0,
+     144.0
+    ],
+    [
+     504.0,
+     724.0,
+     544.0,
+     764.0
+    ],
+    [
+     24.0,
+     344.0,
+     64.0,
+     384.0
+    ],
+    [
+     124.0,
+     544.0,
+     164.0,
+     584.0
+    ],
+    [
+     264.0,
+     684.0,
+     304.0,
+     724.0
+    ],
+    [
+     324.0,
+     24.0,
+     364.0,
+     64.0
+    ],
+    [
+     384.0,
+     244.0,
+     424.0,
+     284.0
+    ]
+   ],
+   "aplats": [],
+   "photos": [],
+   "degrades": [],
+   "filets": [],
+   "lignes": [
+    {
+     "texte": "Project Status Report",
+     "rect": [
+      72.0,
+      78.0,
+      236.62,
+      101.04
+     ],
+     "corps_pt": 18.7,
+     "police": "Carlito-Bold",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "The network upgrade programme remains on schedule for completion in the first quarter. Fibre",
+     "rect": [
+      72.0,
+      118.2,
+      502.39,
+      132.24
+     ],
+     "corps_pt": 11.0,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "links between the three main buildings were commissioned on October 2, and the legacy switches",
+     "rect": [
+      72.0,
+      132.72,
+      515.28,
+      146.76
+     ],
+     "corps_pt": 11.0,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "will be retired after a two-week overlap.",
+     "rect": [
+      72.0,
+      147.24,
+      253.42,
+      161.28
+     ],
+     "corps_pt": 11.0,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Spending to date is $286,400 against a budget of $540,000. The only significant variance concerns",
+     "rect": [
+      72.0,
+      169.46,
+      513.47,
+      183.5
+     ],
+     "corps_pt": 11.0,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "cabling labour, which ran 9% above estimate because of asbestos checks in the older wing.",
+     "rect": [
+      72.0,
+      183.98,
+      480.68,
+      198.02
+     ],
+     "corps_pt": 11.0,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Next steps: migrate the wireless controllers, update the disaster recovery plan, and run a full",
+     "rect": [
+      72.0,
+      206.2,
+      489.55,
+      220.24
+     ],
+     "corps_pt": 11.0,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "failover test before the end of November.",
+     "rect": [
+      72.0,
+      220.72,
+      258.99,
+      234.76
+     ],
+     "corps_pt": 11.0,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "•  Fibre backbone: completed",
+     "rect": [
+      90.0,
+      242.94,
+      224.03,
+      256.98
+     ],
+     "corps_pt": 11,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "•  Core switches: in progress (70%)",
+     "rect": [
+      90.0,
+      258.94,
+      247.0,
+      272.98
+     ],
+     "corps_pt": 11,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "•  Wireless controllers: planned for November",
+     "rect": [
+      90.0,
+      274.94,
+      298.26,
+      288.98
+     ],
+     "corps_pt": 11,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    }
+   ]
+  }
+ ]
+}

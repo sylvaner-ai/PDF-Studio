@@ -20,5 +20,9 @@ render.workspace = true
 thiserror.workspace = true
 uniffi.workspace = true
 
+[dev-dependencies]
+# Vérité terrain du jeu de test du mode Amélioration (tests seulement).
+serde_json = "1"
+
 [lints]
 workspace = true

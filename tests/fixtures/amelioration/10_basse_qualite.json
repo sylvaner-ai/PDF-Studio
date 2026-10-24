@@ -1,0 +1,404 @@
+{
+ "fichier": "10_basse_qualite.pdf",
+ "description": "Note en français, 150 ppp en niveaux de gris, flou, bruit fort, JPEG de qualité 35, verso visible par transparence.",
+ "langues": [
+  "fr"
+ ],
+ "unites": "rectangles [x0, y0, x1, y1] en points sur la page droite, origine en haut à gauche ; coins_page_px : coins de la page droite (haut gauche, haut droit, bas droit, bas gauche) dans l'image scannée, en pixels ; inclinaison positive quand les lignes descendent vers la droite ; quarts de tour dans le sens horaire",
+ "pages": [
+  {
+   "format_pt": [
+    595.28,
+    841.89
+   ],
+   "page_pdf_pt": [
+    595.2,
+    841.92
+   ],
+   "ppp": 150,
+   "image_px": [
+    1240,
+    1754
+   ],
+   "coins_page_px": [
+    [
+     17.0,
+     -11.7
+    ],
+    [
+     1256.7,
+     12.1
+    ],
+    [
+     1223.0,
+     1765.7
+    ],
+    [
+     -16.7,
+     1741.9
+    ]
+   ],
+   "a_verifier": false,
+   "papier": [
+    226,
+    222,
+    206
+   ],
+   "couvercle": [
+    232,
+    232,
+    230
+   ],
+   "eclairage": "assombri vers le haut à droite (−12 %)",
+   "inclinaison_deg": 1.1,
+   "quart_de_tour": 0,
+   "perspective": false,
+   "courbure_px": 0,
+   "flou_px": 1.1,
+   "bruit": 11,
+   "jpeg": 35,
+   "niveaux_de_gris": true,
+   "transparence_verso": 0.1,
+   "zones_fond": [
+    [
+     304.0,
+     424.0,
+     344.0,
+     464.0
+    ],
+    [
+     24.0,
+     24.0,
+     64.0,
+     64.0
+    ],
+    [
+     24.0,
+     764.0,
+     64.0,
+     804.0
+    ],
+    [
+     524.0,
+     84.0,
+     564.0,
+     124.0
+    ],
+    [
+     524.0,
+     724.0,
+     564.0,
+     764.0
+    ],
+    [
+     24.0,
+     384.0,
+     64.0,
+     424.0
+    ],
+    [
+     144.0,
+     564.0,
+     184.0,
+     604.0
+    ],
+    [
+     304.0,
+     24.0,
+     344.0,
+     64.0
+    ],
+    [
+     524.0,
+     364.0,
+     564.0,
+     404.0
+    ],
+    [
+     444.0,
+     544.0,
+     484.0,
+     584.0
+    ]
+   ],
+   "aplats": [],
+   "photos": [],
+   "degrades": [],
+   "filets": [],
+   "lignes": [
+    {
+     "texte": "Note de service",
+     "rect": [
+      72.0,
+      78.72,
+      199.24,
+      100.8
+     ],
+     "corps_pt": 18.7,
+     "police": "Caladea-Bold",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Afin d'assurer la continuité du service pendant la période estivale, chaque équipe établira son",
+     "rect": [
+      72.0,
+      118.92,
+      490.39,
+      131.88
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "planning de congés avant le 15 mai. Les demandes seront validées par le responsable de service dans",
+     "rect": [
+      72.0,
+      133.44,
+      518.65,
+      146.4
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "un délai de dix jours ouvrés.",
+     "rect": [
+      72.0,
+      147.96,
+      197.75,
+      160.92
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Une permanence minimale de deux personnes est requise du 14 juillet au 25 août. Les collaborateurs",
+     "rect": [
+      72.0,
+      170.18,
+      521.32,
+      183.14
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "qui souhaitent fractionner leurs congés sont invités à le signaler dès que possible, afin de faciliter les",
+     "rect": [
+      72.0,
+      184.7,
+      521.36,
+      197.66
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "arbitrages.",
+     "rect": [
+      72.0,
+      199.22,
+      119.69,
+      212.18
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Les jours de réduction du temps de travail non pris au 31 décembre seront perdus, sauf accord écrit",
+     "rect": [
+      72.0,
+      221.44,
+      513.7,
+      234.4
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "de la direction des ressources humaines.",
+     "rect": [
+      72.0,
+      235.96,
+      252.61,
+      248.92
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "La numérisation des archives d'une entreprise ne se limite pas à produire des images : encore faut-il",
+     "rect": [
+      72.0,
+      258.18,
+      519.48,
+      271.14
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "pouvoir y retrouver une information. Reconnaître le texte d'une page scannée exige d'abord de la",
+     "rect": [
+      72.0,
+      272.7,
+      504.6,
+      285.66
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "redresser, puis de distinguer le papier de l'encre, enfin de lire chaque ligne. Les caractères accentués,",
+     "rect": [
+      72.0,
+      287.22,
+      519.67,
+      300.18
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "les ligatures et les chiffres mettent les moteurs à l'épreuve ; une virgule mal lue dans un montant",
+     "rect": [
+      72.0,
+      301.74,
+      505.7,
+      314.7
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "suffit à fausser un total. C'est pourquoi chaque mot reçoit une note de confiance, qui signale à",
+     "rect": [
+      72.0,
+      316.26,
+      489.73,
+      329.22
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "l'utilisateur les passages à vérifier. Un œil exercé repère vite ces hésitations : « 1 » pris pour « l », « 0",
+     "rect": [
+      72.0,
+      330.78,
+      517.25,
+      343.74
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "» pour « O », ou « é » privé de son accent.",
+     "rect": [
+      72.0,
+      345.3,
+      255.19,
+      358.26
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    }
+   ]
+  }
+ ]
+}

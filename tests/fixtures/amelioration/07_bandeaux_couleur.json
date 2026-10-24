@@ -1,0 +1,471 @@
+{
+ "fichier": "07_bandeaux_couleur.pdf",
+ "description": "Compte rendu en français, 200 ppp : bandeau bleu aux nuances multiples sous du texte blanc, encadré orangé bordé, pied de page vert.",
+ "langues": [
+  "fr"
+ ],
+ "unites": "rectangles [x0, y0, x1, y1] en points sur la page droite, origine en haut à gauche ; coins_page_px : coins de la page droite (haut gauche, haut droit, bas droit, bas gauche) dans l'image scannée, en pixels ; inclinaison positive quand les lignes descendent vers la droite ; quarts de tour dans le sens horaire",
+ "pages": [
+  {
+   "format_pt": [
+    595.28,
+    841.89
+   ],
+   "page_pdf_pt": [
+    595.44,
+    842.04
+   ],
+   "ppp": 200,
+   "image_px": [
+    1654,
+    2339
+   ],
+   "coins_page_px": [
+    [
+     24.7,
+     -17.1
+    ],
+    [
+     1678.3,
+     17.6
+    ],
+    [
+     1629.3,
+     2356.1
+    ],
+    [
+     -24.3,
+     2321.4
+    ]
+   ],
+   "a_verifier": false,
+   "papier": [
+    246,
+    244,
+    238
+   ],
+   "couvercle": [
+    232,
+    232,
+    230
+   ],
+   "eclairage": "léger dégradé vertical (−7 % en bas)",
+   "inclinaison_deg": 1.2,
+   "quart_de_tour": 0,
+   "perspective": false,
+   "courbure_px": 0,
+   "flou_px": 0.8,
+   "bruit": 5,
+   "jpeg": 80,
+   "niveaux_de_gris": false,
+   "transparence_verso": 0.0,
+   "zones_fond": [
+    [
+     304.0,
+     424.0,
+     344.0,
+     464.0
+    ],
+    [
+     24.0,
+     704.0,
+     64.0,
+     744.0
+    ],
+    [
+     524.0,
+     144.0,
+     564.0,
+     184.0
+    ],
+    [
+     524.0,
+     704.0,
+     564.0,
+     744.0
+    ],
+    [
+     24.0,
+     404.0,
+     64.0,
+     444.0
+    ],
+    [
+     164.0,
+     564.0,
+     204.0,
+     604.0
+    ],
+    [
+     524.0,
+     404.0,
+     564.0,
+     444.0
+    ],
+    [
+     424.0,
+     544.0,
+     464.0,
+     584.0
+    ],
+    [
+     304.0,
+     664.0,
+     344.0,
+     704.0
+    ],
+    [
+     184.0,
+     704.0,
+     224.0,
+     744.0
+    ]
+   ],
+   "aplats": [
+    {
+     "id": "bandeau",
+     "rect": [
+      0.0,
+      36.0,
+      595.28,
+      120.0
+     ],
+     "couleur": [
+      35,
+      90,
+      170
+     ],
+     "nuances": 28,
+     "dominante_scan": [
+      33,
+      85,
+      158
+     ]
+    },
+    {
+     "id": "encadre",
+     "rect": [
+      72.0,
+      277.12,
+      523.28,
+      391.12
+     ],
+     "couleur": [
+      252,
+      226,
+      196
+     ],
+     "nuances": 18,
+     "dominante_scan": [
+      235,
+      209,
+      176
+     ]
+    },
+    {
+     "id": "pied",
+     "rect": [
+      0.0,
+      771.89,
+      595.28,
+      811.89
+     ],
+     "couleur": [
+      40,
+      140,
+      90
+     ],
+     "nuances": 26,
+     "dominante_scan": [
+      34,
+      122,
+      76
+     ]
+    }
+   ],
+   "photos": [],
+   "degrades": [],
+   "filets": [
+    {
+     "rect": [
+      72.0,
+      276.62,
+      523.28,
+      277.62
+     ],
+     "epaisseur_pt": 1.0,
+     "couleur": [
+      214,
+      120,
+      40
+     ]
+    },
+    {
+     "rect": [
+      72.0,
+      390.62,
+      523.28,
+      391.62
+     ],
+     "epaisseur_pt": 1.0,
+     "couleur": [
+      214,
+      120,
+      40
+     ]
+    },
+    {
+     "rect": [
+      71.5,
+      277.12,
+      72.5,
+      391.12
+     ],
+     "epaisseur_pt": 1.0,
+     "couleur": [
+      214,
+      120,
+      40
+     ]
+    },
+    {
+     "rect": [
+      522.78,
+      277.12,
+      523.78,
+      391.12
+     ],
+     "epaisseur_pt": 1.0,
+     "couleur": [
+      214,
+      120,
+      40
+     ]
+    }
+   ],
+   "lignes": [
+    {
+     "texte": "Compte rendu du comité de pilotage",
+     "rect": [
+      72.0,
+      66.76,
+      404.98,
+      94.12
+     ],
+     "corps_pt": 22,
+     "police": "Carlito-Bold",
+     "couleur": [
+      255,
+      255,
+      255
+     ],
+     "fond": "bandeau"
+    },
+    {
+     "texte": "Programme de modernisation — séance du 9 septembre",
+     "rect": [
+      72.0,
+      97.2,
+      328.04,
+      111.24
+     ],
+     "corps_pt": 11,
+     "police": "Carlito-Regular",
+     "couleur": [
+      232,
+      240,
+      252
+     ],
+     "fond": "bandeau"
+    },
+    {
+     "texte": "Le comité de pilotage s'est réuni le 9 septembre en présence des responsables des trois sites.",
+     "rect": [
+      72.0,
+      149.92,
+      485.65,
+      162.88
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "L'avancement global du programme atteint 64 %, contre 58 % prévus au planning de référence.",
+     "rect": [
+      72.0,
+      164.44,
+      501.96,
+      177.4
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "La migration des postes de travail du site de Nantes est terminée ; celle de Lille débutera le 6",
+     "rect": [
+      72.0,
+      186.96,
+      487.64,
+      199.92
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "octobre. Le budget engagé s'élève à 412 300 €, soit 47 % de l'enveloppe votée.",
+     "rect": [
+      72.0,
+      201.48,
+      416.29,
+      214.44
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Deux risques sont suivis : le délai de livraison des serveurs et la disponibilité des équipes pendant la",
+     "rect": [
+      72.0,
+      224.0,
+      522.56,
+      236.96
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "clôture comptable de fin d'année.",
+     "rect": [
+      72.0,
+      238.52,
+      223.17,
+      251.48
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "À retenir",
+     "rect": [
+      88.0,
+      289.6,
+      131.34,
+      304.36
+     ],
+     "corps_pt": 12,
+     "police": "Carlito-Bold",
+     "couleur": [
+      120,
+      52,
+      10
+     ],
+     "fond": "encadre"
+    },
+    {
+     "texte": "– Prochaine réunion le 14 octobre à 10 h.",
+     "rect": [
+      88.0,
+      311.04,
+      262.39,
+      324.0
+     ],
+     "corps_pt": 10.5,
+     "police": "Carlito-Regular",
+     "couleur": [
+      70,
+      40,
+      20
+     ],
+     "fond": "encadre"
+    },
+    {
+     "texte": "– Validation du budget complémentaire attendue avant le 30 septembre.",
+     "rect": [
+      88.0,
+      328.04,
+      395.47,
+      341.0
+     ],
+     "corps_pt": 10.5,
+     "police": "Carlito-Regular",
+     "couleur": [
+      70,
+      40,
+      20
+     ],
+     "fond": "encadre"
+    },
+    {
+     "texte": "– Point d'étape sur la migration de Lille à la prochaine séance.",
+     "rect": [
+      88.0,
+      345.04,
+      348.81,
+      358.0
+     ],
+     "corps_pt": 10.5,
+     "police": "Carlito-Regular",
+     "couleur": [
+      70,
+      40,
+      20
+     ],
+     "fond": "encadre"
+    },
+    {
+     "texte": "Direction des systèmes d'information — document interne",
+     "rect": [
+      186.66,
+      787.89,
+      408.61,
+      799.41
+     ],
+     "corps_pt": 9.5,
+     "police": "Carlito-Regular",
+     "couleur": [
+      255,
+      255,
+      255
+     ],
+     "fond": "pied"
+    }
+   ]
+  }
+ ]
+}

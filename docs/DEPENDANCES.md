@@ -49,10 +49,10 @@ n'ajoute aucune dépendance.
 | Modèles Tesseract `fra`, `eng`, `osd` (dépôt `tesseract-ocr/tessdata`) | banc d'essai OCR uniquement | Apache-2.0 |
 | `ocrs` 0.13, `rten` 0.26 | banc d'essai OCR uniquement | MIT ou Apache-2.0 |
 | Modèles d'`ocrs` (`text-detection.rten`, `text-recognition.rten`) | banc d'essai OCR uniquement | non vérifiée (téléchargés à la volée, jamais versionnés) |
-| `serde_json` | banc d'essai OCR (réponse du programme Vision) | MIT ou Apache-2.0 |
+| `serde_json` | banc d'essai OCR (réponse du programme Vision) ; tests du moteur (vérité terrain du jeu du mode Amélioration) | MIT ou Apache-2.0 |
 | XcodeGen | génération du projet Xcode | MIT |
 | SwiftLint | analyse du code Swift | MIT |
-| reportlab, pikepdf, Pillow, fontTools | génération du jeu de test | BSD, MPL-2.0, HPND, MIT |
+| reportlab, pikepdf, Pillow, fontTools | génération du jeu de test (le jeu du mode Amélioration n'utilise que pikepdf et Pillow) | BSD, MPL-2.0, HPND, MIT |
 | resvg-py (resvg) et Pillow | images de l'icône depuis son SVG (`make icon`, jalon 8) | MIT (resvg : MIT ou Apache-2.0), HPND |
 | SF Symbols (fournis avec macOS) | icônes de l'interface | licence d'Apple, usage dans les applications pour ses plateformes |
 

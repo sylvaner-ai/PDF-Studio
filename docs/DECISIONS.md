@@ -1011,3 +1011,27 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   de test, la reconnaissance se faisait par blocs de quelques mots, au lieu de
   lignes et de paragraphes modifiables d'un seul tenant.
 
+
+## D60 — Jeu de test du mode Amélioration : scans générés et vérité terrain (Amélioration, jalon 1)
+
+- **Retenu :** douze scans générés par `tests/fixtures/generate.py`
+  (`amelioration`) et un lot de 50 pages, dans `tests/fixtures/amelioration/`.
+  Chaque page est dessinée droite et propre à la résolution du scan, en
+  relevant tout ce qu'elle contient, puis dégradée : papier teinté, éclairage
+  inégal, inclinaison, quarts de tour, perspective et courbure, flou, bruit,
+  JPEG, verso transparent. Un `.json` par fichier donne la vérité terrain :
+  angle, orientation, coins de la page dans l'image, zones de papier vierge,
+  aplats (couleur imprimée et couleur dominante dans le scan), photos et
+  dégradés à ne pas aplatir, filets fins, texte et emprise de chaque ligne.
+  Le PDF ne contient que l'image JPEG de chaque page, écrite telle quelle
+  (pikepdf), comme un scanner. Le lot de 50 pages partage les images de trois
+  fichiers (1 Mio).
+- **Alternatives :** de vrais scans, annotés à la main (pas de vérité exacte
+  sur l'angle ni les couleurs, et pas de documents publiables) ; une
+  dégradation à la volée dans les tests, comme `ocr_bench` (le même jeu doit
+  servir aux tests Rust, au banc d'essai et aux essais dans l'application).
+- **Raisons :** chaque critère du mode (angle résiduel, écart de couleur du
+  fond, couleur des aplats, photos intactes, taux de caractères corrects) se
+  chiffre sur une référence connue. Le test `amelioration_jeu.rs` vérifie que
+  la vérité terrain tombe au bon endroit de l'image. Le jeu reste synthétique ;
+  les documents réels de Sylvain servent de contrôle (`docs/AMELIORATION.md`).

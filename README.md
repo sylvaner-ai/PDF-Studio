@@ -21,6 +21,9 @@ locale, hors ligne, sans compte ni télémétrie.
 | 8. Design | finition visuelle, animations, mode sombre, icône, accessibilité | terminé (à valider) |
 | 9. Durcissement | performances, récupération, documentation, jeu de tests | terminé (à valider) |
 
+**Mode Amélioration** (redresser, nettoyer et reconnaître les scans) : en cours,
+jalon 1 sur 6 (plan et jeu de test) ; voir [docs/AMELIORATION.md](docs/AMELIORATION.md).
+
 ## Lire et copier le texte
 
 - **Sélection à la souris :** en mode Lecture, le texte des pages se sélectionne
@@ -148,6 +151,7 @@ noms.
 - [Décisions techniques](docs/DECISIONS.md)
 - [Dépendances et licences](docs/DEPENDANCES.md)
 - [Limites connues](docs/LIMITES.md)
+- [Mode Amélioration](docs/AMELIORATION.md)
 - [Banc d'essai du rendu](docs/RENDER_BENCHMARK.md)
 - [Banc d'essai de l'OCR](docs/OCR_BENCHMARK.md)
 - [Mesures de performance](docs/PERFORMANCES.md)
