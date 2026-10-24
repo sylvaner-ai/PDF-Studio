@@ -42,6 +42,9 @@ final class DesignSnapshotTests: XCTestCase {
                 model.search?.requestFocus()
                 model.search?.update(query: "trimestriel")
             }
+            try captureDocument("11_orientation", as: "7-amelioration-\(suffix)", in: folder) { model in
+                model.workspace = .enhancing
+            }
         }
         print("Captures d'écran : \(folder.path)")
     }

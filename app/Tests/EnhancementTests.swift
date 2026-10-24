@@ -1,5 +1,7 @@
+import AppKit
 import CoreGraphics
 import Foundation
+import SwiftUI
 import XCTest
 @testable import PDFStudio
 
@@ -72,6 +74,54 @@ final class EnhancementTests: XCTestCase {
         // L'aperçu ne modifie pas le document.
         XCTAssertNil(model.session?.undoName())
         XCTAssertFalse(model.isModified)
+    }
+
+    /// Le mode dans sa fenêtre, comme l'ouvre l'utilisateur : l'aperçu de la
+    /// page affichée arrive, et la navigation change de page. Avec
+    /// `PDFSTUDIO_ENHANCE_DOCUMENT` (chemin lisible depuis le bac à sable de
+    /// l'application), sur ce document plutôt que sur le jeu de test.
+    func testLeModeDansSaFenetreMontreLAperçuEtChangeDePage() async throws {
+        let model: DocumentViewModel
+        if let path = ProcessInfo.processInfo.environment["PDFSTUDIO_ENHANCE_DOCUMENT"] {
+            let reference = try DocumentReference(url: URL(fileURLWithPath: path), securityScoped: false)
+            model = DocumentViewModel(reference: reference)
+            await model.open()
+            XCTAssertEqual(model.phase, .ready)
+            model.enhancement.settings = defaultEnhancementSettings()
+        } else {
+            model = try await open("11_orientation")
+        }
+        defer { close(model) }
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 1080, height: 760),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: DocumentView(model: model))
+        host.sceneBridgingOptions = [.toolbars, .title]
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        await wait(upTo: 2) { false }
+
+        model.workspace = .enhancing
+        let start = Date()
+        await wait(upTo: 30) { model.enhancement.preview?.key.page == model.pages.first?.id }
+        let first = try XCTUnwrap(model.enhancement.preview, "aucun aperçu après 30 s")
+        print("Aperçu de la page 1 : \(Int(Date().timeIntervalSince(start) * 1000)) ms")
+        XCTAssertEqual(first.key.page, model.pages.first?.id)
+        XCTAssertFalse(model.enhancement.isPreviewing)
+        guard model.pages.count > 1 else { return }
+
+        // Page suivante : le mode suit la page affichée sans le canevas.
+        model.canvas.go(to: 1)
+        XCTAssertEqual(model.canvas.currentPage, 1, "la navigation ne change pas de page")
+        let next = Date()
+        await wait(upTo: 30) { model.enhancement.preview?.key.page == model.pages[1].id }
+        XCTAssertEqual(model.enhancement.preview?.key.page, model.pages[1].id, "aucun aperçu de la page 2")
+        print("Aperçu de la page 2 : \(Int(Date().timeIntervalSince(next) * 1000)) ms")
+        XCTAssertFalse(model.enhancement.isPreviewing)
     }
 
     func testAppliqueAnnuleEtRendLesPagesDOrigine() async throws {

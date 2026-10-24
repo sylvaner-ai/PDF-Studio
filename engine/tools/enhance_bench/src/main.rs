@@ -12,11 +12,13 @@
 //! Avec `--profile`, un document quelconque est mesuré page par page comme
 //! l'aperçu de l'application (amélioration, puis rendu avant et après à
 //! 1400 pixels de large) : durées et conclusions seulement, sans rien du
-//! contenu des pages.
+//! contenu des pages. Avec `--vision PROGRAMME` (le programme Vision du banc
+//! OCR, cf. `make ocr-bench`), le sens douteux d'une page est lu par Vision,
+//! comme dans l'application, et chaque lecture est chronométrée.
 //!
 //! Usage :
 //!   enhance_bench [DOSSIER_DU_JEU] [--out RAPPORT.md]
-//!   enhance_bench --profile DOCUMENT.pdf
+//!   enhance_bench [--vision PROGRAMME] --profile DOCUMENT.pdf
 //!
 //! À lancer en mode release pour des durées représentatives.
 
@@ -27,8 +29,9 @@ use std::time::{Duration, Instant};
 
 use ocr::{preprocess, GrayImage};
 use pdfstudio_ffi::{
-    default_enhancement_settings, EditSession, EnhancedPage, PdfDocument, RenderedPage,
-    StraighteningStatus,
+    default_enhancement_settings, EditSession, EngineError, EnhancedPage, OcrImage,
+    OrientationStatus, PdfDocument, RecognizedText, RenderedPage, StraighteningStatus,
+    TextRecognizer,
 };
 use serde_json::Value;
 
@@ -52,12 +55,16 @@ fn main() {
     let mut dir =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../tests/fixtures/amelioration");
     let mut out: Option<PathBuf> = None;
+    let mut vision: Option<PathBuf> = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--out" => out = args.next().map(PathBuf::from),
+            "--vision" => vision = args.next().map(PathBuf::from),
             "--profile" => {
                 let path = args.next().expect("--profile DOCUMENT.pdf");
-                profile(&open(Path::new(&path)));
+                let recognizer = vision
+                    .map(|program| Arc::new(VisionProgram(program)) as Arc<dyn TextRecognizer>);
+                profile(&open(Path::new(&path)), recognizer);
                 return;
             }
             _ => dir = PathBuf::from(arg),
@@ -119,27 +126,30 @@ fn file_size(dir: &Path, name: &str) -> u64 {
 }
 
 /// Durées de l'aperçu de chaque page de `document`, comme dans l'application.
-fn profile(document: &Arc<PdfDocument>) {
+fn profile(document: &Arc<PdfDocument>, recognizer: Option<Arc<dyn TextRecognizer>>) {
     const PREVIEW_WIDTH: f32 = 1400.0;
     let sizes = document.page_sizes();
     let session = EditSession::new(Arc::clone(document));
-    println!("| Page | Format (pt) | Conclusion | Quarts de tour | Angle | Amélioration | Rendu avant | Rendu après |");
-    println!("|---:|---|---|---:|---:|---:|---:|---:|");
+    println!("| Page | Format (pt) | Conclusion | Sens | Quarts de tour | Angle | Amélioration | Rendu avant | Rendu après |");
+    println!("|---:|---|---|---|---:|---:|---:|---:|---:|");
     let mut total = Duration::ZERO;
     for (position, page) in session.pages().iter().enumerate() {
         let size = &sizes[position];
         let start = Instant::now();
-        let enhanced = match session.enhance_page(page.id, default_enhancement_settings(), None) {
-            Ok(enhanced) => enhanced,
-            Err(err) => {
-                println!(
-                    "| {} | — | échec : {err} | | | {} ms | | |",
-                    position + 1,
-                    start.elapsed().as_millis()
-                );
-                continue;
-            }
-        };
+        eprintln!("page {} : amélioration…", position + 1);
+        let enhanced =
+            match session.enhance_page(page.id, default_enhancement_settings(), recognizer.clone())
+            {
+                Ok(enhanced) => enhanced,
+                Err(err) => {
+                    println!(
+                        "| {} | — | échec : {err} | | | {} ms | | |",
+                        position + 1,
+                        start.elapsed().as_millis()
+                    );
+                    continue;
+                }
+            };
         let improve = start.elapsed();
         let report = enhanced.report();
         let rotation = i32::from(report.quarter_turns) * 90;
@@ -163,11 +173,12 @@ fn profile(document: &Arc<PdfDocument>) {
         };
         total += improve;
         println!(
-            "| {} | {:.0} × {:.0} | {} | {} | {} | {} ms | {} | {} |",
+            "| {} | {:.0} × {:.0} | {} | {} | {} | {} | {} ms | {} | {} |",
             position + 1,
             size.width,
             size.height,
             status(report.status),
+            orientation(report.orientation),
             report.quarter_turns,
             degrees(report.measured_angle.map(f64::from)),
             improve.as_millis(),
@@ -261,6 +272,104 @@ fn run_batch(
         }
     }
     (name.to_owned(), pages.len(), conform, start.elapsed())
+}
+
+fn orientation(orientation: OrientationStatus) -> &'static str {
+    match orientation {
+        OrientationStatus::Sure => "sûr",
+        OrientationStatus::Read => "lu par Vision",
+        OrientationStatus::Doubtful => "douteux",
+        OrientationStatus::Disabled => "—",
+    }
+}
+
+/// Vision, par le programme du banc OCR (`vision_ocr --tsv`) : l'image lui
+/// est passée en BMP. Chaque lecture est chronométrée sur la sortie d'erreur.
+struct VisionProgram(PathBuf);
+
+impl TextRecognizer for VisionProgram {
+    fn name(&self) -> String {
+        "Vision".into()
+    }
+
+    fn recognize(
+        &self,
+        image: OcrImage,
+        languages: Vec<String>,
+    ) -> Result<Vec<RecognizedText>, EngineError> {
+        let failed = |detail: String| EngineError::Failed {
+            message: "Vision".into(),
+            detail,
+        };
+        let start = Instant::now();
+        let path = std::env::temp_dir().join(format!("enhance-bench-{}.bmp", std::process::id()));
+        std::fs::write(&path, gray_bmp(&image)).map_err(|e| failed(e.to_string()))?;
+        let output = std::process::Command::new(&self.0)
+            .args(["--languages", &languages.join(","), "--tsv"])
+            .arg(&path)
+            .output()
+            .map_err(|e| failed(e.to_string()))?;
+        let _ = std::fs::remove_file(&path);
+        if !output.status.success() {
+            return Err(failed(String::from_utf8_lossy(&output.stderr).into_owned()));
+        }
+        let words: Vec<RecognizedText> = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|row| {
+                let fields: Vec<&str> = row.split('\t').collect();
+                (fields.len() >= 11).then(|| RecognizedText {
+                    text: fields[0].into(),
+                    confidence: fields[1].parse().unwrap_or(0.0),
+                    line: fields[2].parse().unwrap_or(0),
+                    quad: fields[3..11]
+                        .iter()
+                        .map(|v| v.parse().unwrap_or(0.0))
+                        .collect(),
+                })
+            })
+            .collect();
+        eprintln!(
+            "  Vision : image {} × {}, {} mots, {} ms",
+            image.width,
+            image.height,
+            words.len(),
+            start.elapsed().as_millis()
+        );
+        Ok(words)
+    }
+}
+
+/// Image en niveaux de gris au format BMP (8 bits, palette de gris).
+fn gray_bmp(image: &OcrImage) -> Vec<u8> {
+    let (w, h) = (image.width as usize, image.height as usize);
+    let row = w.div_ceil(4) * 4;
+    let offset = 14 + 40 + 256 * 4;
+    let size = offset + row * h;
+    let mut out = Vec::with_capacity(size);
+    out.extend_from_slice(b"BM");
+    out.extend_from_slice(&(size as u32).to_le_bytes());
+    out.extend_from_slice(&[0; 4]);
+    out.extend_from_slice(&(offset as u32).to_le_bytes());
+    out.extend_from_slice(&40u32.to_le_bytes());
+    out.extend_from_slice(&(w as i32).to_le_bytes());
+    out.extend_from_slice(&(h as i32).to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&8u16.to_le_bytes());
+    out.extend_from_slice(&[0; 4]);
+    out.extend_from_slice(&((row * h) as u32).to_le_bytes());
+    out.extend_from_slice(&2835i32.to_le_bytes());
+    out.extend_from_slice(&2835i32.to_le_bytes());
+    out.extend_from_slice(&256u32.to_le_bytes());
+    out.extend_from_slice(&[0; 4]);
+    for v in 0..=255u8 {
+        out.extend_from_slice(&[v, v, v, 0]);
+    }
+    // Rangées de bas en haut.
+    for y in (0..h).rev() {
+        out.extend_from_slice(&image.pixels[y * w..(y + 1) * w]);
+        out.resize(out.len() + row - w, 0);
+    }
+    out
 }
 
 fn status(status: StraighteningStatus) -> &'static str {
