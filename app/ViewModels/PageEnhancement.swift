@@ -312,7 +312,11 @@ final class PageEnhancement {
         }
         model.show(notice: parts.joined(separator: " "))
     }
+}
 
+// MARK: - Bilan
+
+extension PageEnhancement {
     /// Pages redressées, remises à l'endroit et à vérifier.
     private static func outcome(of reports: [EnhancementReport]) -> [String] {
         let corrected = reports.filter { $0.status == .corrected }.count

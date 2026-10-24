@@ -148,7 +148,7 @@ struct BeforeAfterView: View {
         Image(decorative: image, scale: 1)
             .resizable()
             .interpolation(.high)
-            .aspectRatio(contentMode: .fit)
+            .scaledToFit()
     }
 
     private var labels: some View {
@@ -169,7 +169,7 @@ struct BeforeAfterView: View {
             .font(.caption)
             .padding(.horizontal, Design.Spacing.small)
             .padding(.vertical, 2)
-            .background(.regularMaterial, in: Capsule(style: .continuous))
+            .floatingBadge()
     }
 }
 
