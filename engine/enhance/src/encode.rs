@@ -5,7 +5,7 @@
 //! pixels sont gris. Le fichier garde ainsi une taille voisine de celle du
 //! scan ; une image sans perte serait dix fois plus lourde.
 
-use jpeg_encoder::{ColorType, Encoder};
+use jpeg_encoder::{ColorType, Encoder, SamplingFactor};
 use scan::RgbImage;
 
 /// Image encodée, prête à être posée dans une page PDF (`/DCTDecode`).
@@ -43,7 +43,12 @@ pub fn encode(image: &RgbImage, quality: u8) -> Result<Encoded, EncodeError> {
         .chunks_exact(3)
         .all(|p| p[0] == p[1] && p[1] == p[2]);
     let mut data = Vec::new();
-    let encoder = Encoder::new(&mut data, quality.clamp(1, 100));
+    let mut encoder = Encoder::new(&mut data, quality.clamp(1, 100));
+    // Chrominance sous-échantillonnée (4:2:0), comme les scans eux-mêmes :
+    // au-delà de la qualité 90, l'encodeur la garderait entière, pour un
+    // fichier nettement plus lourd sans gain visible sur un scan.
+    encoder.set_sampling_factor(SamplingFactor::F_2_2);
+    encoder.set_optimized_huffman_tables(true);
     let result = if gray {
         let luma: Vec<u8> = image.data.chunks_exact(3).map(|p| p[0]).collect();
         encoder.encode(&luma, w16, h16, ColorType::Luma)

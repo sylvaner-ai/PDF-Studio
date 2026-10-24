@@ -476,6 +476,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "enhance_bench"
+version = "0.1.0"
+dependencies = [
+ "ocr",
+ "pdfstudio_ffi",
+ "serde_json",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

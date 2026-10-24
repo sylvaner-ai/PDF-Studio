@@ -13,6 +13,7 @@ members = [
     "uniffi-bindgen",
     "tools/render_bench",
     "tools/ocr_bench",
+    "tools/enhance_bench",
 ]
 
 [workspace.package]

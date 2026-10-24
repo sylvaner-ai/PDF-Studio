@@ -1,0 +1,15 @@
+[package]
+name = "enhance_bench"
+description = "Banc d'essai du mode Amélioration sur le jeu de scans et sa vérité terrain."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+ocr.workspace = true
+pdfstudio_ffi = { path = "../../ffi" }
+serde_json = "1"
+
+[lints]
+workspace = true
