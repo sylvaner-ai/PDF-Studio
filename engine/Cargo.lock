@@ -464,6 +464,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be"
 
 [[package]]
+name = "enhance"
+version = "0.1.0"
+dependencies = [
+ "jpeg-encoder",
+ "ocr",
+ "scan",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "enhance_bench"
+version = "0.1.0"
+dependencies = [
+ "ocr",
+ "pdfstudio_ffi",
+ "serde_json",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -746,6 +767,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "jpeg-encoder"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0370574b86f7eca156b9f298392b5e69a23f8c86f3f865add60bbc2e79467a6"
+
+[[package]]
 name = "js-sys"
 version = "0.3.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1025,6 +1052,7 @@ name = "pdfstudio_ffi"
 version = "0.1.0"
 dependencies = [
  "edit",
+ "enhance",
  "fonts",
  "ocr",
  "pdf_core",

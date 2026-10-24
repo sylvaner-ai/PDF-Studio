@@ -142,6 +142,24 @@ impl GrayImage {
         }
     }
 
+    /// Convertit une image RVB sans marge (3 octets par pixel), comme
+    /// [`GrayImage::from_rgba`].
+    pub fn from_rgb(width: u32, height: u32, rgb: &[u8]) -> Self {
+        let pixels = rgb
+            .chunks_exact(3)
+            .take(width as usize * height as usize)
+            .map(|p| {
+                ((u32::from(p[0]) * 299 + u32::from(p[1]) * 587 + u32::from(p[2]) * 114 + 500)
+                    / 1000) as u8
+            })
+            .collect();
+        Self {
+            width,
+            height,
+            pixels,
+        }
+    }
+
     /// Valeur du pixel `(x, y)`.
     pub fn get(&self, x: u32, y: u32) -> u8 {
         self.pixels[y as usize * self.width as usize + x as usize]
@@ -337,6 +355,7 @@ mod tests {
         let rgba = [255, 255, 255, 255, 0, 0, 0, 255, 9, 9, 9, 9];
         let image = GrayImage::from_rgba(2, 1, 12, &rgba);
         assert_eq!(image.pixels, [255, 0]);
+        assert_eq!(GrayImage::from_rgb(2, 1, &[255, 255, 255, 0, 0, 0]), image);
         assert_eq!(image.downscale(2).pixels, [127]);
     }
 }

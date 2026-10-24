@@ -155,3 +155,95 @@ plage ; le jalon 2 doit l'étendre à ±15° et reconnaître le cas hors plafond
   présente dans le scan, sans hypothèse.
 - Le JPEG produit dépend de la version de libjpeg : régénérer le jeu sur une
   autre machine peut changer les octets, pas le contenu.
+
+## Jalon 2 : redressement des pages
+
+### Ce qui est livré
+
+- **Mesure** (`engine/enhance`, D61). Sur l'image du scan, égalisée,
+  remise d'aplomb si elle est couchée (`is_sideways`, D27) : inclinaison par
+  profil de projection de l'encre des caractères (`measure_skew`), cherchée
+  entre −45° et 45° pour reconnaître une page au-delà du plafond au lieu d'y
+  lire un faux angle ; sa netteté relative (saillance) dit si la mesure est
+  fiable. Sens par le rapport des hampes aux jambages, mesuré sur la page et
+  sur la page retournée ; s'il ne tranche pas, Vision lit la page dans les
+  deux sens, et la plus sûre l'emporte ; sinon, la page garde son sens.
+- **Garde-fous.** Aucune correction sous 0,1° ; au-delà de 15°, la page
+  n'est pas redressée et elle est signalée « à vérifier » ; une mesure peu
+  fiable (saillance inférieure à 4, ou moins de 500 points d'encre) ne
+  corrige rien. Une page qui n'est pas un scan pleine page (image couvrant
+  moins de 90 % de la page), ou dont le contenu a été modifié en Édition,
+  reste telle quelle.
+- **Correction** (D62). Rotation bicubique (noyau de Keys), de même taille
+  que l'image ; les coins découverts prennent la couleur du papier à cet
+  endroit (estimée par blocs, et le long de chaque bord, sans la bande du
+  couvercle du scanner). Image enregistrée en JPEG de qualité 90 (D63).
+- **Page améliorée** (D64). Les pages traitées remplacent les pages
+  d'origine en une étape d'annulation (« l'amélioration des pages ») ; la
+  rotation d'un quart ou d'un demi-tour passe par la rotation de la page,
+  sans réécrire l'image. À l'enregistrement, l'objet de la page d'origine
+  est gardé (signets, liens, annotations, champs) et seul son contenu est
+  remplacé ; l'image d'origine n'est pas conservée dans le fichier.
+  « Rétablir l'original » rend les pages d'origine (annulable aussi), et
+  Comparer (⌥⌘K) les montre le temps de la comparaison.
+- **Interface** (D65). Mode Amélioration (⌘4, quatrième segment de la barre
+  d'outils) : aperçu de la page affichée avec curseur avant/après (les deux
+  images rendues par le moteur, dans le sens final), panneau à droite
+  (redressement, orientation, pages traitées : toutes, sélection ou page
+  affichée ; réglages avancés repliés : seuil, plafond, qualité), bilan de
+  la page, bouton Appliquer, bandeau d'avancement avec arrêt, liste des
+  pages à vérifier. Les réglages sont retenus en JSON.
+- **Banc d'essai** : `engine/tools/enhance_bench` (`cargo run --release -p
+  enhance_bench`), qui produit le tableau ci-dessous.
+
+### Mesures (24 octobre 2026, dans le cloud, mode release)
+
+Réglages par défaut. Écart : angle corrigé moins angle vrai. Résidu :
+inclinaison mesurée de nouveau sur le rendu de la page redressée, mise à
+l'endroit. Sens : quarts de tour trouvés (attendus).
+
+| Fichier | Vérité | Corrigée | Écart | Résidu | Sens | Conclusion | Durée |
+|---|---:|---:|---:|---:|---:|---|---:|
+| 01 | +2,30° | +2,32° | +0,02° | 0,00° | 0 (0) | corrigée | 1,0 s |
+| 02 | −7,50° | −7,52° | −0,02° | +0,08° | 0 (0) | corrigée | 0,6 s |
+| 03 | +18,00° | 0 (mesurée +17,98°) | — | — | 0 (0) | à vérifier | 0,4 s |
+| 04 | +0,05° | 0 | — | — | 0 (0) | droite | 0,5 s |
+| 05 | +0,60° | +0,60° | 0,00° | 0,00° | 0 (0) | corrigée | 0,5 s |
+| 06 | −0,80° | −0,80° | 0,00° | 0,00° | 0 (0) | corrigée | 0,5 s |
+| 07 | +1,20° | +1,22° | +0,02° | +0,02° | 0 (0) | corrigée | 0,6 s |
+| 08 | −1,60° | −1,58° | +0,02° | 0,00° | 0 (0) | corrigée | 0,5 s |
+| 09 | +0,90° | +0,90° | 0,00° | −0,06° | 0 (0) | corrigée | 0,6 s |
+| 10 | +1,10° | +1,10° | 0,00° | −0,02° | 0 (0) | corrigée | 0,3 s |
+| 11, page 1 | 0,00° | 0 | — | — | 2 (2) | droite, retournée | 0,2 s |
+| 11, page 2 | +0,80° | +0,80° | 0,00° | 0,00° | 3 (3) | corrigée, remise d'aplomb | 0,4 s |
+| 12 (photo) | — | +2,88° | — | +0,10° | 0 (0) | corrigée (perspective non traitée) | 1,0 s |
+
+- **Critères :** écart maximal de 0,02° et résidu maximal de 0,10°
+  (critère : moins de 0,2°) ; 04 et 11, page 1, sans correction (fichier
+  inchangé pour 04) ; 03 marquée « à vérifier » ; aucune page hors critères.
+  Le lot de 50 pages : 50 sur 50 conformes, traité page après page (le lot
+  en parallèle vient au jalon 4).
+- **Saillance de l'angle retenu** (netteté relative du profil) : de 22 à 51
+  pour les pages de texte, 9,3 pour la photo 12 ; une recherche limitée à
+  ±15° trouvait sur 03 un faux angle de 15,4° de saillance 1,6, d'où la
+  recherche jusqu'à 45° et le seuil de 4.
+- **Taille des fichiers** (Ko, avant → après) : 01 834 → 1 296 ; 02 390 →
+  576 ; 05 444 → 710 ; 06 416 → 808 ; 07 517 → 769 ; 08 469 → 706 ; 09 502 →
+  699 ; 10 148 → 519 ; 11 745 → 957 ; 12 1 028 → 1 415 ; 03 et 04 inchangés.
+  L'image réencodée en qualité 90 pèse de 1,3 à 1,9 fois l'originale, 3,5
+  fois pour 10 (scan d'origine en qualité 35, dont le bruit est gardé). Le
+  nettoyage du fond (jalon 3), qui rend le papier uniforme, devrait réduire
+  nettement ces tailles ; à mesurer alors.
+- **Durée :** sur le MacBook Air M3 de Sylvain (même banc, même jour),
+  190 ms par page en moyenne (de 92 ms pour 10 à 377 ms pour 01, à 300 ppp)
+  et 6,3 s pour le lot de 50 pages ; mêmes angles et mêmes tailles qu'au
+  cloud (0,25 à 1 s par page, 20 s pour le lot).
+
+### Perspective (option facultative)
+
+Non réalisée dans ce jalon. Sur la photo 12, le redressement corrige la
+direction moyenne des lignes (2,88°, résidu de 0,10°), mais les lignes
+restent convergentes et courbes. Une correction de perspective demanderait de
+trouver les bords de la feuille sur le fond (bureau) puis de déformer l'image
+(homographie, voire courbure) ; le jeu ne contient qu'une photo pour en
+démontrer le gain. Elle reste à faire si Sylvain le souhaite.

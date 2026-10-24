@@ -27,6 +27,16 @@ struct DisplayPage: Identifiable, Hashable, Sendable {
     /// État de la couche de texte reconnue (0 : page non reconnue) ; il change
     /// à chaque reconnaissance, annulation comprise.
     var textRevision: UInt64 = 0
+    /// Page d'origine d'une page améliorée (mode Amélioration), qu'elle
+    /// remplace à l'enregistrement : elle sert à la comparaison avec
+    /// l'original et à la destination des signets.
+    var replaced: Replaced?
+
+    /// Page d'origine d'une page améliorée, avec ses quarts de tour.
+    struct Replaced: Hashable, Sendable {
+        let source: Source
+        let quarterTurns: Int
+    }
 
     var isBlank: Bool { source == nil }
 
@@ -55,6 +65,11 @@ extension DisplayPage {
         quarterTurns = Int(item.quarterTurns)
         editRevision = item.editRevision
         textRevision = item.textLayerRevision
+        if let original = item.replaces, case let .source(document, index) = original.kind {
+            replaced = Replaced(
+                source: Source(document: Int(document), index: Int(index)), quarterTurns: Int(original.quarterTurns)
+            )
+        }
         switch item.kind {
         case let .source(document, index):
             source = Source(document: Int(document), index: Int(index))

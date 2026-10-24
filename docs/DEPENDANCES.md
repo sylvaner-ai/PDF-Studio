@@ -25,6 +25,8 @@ préférées à qualité équivalente.
 | `ttf-parser` 0.25 (via `rustybuzz`) | lecture des polices du catalogue (jalon 7) | MIT ou Apache-2.0 |
 | `ab_glyph_rasterizer` 0.1 | rastérisation des glyphes à la résolution du scan (jalon 7) | Apache-2.0 |
 | `core-text` 20.1 (déjà utilisé par `font-kit`) | fichiers des polices installées sur le Mac, pour le catalogue de l'appariement (jalon 7) | MIT ou Apache-2.0 |
+| `jpeg-encoder` 0.7 | encodage JPEG de l'image d'une page améliorée (mode Amélioration, jalon 2, D63) | (MIT ou Apache-2.0) et IJG |
+| `serde`, `serde_json` (déjà présents par `uniffi`) | réglages du mode Amélioration en JSON (jalon 2) | MIT ou Apache-2.0 |
 
 **AGPL-3.0 (MuPDF, jbig2dec) :** cette licence oblige à fournir le code source à
 quiconque reçoit le logiciel ou l'utilise à travers un réseau. Pour un usage
@@ -36,7 +38,8 @@ soit une licence commerciale d'Artifex, soit le passage à PDFium (BSD).
 moteur intégré à l'application (`cargo tree -p pdfstudio_ffi`) ne contient ni
 client HTTP, ni environnement asynchrone, ni bibliothèque TLS ; `tokio`, présent
 dans `Cargo.lock`, n'y vient que des outils de développement. Le jalon 9
-n'ajoute aucune dépendance.
+n'ajoute aucune dépendance. Le jalon 2 du mode Amélioration n'ajoute que
+`jpeg-encoder` (Rust pur, sans dépendance, sans accès réseau).
 
 ## Outils de développement (non intégrés)
 
@@ -49,7 +52,7 @@ n'ajoute aucune dépendance.
 | Modèles Tesseract `fra`, `eng`, `osd` (dépôt `tesseract-ocr/tessdata`) | banc d'essai OCR uniquement | Apache-2.0 |
 | `ocrs` 0.13, `rten` 0.26 | banc d'essai OCR uniquement | MIT ou Apache-2.0 |
 | Modèles d'`ocrs` (`text-detection.rten`, `text-recognition.rten`) | banc d'essai OCR uniquement | non vérifiée (téléchargés à la volée, jamais versionnés) |
-| `serde_json` | banc d'essai OCR (réponse du programme Vision) ; tests du moteur (vérité terrain du jeu du mode Amélioration) | MIT ou Apache-2.0 |
+| `serde_json` | banc d'essai OCR (réponse du programme Vision) ; tests du moteur et banc d'essai `enhance_bench` (vérité terrain du jeu du mode Amélioration) | MIT ou Apache-2.0 |
 | XcodeGen | génération du projet Xcode | MIT |
 | SwiftLint | analyse du code Swift | MIT |
 | reportlab, pikepdf, Pillow, fontTools | génération du jeu de test (le jeu du mode Amélioration n'utilise que pikepdf et Pillow) | BSD, MPL-2.0, HPND, MIT |

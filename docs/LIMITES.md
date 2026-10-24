@@ -413,3 +413,26 @@ complété à chaque jalon.
   capitale peut être attribué à la ligne du dessus, et suivre celle-ci si elle
   se déplace.
 
+
+## Mode Amélioration : redressement (D61 à D65)
+
+- **Perspective et courbure :** une page photographiée n'est que tournée
+  selon la direction moyenne de ses lignes ; ses lignes restent convergentes
+  et courbes (option facultative non réalisée, cf. `docs/AMELIORATION.md`).
+- **Taille du fichier :** l'image redressée est réencodée (JPEG qualité 90) :
+  le fichier grossit de 1,3 à 1,9 fois sur le jeu de test, 3,5 fois pour un
+  scan d'origine très compressé, et chaque nouveau redressement d'une même
+  page la recompresse. L'image d'origine n'est pas gardée dans le fichier ;
+  elle reste dans le fichier d'origine tant qu'il n'est pas remplacé.
+- **Pages non traitées :** une page modifiée en Édition, une page native, ou
+  un scan qui ne couvre pas 90 % de la page restent tels quels. Une page sans
+  assez de texte (photo, plan) n'est pas redressée ; son sens n'est changé
+  que si Vision le lit sans doute.
+- **Coins découverts :** ils prennent la couleur du papier voisin ; la bande
+  du couvercle du scanner déjà visible sur le scan reste, elle, dans l'image
+  (le fond est traité au jalon 3).
+- **Annotations dans l'aperçu :** les annotations d'une page (notes,
+  surlignages) ne sont pas dessinées sur une page améliorée pendant la
+  session ; elles sont gardées à l'enregistrement.
+- **Durée :** le traitement se fait page après page (0,1 à 0,4 s par page
+  sur un Mac M3) ; le lot en parallèle arrive au jalon 4.

@@ -110,6 +110,21 @@ impl Placement {
         self.from_canon.then(&self.to_display)
     }
 
+    /// Quarts de tour, dans le sens horaire, qui passent de la page droite à
+    /// l'espace d'affichage (rotation `/Rotate` de la page).
+    pub fn display_quarter_turns(&self) -> u8 {
+        let (a, b) = self.canon_to_display().apply_vector(1.0, 0.0);
+        if a > 0.5 {
+            0
+        } else if b > 0.5 {
+            1
+        } else if a < -0.5 {
+            2
+        } else {
+            3
+        }
+    }
+
     /// Rectangle de pixels, dans l'espace d'affichage.
     pub fn display_rect(&self, rect: &PixelRect) -> Rect {
         self.canon_to_display().apply_rect(self.canon_rect(rect))

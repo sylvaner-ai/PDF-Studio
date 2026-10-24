@@ -33,6 +33,9 @@ struct DocumentView: View {
                     } else if let progress = model.recognition {
                         RecognitionBadge(progress: progress) { model.stopRecognition() }
                             .floatingTransition(from: .bottom)
+                    } else if let progress = model.enhancement.progress {
+                        EnhancementBadge(progress: progress) { model.enhancement.stop() }
+                            .floatingTransition(from: .bottom)
                     } else if let notice = model.notice {
                         NoticeBadge(text: notice)
                             .floatingTransition(from: .bottom)
@@ -93,6 +96,7 @@ struct DocumentView: View {
     private var bottomBadge: Int {
         if model.activity != nil { return 1 }
         if model.recognition != nil { return 2 }
+        if model.enhancement.progress != nil { return 4 }
         return model.notice != nil ? 3 : 0
     }
 
@@ -209,9 +213,12 @@ struct ReaderView: View {
                         thumbnailWidth: model.gridThumbnailWidth
                     )
                     .transition(.opacity)
+                case .enhancing:
+                    EnhancementView(model: model, enhancement: model.enhancement)
+                        .transition(.opacity)
                 }
             }
-            .interfaceAnimation(value: model.workspace == .organizing)
+            .interfaceAnimation(value: model.workspace == .organizing || model.workspace == .enhancing)
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -219,10 +226,11 @@ struct ReaderView: View {
                     Label("Lecture", systemImage: "doc.text").tag(Workspace.reading)
                     Label("Pages", systemImage: "square.grid.2x2").tag(Workspace.organizing)
                     Label("Édition", systemImage: "pencil").tag(Workspace.editing)
+                    Label("Amélioration", systemImage: "wand.and.stars").tag(Workspace.enhancing)
                 }
                 .pickerStyle(.segmented)
                 .labelStyle(.iconOnly)
-                .help(Text("Lecture (⌘1), organisation des pages (⌘2) ou édition du contenu et des scans (⌘3)"))
+                .help(Text("Lecture (⌘1), pages (⌘2), édition (⌘3) ou amélioration des scans (⌘4)"))
             }
             // Comparer et Enregistrer restent visibles dans tous les modes (choix de
             // Sylvain), grisés quand ils ne servent pas.
@@ -349,24 +357,6 @@ struct SearchPanel: View {
         .padding(.vertical, Design.Spacing.small)
         .floatingPanel()
         .padding(Design.Spacing.medium)
-    }
-}
-
-/// Exportation en cours, en bas de la fenêtre.
-struct ActivityBadge: View {
-    let text: String
-
-    var body: some View {
-        HStack(spacing: Design.Spacing.small) {
-            ProgressView()
-                .controlSize(.small)
-            Text(text)
-        }
-        .padding(.horizontal, Design.Spacing.large)
-        .padding(.vertical, Design.Spacing.small)
-        .floatingBadge()
-        .padding(.bottom, Design.Spacing.large)
-        .accessibilityElement(children: .combine)
     }
 }
 

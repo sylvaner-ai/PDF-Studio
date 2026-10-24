@@ -14,7 +14,10 @@ mod layer;
 mod scan;
 
 pub use content::{FontChoice, ObjectEdit, PageEdits, TableEdit, TextReplacement};
-pub use editor::{EditError, Editor, PageEntry, PageOrigin, Recognition, RestoredPage, Result};
+pub use editor::{
+    EditError, Editor, Enhancement, PageEntry, PageOrigin, Recognition, ReplacedPage, RestoredPage,
+    Result,
+};
 pub use history::{Command, History};
 pub use layer::{LayerWord, TextLayer};
 pub use scan::{ScanCandidate, ScanStyle, ScanText};

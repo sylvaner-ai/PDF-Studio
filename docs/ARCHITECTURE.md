@@ -10,7 +10,8 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
 │               DocumentWindow, DocumentView (lecteur), SidebarView,           │
 │               DocumentWindowBridge (fermeture), ExportOptions, SearchField ; │
 │               EditingBadge, RecognitionViews (avancement de l'OCR),          │
-│               ScanRetouchPanel (réglages du texte réécrit d'un scan) ;       │
+│               ScanRetouchPanel (réglages du texte réécrit d'un scan),        │
+│               EnhancementView (mode Amélioration : aperçu avant/après) ;     │
 │               Canvas/ : PageCanvasView (+Search, +Text), PageTileView,       │
 │               TextSelectionView, EditingOverlayView (+Tables,                │
 │               +Accessibility), InlineTextEditor ;                            │
@@ -20,7 +21,8 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
 │               SearchModel, TextSelection, PageTextLayout, OutlineTree,       │
 │               PageLayout, PageRenderer,                                      │
 │               FileSaver, RecoveryStore, RecoveryWriter, PageExporter,        │
-│               PageEditing (+Tables, +Scans), DocumentViewModel+Comparing     │
+│               PageEditing (+Tables, +Scans), DocumentViewModel+Comparing,    │
+│               PageEnhancement (mode Amélioration)                            │
 │ Recognition/  VisionTextReader (Vision), VisionTextRecognizer (pour Rust)    │
 │ App/          PDFStudioApp, ViewerCommands, PageCommands et TableCommands    │
 │               (menus), BundledFonts (polices fournies),                      │
@@ -40,6 +42,9 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
 │             et historique d'annulation (patron Command)                      │
 │ ocr/        trait OcrEngine, préparation de l'image (fond, bruit,            │
 │             binarisation, inclinaison, orientation), mesure de la lecture    │
+│ enhance/    mode Amélioration : redressement (sens, inclinaison,             │
+│             garde-fous), rotation bicubique, couleur du papier, JPEG,        │
+│             réglages JSON                                                    │
 │ render/     rastérisation RGBA : page entière ou zone, rotation d'affichage  │
 │ layout/     géométrie de la structure : filets, quadrillages, tableaux à     │
 │             filets, réorganisation des lignes et colonnes (sans dépendance)  │
@@ -54,7 +59,8 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
 │             contenu, objets des pages, mise en page et réécriture ;          │
 │             editing : polices, aperçu et application des modifications ;     │
 │             textlayer : couche de texte invisible des pages reconnues ;      │
-│             scanned/ : objets d'une page scannée, retouche, rustines         │
+│             scanned/ : objets d'une page scannée, retouche, rustines ;       │
+│             enhanced : pixels d'un scan, PDF des pages améliorées            │
 │ (MuPDF)     analyse, rendu, extraction du texte, écriture                    │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -292,6 +298,31 @@ l'interprétation du flux de contenu et sur MuPDF.
   (`service::Worker::page_text_with_layer`), et l'écriture retire du contenu les
   opérations d'affichage du texte avant d'ajouter la nouvelle couche
   (`writer::remove_replaced_text`).
+
+## Mode Amélioration
+
+Plan et jalons : `docs/AMELIORATION.md`. Au jalon 2 :
+
+- **Analyse d'une page.** `EditSession.enhance_page` lit les pixels du scan
+  de la page (`Document::scan_pixels` : image pleine page à sa résolution,
+  cadres de la page et place de l'image), puis `enhance::analyze` en mesure
+  le sens et l'inclinaison (D61), avec Vision en repli pour le sens. Si
+  l'inclinaison est corrigée, l'image est tournée (`enhance::rotate`, coins
+  à la couleur du papier, D62) et encodée en JPEG (D63). Le résultat
+  (`EnhancedPage`) se rend avant et après pour l'aperçu, sans rien changer au
+  document.
+- **Application.** `enhanced_document` écrit les images retenues dans un PDF
+  d'une page par image (`pdf_core::write_enhanced_pages`), que l'application
+  ajoute aux sources de la session ; `apply_enhancements` fait pointer les
+  pages vers ce document et retient leur page d'origine
+  (`edit::Editor::enhance`), en une étape d'annulation ;
+  `restore_original_pages` les y ramène.
+- **Écriture.** Une page améliorée s'écrit `OutputPage::Replaced` : l'objet
+  de la page d'origine reste (annotations, liens, signets), son contenu et
+  ses ressources sont greffés depuis la page améliorée (D64).
+- **Interface.** `PageEnhancement` (modèle) et `EnhancementView` (aperçu à
+  curseur, panneau) ; le traitement suit le modèle de la reconnaissance du
+  texte (pages figées, bandeau d'avancement, arrêt) (D65).
 
 ## Enregistrement, récupération et exportations
 

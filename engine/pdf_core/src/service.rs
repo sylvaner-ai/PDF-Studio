@@ -10,6 +10,7 @@ use edit::{FontChoice, PageEdits, ScanCandidate, ScanStyle, TextLayer};
 use crate::content::geometry::Matrix;
 use crate::document::{self, layer_lines, Document, RecognitionNeed};
 use crate::editing::ObjectInfo;
+use crate::enhanced::ScanPixels;
 use crate::error::{PdfError, Result};
 use crate::outline::OutlineEntry;
 use crate::page::{PageContent, PageSize};
@@ -304,6 +305,11 @@ impl DocumentHandle {
     /// Transformation de l'espace de la page PDF vers son espace d'affichage.
     pub fn display_matrix(&self, index: u32) -> Result<Matrix> {
         self.run(move |worker| worker.doc.display_matrix(index))?
+    }
+
+    /// Pixels du scan d'une page (cf. [`Document::scan_pixels`]).
+    pub fn scan_pixels(&self, index: u32) -> Result<Option<ScanPixels>> {
+        self.run(move |worker| worker.doc.scan_pixels(index))?
     }
 
     /// Texte brut d'une page, pour l'export en texte.

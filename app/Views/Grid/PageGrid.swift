@@ -9,6 +9,8 @@ enum Workspace: Hashable {
     case organizing
     /// Modification du contenu des pages dans le canevas.
     case editing
+    /// Amélioration des pages scannées : redressement, aperçu avant/après.
+    case enhancing
 }
 
 /// Grille des vignettes de toutes les pages, pour les organiser.

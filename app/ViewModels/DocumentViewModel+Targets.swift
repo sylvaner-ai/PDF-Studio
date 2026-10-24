@@ -4,10 +4,11 @@ import Foundation
 
 extension DocumentViewModel {
     /// Position actuelle de la page `index` du document ouvert (destination d'un
-    /// signet) ; `nil` si elle a été supprimée.
+    /// signet), ou de la page améliorée qui la remplace ; `nil` si elle a été
+    /// supprimée.
     func position(ofOriginalPage index: Int) -> Int? {
         let source = DisplayPage.Source(document: 0, index: index)
-        return pages.firstIndex { $0.source == source }
+        return pages.firstIndex { $0.source == source } ?? pages.firstIndex { $0.replaced?.source == source }
     }
 
     func go(to node: OutlineNode) {

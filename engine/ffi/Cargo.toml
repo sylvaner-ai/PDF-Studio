@@ -13,6 +13,7 @@ crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
 edit.workspace = true
+enhance.workspace = true
 fonts.workspace = true
 ocr.workspace = true
 pdf_core.workspace = true

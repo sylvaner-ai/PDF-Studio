@@ -7,6 +7,7 @@ use mupdf::pdf::PdfDocument;
 
 use crate::content::geometry::{Matrix, Point};
 use crate::editing::{self, EmbeddedFonts, FontProvider, ObjectInfo, PageModel, Scratch};
+use crate::enhanced::{self, ScanPixels};
 use crate::error::{PdfError, Result};
 use crate::outline::{self, OutlineEntry};
 use crate::page::{PageContent, PageSize};
@@ -371,6 +372,17 @@ impl Document {
         }
         self.editing.retouched.push((key, Arc::clone(&done)));
         done
+    }
+
+    /// Pixels du scan de la page, pour la redresser (mode Amélioration) ;
+    /// `None` si la page n'est pas un scan pleine page.
+    pub fn scan_pixels(&mut self, index: u32) -> Result<Option<ScanPixels>> {
+        let size = self.page_size(index)?;
+        let model = self.page_model(index)?;
+        let page = self.inner.find_page(index as i32)?;
+        let area = f64::from(size.width) * f64::from(size.height);
+        let scan = scanned::find_scan(&page, &model, area)?;
+        enhanced::scan_pixels(&self.inner, index, scan, area)
     }
 
     /// Police qui dessinera `text` à la place du bloc de texte `object`.
