@@ -4,6 +4,7 @@
 use crate::engine::{OcrEngine, OcrError, RecognizedWord};
 use crate::image::{Affine, GrayImage};
 use crate::preprocess;
+use crate::recover;
 
 /// Réglages de la lecture d'une page.
 #[derive(Clone, Debug, PartialEq)]
@@ -22,6 +23,10 @@ pub struct Options {
     pub deskew: bool,
     /// Lire une page couchée ou à l'envers dans le bon sens.
     pub orientation: bool,
+    /// Ramener à leur ligne les emprises trop hautes, puis relire l'encre
+    /// qu'aucun mot lu ne couvre dans la bande d'une ligne (mot court isolé
+    /// que le moteur a laissé de côté).
+    pub recover: bool,
 }
 
 impl Options {
@@ -35,6 +40,7 @@ impl Options {
             binarize: false,
             deskew: false,
             orientation: false,
+            recover: false,
         }
     }
 
@@ -48,6 +54,7 @@ impl Options {
             binarize: true,
             deskew: true,
             orientation: true,
+            recover: true,
         }
     }
 }
@@ -180,6 +187,11 @@ fn read(
         prepared = preprocess::binarize(&prepared, options.dpi);
     }
     let mut words = engine.recognize(&prepared, &options.languages)?;
+    if options.recover && !words.is_empty() {
+        recover::tighten(&prepared, &mut words);
+        let found = recover::missed_words(engine, &prepared, &words, &options.languages)?;
+        recover::insert(&mut words, found);
+    }
     for word in &mut words {
         word.quad = word.quad.map(|p| to_source.apply_point(p));
     }

@@ -8,8 +8,8 @@
 //!   contraste, bruit, binarisation adaptative, inclinaison et orientation ;
 //! - [`OcrEngine`] est le trait que chaque moteur implémente (Vision d'Apple,
 //!   Tesseract, `ocrs`…) : les moteurs sont interchangeables ;
-//! - [`recognize`] enchaîne prétraitement, lecture et retour des mots dans le
-//!   repère de l'image d'origine ;
+//! - [`recognize`] enchaîne prétraitement, lecture, relecture des mots
+//!   oubliés et retour des mots dans le repère de l'image d'origine ;
 //! - [`metrics`] mesure le taux de caractères corrects par rapport à un texte
 //!   de référence, pour le banc d'essai.
 #![forbid(unsafe_code)]
@@ -19,6 +19,7 @@ mod image;
 pub mod metrics;
 mod pipeline;
 pub mod preprocess;
+mod recover;
 
 pub use engine::{OcrEngine, OcrError, Point, Quad, RecognizedWord};
 pub use image::{Affine, GrayImage};

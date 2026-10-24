@@ -2,9 +2,10 @@
 //!
 //! Deux étapes, sur une copie du rendu du scan :
 //!
-//! 1. les lignes dont le texte change sont réécrites en place : seuls les
+//! 1. les blocs dont le texte change sont réécrits en place : seuls les
 //!    mots modifiés sont effacés et redessinés dans la police retrouvée, les
-//!    mots suivants glissent pour leur faire place ;
+//!    mots suivants glissent pour leur faire place, et un paragraphe est
+//!    remis en page dans sa largeur (cf. [`super::reflow`]) ;
 //! 2. les objets supprimés sont effacés, les objets déplacés effacés puis
 //!    redéposés (leur encre, détachée de son papier) à leur nouvelle place.
 //!
@@ -13,15 +14,13 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use edit::{LayerWord, ObjectEdit, PageEdits, ScanText, TextLayer};
-use fonts::{rasterize, shape, Pen};
+use edit::{LayerWord, ObjectEdit, PageEdits, TextLayer};
 use scan::ink::Mask;
-use scan::retouch::{
-    apply, draw, erase, extract, merge_rects, select, Background, InkPatch, Selecting,
-};
+use scan::retouch::{apply, erase, extract, merge_rects, select, Background, InkPatch, Selecting};
 use scan::{Rect as PixelRect, RgbImage};
 
-use super::{ScanLine, ScanModel};
+use super::reflow::rewrite_block;
+use super::{ScanBlock, ScanLine, ScanModel};
 
 /// Pixels modifiés d'une zone du scan.
 #[derive(Clone, Debug)]
@@ -45,13 +44,16 @@ pub(crate) struct Retouched {
     pub layer: TextLayer,
     /// Emprise de chaque objet modifié, en pixels ; `None` s'il est supprimé.
     pub bounds: HashMap<u32, Option<PixelRect>>,
+    /// Blocs dont le texte réécrit occupe plus de lignes qu'à l'origine.
+    pub overflow: HashSet<u32>,
 }
 
 /// Effet des modifications sur les mots de la couche de texte.
 struct LayerChanges {
     words: Vec<Option<LayerWord>>,
-    /// Mots ajoutés, à placer avant le mot d'origine d'indice donné.
-    inserted: BTreeMap<usize, Vec<LayerWord>>,
+    /// Mots ajoutés, à placer avant le mot d'origine d'indice donné, avec le
+    /// bloc auquel ils appartiennent.
+    inserted: BTreeMap<usize, Vec<(u32, LayerWord)>>,
 }
 
 impl LayerChanges {
@@ -66,12 +68,12 @@ impl LayerChanges {
         let mut inserted = self.inserted;
         for (i, word) in self.words.into_iter().enumerate() {
             if let Some(added) = inserted.remove(&i) {
-                words.extend(added);
+                words.extend(added.into_iter().map(|(_, word)| word));
             }
             words.extend(word);
         }
         for (_, added) in inserted {
-            words.extend(added);
+            words.extend(added.into_iter().map(|(_, word)| word));
         }
         TextLayer {
             words,
@@ -105,46 +107,58 @@ pub(crate) fn retouch(model: &ScanModel, layer: &TextLayer, edits: &PageEdits) -
         .map(|t| t.id)
         .collect();
     let in_deleted_table =
-        |line: &ScanLine| line.table.is_some_and(|t| deleted_tables.contains(&t));
+        |block: &ScanBlock| block.table.is_some_and(|t| deleted_tables.contains(&t));
+    let mut next_line = layer.words.iter().map(|w| w.line + 1).max().unwrap_or(0);
+    let mut overflow = HashSet::new();
 
     // 1. Texte réécrit en place.
-    let mut zones: HashMap<u32, PixelRect> = HashMap::new();
-    for line in &model.lines {
+    let mut zones: HashMap<u32, Vec<PixelRect>> = HashMap::new();
+    let mut pending: Vec<(InkPatch, i32, i32)> = Vec::new();
+    for block in &model.blocks {
         let Some(ObjectEdit {
             deleted: false,
             scan: Some(text),
             ..
-        }) = edits.get(line.id)
+        }) = edits.get(block.id)
         else {
             continue;
         };
-        if in_deleted_table(line) {
+        if in_deleted_table(block) {
             continue;
         }
-        let avoid = avoid_for(model, line.id);
-        if let Some(result) = rewrite_line(model, layer, line, text, &mut image, &avoid) {
-            changed.extend(result.changed);
-            zones.insert(line.id, result.zone);
-            bounds.insert(line.id, Some(result.zone));
-            for index in result.removed {
-                changes.words[index] = None;
-            }
-            for (index, offset) in result.shifted {
-                changes.offset(index, offset);
-            }
-            changes
-                .inserted
-                .entry(result.insert_at)
-                .or_default()
-                .extend(result.added);
+        let Some(result) = rewrite_block(model, layer, block, text, &mut image, &mut next_line)
+        else {
+            continue;
+        };
+        changed.extend(result.changed);
+        pending.extend(result.pending);
+        let zone = union(&result.zones);
+        bounds.insert(block.id, Some(zone));
+        zones.insert(block.id, result.zones);
+        if result.overflow {
+            overflow.insert(block.id);
         }
+        for index in result.removed {
+            changes.words[index] = None;
+        }
+        for (index, offset) in result.shifted {
+            changes.offset(index, offset);
+        }
+        changes
+            .inserted
+            .entry(result.insert_at)
+            .or_default()
+            .extend(result.added.into_iter().map(|word| (block.id, word)));
+    }
+    // L'encre des mots déplacés se repose une fois tous les blocs réécrits.
+    for (patch, dx, dy) in pending.drain(..) {
+        changed.push(apply(&mut image, &patch, dx, dy));
     }
 
     // 2. Suppressions et déplacements.
-    let mut pending: Vec<(InkPatch, i32, i32)> = Vec::new();
     let mut process = |zone: PixelRect,
                        settings: Selecting,
-                       avoid: &[PixelRect],
+                       avoid: &dyn Fn(i32, i32) -> bool,
                        edit: &ObjectEdit,
                        id: u32,
                        image: &mut RgbImage,
@@ -156,51 +170,54 @@ pub(crate) fn retouch(model: &ScanModel, layer: &TextLayer, edits: &PageEdits) -
         }
         changed.push(erase(image, &selection, u64::from(id)));
     };
-    let line_settings = |line: &ScanLine| Selecting {
-        margin: (0.1 * line.height()).ceil() as i32,
-        background: Background::Closing(radius(line.height())),
-        color: None,
-        halo: halo(placement.scale),
-    };
-    for line in &model.lines {
-        let Some(edit) = edits.get(line.id) else {
+    for block in &model.blocks {
+        let Some(edit) = edits.get(block.id) else {
             continue;
         };
-        if in_deleted_table(line) {
-            bounds.insert(line.id, None);
+        if in_deleted_table(block) {
+            bounds.insert(block.id, None);
             continue;
         }
         if !edit.deleted && !edit.is_moved() {
             continue;
         }
-        let zone = zones
-            .get(&line.id)
-            .copied()
-            .unwrap_or_else(|| line_zone(line));
-        let avoid = avoid_for(model, line.id);
-        process(
-            zone,
-            line_settings(line),
-            &avoid,
-            edit,
-            line.id,
-            &mut image,
-            &mut changed,
-        );
+        let line_zones = zones
+            .get(&block.id)
+            .cloned()
+            .unwrap_or_else(|| block.lines.iter().map(line_zone).collect());
+        // L'encre des lignes des autres blocs est évitée, pas celle du bloc.
+        let avoid = |x, y| model.owner(x, y).is_some_and(|(id, _)| id != block.id);
+        let settings = Selecting {
+            margin: (0.1 * block.height()).ceil() as i32,
+            background: Background::Closing(radius(block.height())),
+            color: None,
+            halo: halo(placement.scale),
+        };
+        for (k, zone) in line_zones.iter().enumerate() {
+            process(
+                *zone,
+                settings,
+                &avoid,
+                edit,
+                block.id.wrapping_add(k as u32 * 7919),
+                &mut image,
+                &mut changed,
+            );
+        }
         if edit.deleted {
-            bounds.insert(line.id, None);
-            for &index in &line.words {
+            bounds.insert(block.id, None);
+            for index in block.words() {
                 changes.words[index] = None;
             }
-            remove_inserted(&mut changes, line);
+            remove_inserted(&mut changes, block.id);
         } else {
             let (dx, dy) = placement.pixel_offset(f64::from(edit.dx), f64::from(edit.dy));
-            bounds.insert(line.id, Some(zone.offset(dx, dy)));
+            bounds.insert(block.id, Some(union(&line_zones).offset(dx, dy)));
             let offset = placement.page_offset(dx, dy);
-            for &index in &line.words {
+            for index in block.words() {
                 changes.offset(index, offset);
             }
-            shift_inserted(&mut changes, line, offset);
+            shift_inserted(&mut changes, block.id, offset);
         }
     }
     for element in &model.elements {
@@ -225,7 +242,7 @@ pub(crate) fn retouch(model: &ScanModel, layer: &TextLayer, edits: &PageEdits) -
         process(
             element.zone,
             settings,
-            &[],
+            &|_, _| false,
             edit,
             element.id,
             &mut image,
@@ -253,7 +270,7 @@ pub(crate) fn retouch(model: &ScanModel, layer: &TextLayer, edits: &PageEdits) -
         process(
             table.zone,
             settings,
-            &[],
+            &|_, _| false,
             edit,
             table.id,
             &mut image,
@@ -279,9 +296,9 @@ pub(crate) fn retouch(model: &ScanModel, layer: &TextLayer, edits: &PageEdits) -
         }
         for added in changes.inserted.values_mut() {
             if edit.deleted {
-                added.retain(|w| !inside(w));
+                added.retain(|(_, w)| !inside(w));
             } else {
-                for word in added.iter_mut().filter(|w| inside(w)) {
+                for (_, word) in added.iter_mut().filter(|(_, w)| inside(w)) {
                     shift(word, offset);
                 }
             }
@@ -295,6 +312,7 @@ pub(crate) fn retouch(model: &ScanModel, layer: &TextLayer, edits: &PageEdits) -
         patches: patches(&model.base, &image, &changed),
         layer: changes.finish(&layer.engine),
         bounds,
+        overflow,
     }
 }
 
@@ -303,21 +321,22 @@ pub(crate) fn line_zone(line: &ScanLine) -> PixelRect {
     line.core.inflate((0.1 * line.height()).ceil() as i32)
 }
 
-/// Emprises des autres lignes : leur encre n'est jamais prise.
-fn avoid_for(model: &ScanModel, id: u32) -> Vec<PixelRect> {
-    model
-        .lines
-        .iter()
-        .filter(|line| line.id != id)
-        .map(|line| line.core)
-        .collect()
+/// Zone d'un bloc intact.
+pub(crate) fn block_zone(block: &ScanBlock) -> PixelRect {
+    union(&block.lines.iter().map(line_zone).collect::<Vec<_>>())
 }
 
-fn radius(height: f64) -> usize {
+fn union(zones: &[PixelRect]) -> PixelRect {
+    zones
+        .iter()
+        .fold(PixelRect::EMPTY, |acc, zone| acc.union(zone))
+}
+
+pub(super) fn radius(height: f64) -> usize {
     (height * 0.15).round().clamp(2.0, 14.0) as usize
 }
 
-fn halo(scale: f64) -> i32 {
+pub(super) fn halo(scale: f64) -> i32 {
     if scale > 5.0 {
         2
     } else {
@@ -331,225 +350,18 @@ fn word_center(word: &LayerWord, placement: &super::Placement) -> (f64, f64) {
     placement.to_pixels(f64::from(x), f64::from(y))
 }
 
-/// Les mots ajoutés à une ligne sont ceux insérés parmi ses mots.
-fn line_slots(line: &ScanLine) -> std::ops::RangeInclusive<usize> {
-    let first = line.words.first().copied().unwrap_or(0);
-    let last = line.words.last().copied().unwrap_or(0);
-    first..=last + 1
+fn remove_inserted(changes: &mut LayerChanges, block: u32) {
+    for added in changes.inserted.values_mut() {
+        added.retain(|(owner, _)| *owner != block);
+    }
 }
 
-fn remove_inserted(changes: &mut LayerChanges, line: &ScanLine) {
-    let slots = line_slots(line);
-    changes.inserted.retain(|k, _| !slots.contains(k));
-}
-
-fn shift_inserted(changes: &mut LayerChanges, line: &ScanLine, offset: (f64, f64)) {
-    let slots = line_slots(line);
-    for (_, added) in changes.inserted.range_mut(slots) {
-        for word in added {
+fn shift_inserted(changes: &mut LayerChanges, block: u32, offset: (f64, f64)) {
+    for added in changes.inserted.values_mut() {
+        for (_, word) in added.iter_mut().filter(|(owner, _)| *owner == block) {
             shift(word, offset);
         }
     }
-}
-
-/// Résultat de la réécriture d'une ligne.
-struct LineResult {
-    changed: Vec<PixelRect>,
-    /// Emprise de la ligne réécrite.
-    zone: PixelRect,
-    /// Mots d'origine remplacés.
-    removed: Vec<usize>,
-    /// Mots d'origine décalés, et leur décalage dans l'espace de la page.
-    shifted: Vec<(usize, (f64, f64))>,
-    /// Nouveaux mots.
-    added: Vec<LayerWord>,
-    /// Indice du mot d'origine avant lequel placer les nouveaux mots.
-    insert_at: usize,
-}
-
-/// Réécrit la ligne `line` avec le texte `text` : seuls les mots qui
-/// changent sont effacés et redessinés ; les mots suivants glissent.
-fn rewrite_line(
-    model: &ScanModel,
-    layer: &TextLayer,
-    line: &ScanLine,
-    text: &ScanText,
-    image: &mut RgbImage,
-    avoid: &[PixelRect],
-) -> Option<LineResult> {
-    let old: Vec<&str> = line
-        .words
-        .iter()
-        .map(|&i| layer.words[i].text.as_str())
-        .collect();
-    let new: Vec<&str> = text.text.split_whitespace().collect();
-    let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
-    let max_suffix = old.len().min(new.len()) - prefix;
-    let suffix = old
-        .iter()
-        .rev()
-        .zip(new.iter().rev())
-        .take(max_suffix)
-        .take_while(|(a, b)| a == b)
-        .count();
-    if prefix == old.len() && prefix == new.len() {
-        return None;
-    }
-    let placement = model.image.placement;
-    let scale = placement.scale;
-    let geometry = model.measure(line, layer);
-    let frame = line.frame;
-    let ext = &geometry.extents;
-    let baseline = f64::from(geometry.ink.observation.baseline);
-    let height = (geometry.bottom - geometry.top).max(1.0);
-    let (band_top, band_bottom) = (
-        geometry.top - 0.15 * height,
-        geometry.bottom + 0.15 * height,
-    );
-    let strip_rect = |s0: f64, s1: f64| {
-        let corners = [
-            frame.to_image(s0, band_top),
-            frame.to_image(s1, band_top),
-            frame.to_image(s1, band_bottom),
-            frame.to_image(s0, band_bottom),
-        ];
-        let (x0, y0, x1, y1) = super::bounds(&corners);
-        PixelRect::covering(x0, y0, x1, y1)
-    };
-    let settings = Selecting {
-        margin: 1,
-        background: Background::Closing(radius(height)),
-        color: Some(geometry.ink.color),
-        halo: halo(scale),
-    };
-
-    // Police.
-    let catalog = fonts::catalog::shared();
-    let face_index = catalog
-        .find(&text.style.font)
-        .or_else(|| (!catalog.faces().is_empty()).then_some(0))?;
-    let file = catalog.load(face_index)?;
-    let face = file.face();
-    let upem = f64::from(face.units_per_em() as f32);
-    let em = f64::from(text.style.size) * scale;
-    let k = em / upem;
-    let spacing_units = (f64::from(text.style.spacing) * scale / k) as f32;
-    let blur = text.style.blur * scale as f32;
-    let space = shape(&face, " ", 0.0, false).advance as f64 * k;
-    let gap = geometry
-        .gap
-        .unwrap_or(if space > 0.0 { space } else { 0.25 * em });
-
-    let mut changed = Vec::new();
-    let old_end = old.len() - suffix;
-    let new_end = new.len() - suffix;
-    // Mots remplacés.
-    if prefix < old_end {
-        let zone = strip_rect(ext[prefix].0 - 1.0, ext[old_end - 1].1 + 1.0);
-        let selection = select(image, zone, &settings, avoid);
-        changed.push(erase(image, &selection, u64::from(line.id)));
-    }
-    // Mots suivants, détachés pour glisser.
-    let tail = (suffix > 0).then(|| {
-        let zone = strip_rect(ext[old_end].0 - 1.0, ext[old.len() - 1].1 + 1.0);
-        let selection = select(image, zone, &settings, avoid);
-        let patch = extract(image, &selection);
-        changed.push(erase(image, &selection, u64::from(line.id) + 1));
-        patch
-    });
-
-    // Nouveaux mots, un à un : l'espace entre eux est celui mesuré sur la
-    // ligne.
-    let start = if prefix > 0 {
-        ext[prefix - 1].1 + gap
-    } else if !ext.is_empty() {
-        ext[0].0
-    } else {
-        0.5 * height
-    };
-    let mut cursor = start;
-    let mut added = Vec::new();
-    let color = text.style.color.map(|c| c * 255.0);
-    let line_number = line.words.first().map_or(0, |&i| layer.words[i].line);
-    let mut drawn_end = start;
-    for (j, word) in new[prefix..new_end].iter().enumerate() {
-        let shaped = shape(&face, word, spacing_units, text.style.kerning);
-        let ink = (f64::from(shaped.ink_x.1 - shaped.ink_x.0) * k).max(1.0);
-        let pen_s = cursor - f64::from(shaped.ink_x.0) * k;
-        let pen = Pen {
-            origin: frame.to_image(pen_s, baseline),
-            scale: k,
-            direction: frame.direction,
-            shear: 0.0,
-        };
-        let coverage = rasterize(&face, &shaped, &pen)
-            .emboldened(text.style.weight)
-            .blurred(blur);
-        changed.push(draw(
-            image,
-            &coverage,
-            color,
-            text.style.noise,
-            u64::from(line.id) * 31 + j as u64,
-        ));
-        let corners = [
-            frame.to_image(cursor, geometry.bottom),
-            frame.to_image(cursor + ink, geometry.bottom),
-            frame.to_image(cursor + ink, geometry.top),
-            frame.to_image(cursor, geometry.top),
-        ]
-        .map(|(x, y)| placement.to_page(x, y));
-        let mut quad = [0.0f32; 8];
-        for (n, (x, y)) in corners.iter().enumerate() {
-            quad[2 * n] = *x as f32;
-            quad[2 * n + 1] = *y as f32;
-        }
-        added.push(LayerWord {
-            text: (*word).to_owned(),
-            quad,
-            confidence: 1.0,
-            line: line_number,
-        });
-        drawn_end = cursor + ink;
-        cursor += ink + gap;
-    }
-    if prefix == new_end && prefix > 0 {
-        // Aucun nouveau mot : les suivants reprennent après le dernier gardé.
-        cursor = ext[prefix - 1].1 + gap;
-    }
-
-    // Les mots suivants glissent.
-    let mut shifted = Vec::new();
-    let mut end = if prefix > 0 { ext[prefix - 1].1 } else { start };
-    end = end.max(drawn_end);
-    if let Some(patch) = tail {
-        let delta = cursor - ext[old_end].0;
-        let (dx, dy) = (
-            (delta * frame.direction.0).round() as i32,
-            (delta * frame.direction.1).round() as i32,
-        );
-        changed.push(apply(image, &patch, dx, dy));
-        let offset = placement.page_offset(dx, dy);
-        for &index in &line.words[old_end..] {
-            shifted.push((index, offset));
-        }
-        end = end.max(ext[old.len() - 1].1 + delta);
-    }
-    let begin = ext.first().map_or(start, |e| e.0.min(start));
-    let zone = strip_rect(begin - 1.0, end + 1.0);
-    let insert_at = line
-        .words
-        .get(old_end)
-        .copied()
-        .unwrap_or_else(|| line.words.last().map_or(0, |&i| i + 1));
-    Some(LineResult {
-        changed,
-        zone,
-        removed: line.words[prefix..old_end].to_vec(),
-        shifted,
-        added,
-        insert_at,
-    })
 }
 
 /// Calques des pixels modifiés : zones regroupées, pixels qui diffèrent du

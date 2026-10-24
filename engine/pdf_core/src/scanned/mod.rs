@@ -9,7 +9,9 @@
 //! de la page n'est jamais réécrit : les pixels modifiés sont posés
 //! par-dessus, en calques d'image alignés sur ceux du scan.
 
+mod blocks;
 mod output;
+mod reflow;
 mod retouch;
 
 use std::sync::Arc;
@@ -25,6 +27,9 @@ use crate::content::geometry::{Matrix, Point, Rect};
 use crate::content::objects::ObjectKind;
 use crate::editing::PageModel;
 use crate::error::Result;
+
+pub(crate) use blocks::Alignment;
+use blocks::{Upright, WordInput};
 
 pub(crate) use output::{compose, infos, write_patches};
 pub(crate) use retouch::{retouch, Patch, Retouched};
@@ -296,27 +301,98 @@ pub(crate) fn render(doc: &PdfDocument, index: u32, placement: &Placement) -> Re
     Ok(image)
 }
 
-/// Une ligne de texte reconnue du scan.
+/// Une ligne d'un bloc de texte du scan.
 #[derive(Clone, Debug)]
 pub(crate) struct ScanLine {
-    pub id: u32,
-    /// Mots de la couche de texte d'origine.
+    /// Mots de la couche de texte d'origine, de gauche à droite.
     pub words: Vec<usize>,
-    /// Texte d'origine.
-    pub text: String,
     /// Bande de la ligne, en pixels.
     pub frame: LineFrame,
-    /// Emprise des mots, en pixels.
+    /// Emprise de l'encre, en pixels.
     pub core: PixelRect,
-    /// Tableau dont la ligne occupe une cellule.
-    pub table: Option<u32>,
+    /// Ligne de base : départ (à gauche), direction et longueur.
+    pub baseline: LineFrame,
+    /// Hauteur d'x, en pixels.
+    pub x_height: f64,
 }
 
 impl ScanLine {
+    /// Éloignement du point `(x, y)` du scan au corps de la ligne (de la
+    /// ligne de base au haut des lettres basses), en hauteurs d'x : au-dessus,
+    /// les accents et les lettres montantes restent proches ; au-dessous,
+    /// seuls les jambages. `None` hors de la longueur de la ligne.
+    pub fn distance(&self, x: f64, y: f64) -> Option<f64> {
+        let xh = self.x_height.max(1.0);
+        let (s, t) = self.baseline.to_line(x, y);
+        if s < -xh || s > self.baseline.width + xh {
+            return None;
+        }
+        Some(if t < -xh {
+            (-xh - t) / xh
+        } else if t > 0.0 {
+            t / (BELOW_REACH * xh)
+        } else {
+            0.0
+        })
+    }
+
     /// Hauteur de la ligne (emprise des mots), en pixels.
     pub fn height(&self) -> f64 {
         self.core.height() as f64
     }
+}
+
+/// Un bloc de texte reconnu du scan : une ligne seule, un paragraphe ou une
+/// liste de lignes homogènes (cf. [`blocks`]).
+#[derive(Clone, Debug)]
+pub(crate) struct ScanBlock {
+    pub id: u32,
+    /// Lignes, de haut en bas.
+    pub lines: Vec<ScanLine>,
+    /// Texte d'origine : mots séparés par une espace, retours à la ligne
+    /// voulus conservés.
+    pub text: String,
+    /// Emprise des mots, en pixels.
+    pub core: PixelRect,
+    /// Tableau dont le bloc occupe une cellule.
+    pub table: Option<u32>,
+    pub alignment: Alignment,
+    /// Paragraphe, remis en page quand son texte change ; sinon liste, dont
+    /// chaque ligne garde sa place.
+    pub paragraph: bool,
+    /// Retour à la ligne voulu après chaque ligne.
+    pub hard: Vec<bool>,
+    /// Corps du texte, en pixels.
+    pub em: f64,
+    /// Distance entre deux lignes de base, en pixels (0 pour une ligne seule).
+    pub leading: f64,
+}
+
+impl ScanBlock {
+    /// Mots du bloc, ligne après ligne.
+    pub fn words(&self) -> impl Iterator<Item = usize> + '_ {
+        self.lines
+            .iter()
+            .flat_map(|line| line.words.iter().copied())
+    }
+
+    /// Ligne la plus longue (en mots) : la police y est retrouvée.
+    pub fn longest(&self) -> &ScanLine {
+        self.lines
+            .iter()
+            .max_by_key(|line| line.words.len())
+            .unwrap_or(&self.lines[0])
+    }
+
+    /// Hauteur d'une ligne, en pixels.
+    pub fn height(&self) -> f64 {
+        median_f64(self.lines.iter().map(ScanLine::height).collect())
+    }
+}
+
+fn median_f64(mut values: Vec<f64>) -> f64 {
+    values.sort_by(f64::total_cmp);
+    values.get(values.len() / 2).copied().unwrap_or(0.0)
 }
 
 /// Un tableau trouvé dans le scan.
@@ -349,13 +425,10 @@ pub(crate) struct ScanModel {
     pub base: Arc<RgbImage>,
     /// Redressement vers l'espace des tableaux.
     pub deskew: Deskew,
-    pub lines: Vec<ScanLine>,
+    pub blocks: Vec<ScanBlock>,
     pub tables: Vec<ScanTable>,
     pub elements: Vec<ScanElement>,
 }
-
-/// Cellule d'un tableau : (tableau, cellule), par indice.
-type Cell = Option<(usize, usize)>;
 
 /// Mot de la couche placé dans les pixels.
 struct PixelWord {
@@ -445,8 +518,7 @@ impl ScanModel {
             })
             .collect();
 
-        // Lignes : mots d'une même ligne reconnue, séparés aux cellules et
-        // aux grands écarts.
+        // Blocs de texte : mots regroupés en lignes, puis en paragraphes.
         let cell_of = |w: &PixelWord| -> Option<(usize, usize)> {
             let (x, y) = deskew.apply(w.center);
             tables
@@ -454,55 +526,75 @@ impl ScanModel {
                 .enumerate()
                 .find_map(|(t, table)| table.table.cell_at(x, y).map(|c| (t, c)))
         };
-        let mut groups: Vec<(Vec<usize>, Cell)> = Vec::new();
-        for (i, word) in layer.words.iter().enumerate() {
-            let cell = cell_of(&words[i]);
-            let split = match groups.last() {
-                Some((last, last_cell)) => {
-                    let previous = *last.last().unwrap_or(&i);
-                    let height = words[previous].rect.height().max(1) as f64;
-                    let gap = gap_between(&words[previous], &words[i]);
-                    layer.words[previous].line != word.line
-                        || *last_cell != cell
-                        || gap > 1.2 * height
+        let inputs: Vec<WordInput> = words
+            .iter()
+            .map(|w| WordInput {
+                corners: w.corners,
+                cell: cell_of(w),
+            })
+            .collect();
+        let upright = Upright::new(skew, base.width, base.height);
+        let plans = blocks::group(&inputs, &base, &dark, upright);
+        let mut blocks = Vec::with_capacity(plans.len());
+        for plan in plans {
+            let lines: Vec<ScanLine> = plan
+                .lines
+                .iter()
+                .map(|line| {
+                    let (x0, y0, x1, y1) = bounds(&line.band);
+                    ScanLine {
+                        words: line.words.clone(),
+                        frame: line_frame(&line.band, upright.direction()),
+                        core: PixelRect::covering(x0, y0, x1, y1),
+                        baseline: LineFrame {
+                            origin: line.baseline,
+                            direction: upright.direction(),
+                            width: line.length,
+                            height: 0.0,
+                        },
+                        x_height: line.x_height,
+                    }
+                })
+                .collect();
+            let core = lines
+                .iter()
+                .skip(1)
+                .fold(lines[0].core, |acc, line| acc.union(&line.core));
+            let mut text = String::new();
+            for (k, line) in lines.iter().enumerate() {
+                if k > 0 {
+                    text.push(if plan.hard[k - 1] { '\n' } else { ' ' });
                 }
-                None => true,
-            };
-            if split {
-                groups.push((vec![i], cell));
-            } else if let Some((last, _)) = groups.last_mut() {
-                last.push(i);
+                let words: Vec<&str> = line
+                    .words
+                    .iter()
+                    .map(|&i| layer.words[i].text.as_str())
+                    .collect();
+                text.push_str(&words.join(" "));
             }
-        }
-        let mut lines = Vec::with_capacity(groups.len());
-        for (members, cell) in groups {
-            let text = members
+            let key: String = lines
                 .iter()
-                .map(|&i| layer.words[i].text.as_str())
-                .collect::<Vec<_>>()
-                .join(" ");
-            let corners: Vec<(f64, f64)> = members.iter().flat_map(|&i| words[i].corners).collect();
-            let frame = line_frame(&members.iter().map(|&i| &words[i]).collect::<Vec<_>>());
-            let (x0, y0, x1, y1) = bounds(&corners);
-            let core = PixelRect::covering(x0, y0, x1, y1);
-            let key: String = members
-                .iter()
+                .flat_map(|line| line.words.iter())
                 .map(|&i| {
                     let q = &layer.words[i].quad;
                     format!("{}:{:.1}:{:.1};", layer.words[i].text, q[0], q[1])
                 })
                 .collect();
-            let id = ids.next("line", &core, &key);
-            if let Some((t, c)) = cell {
+            let id = ids.next("block", &core, &key);
+            if let Some((t, c)) = plan.cell {
                 tables[t].cells[c].push(id);
             }
-            lines.push(ScanLine {
+            blocks.push(ScanBlock {
                 id,
-                words: members,
+                lines,
                 text,
-                frame,
                 core,
-                table: cell.map(|(t, _)| tables[t].id),
+                table: plan.cell.map(|(t, _)| tables[t].id),
+                alignment: plan.alignment,
+                paragraph: plan.paragraph,
+                hard: plan.hard,
+                em: plan.em,
+                leading: plan.leading,
             });
         }
 
@@ -556,15 +648,40 @@ impl ScanModel {
             image,
             base: Arc::new(base),
             deskew,
-            lines,
+            blocks,
             tables,
             elements,
         }
     }
 
-    /// Ligne `id`.
-    pub fn line(&self, id: u32) -> Option<&ScanLine> {
-        self.lines.iter().find(|line| line.id == id)
+    /// Bloc de texte `id`.
+    pub fn block(&self, id: u32) -> Option<&ScanBlock> {
+        self.blocks.iter().find(|block| block.id == id)
+    }
+
+    /// Ligne à laquelle appartient l'encre centrée en `(x, y)` : la plus
+    /// proche (bloc, rang de la ligne), s'il en est une à moins de deux
+    /// hauteurs d'x.
+    pub fn owner(&self, x: i32, y: i32) -> Option<(u32, usize)> {
+        let (x, y) = (f64::from(x) + 0.5, f64::from(y) + 0.5);
+        let mut best: Option<((u32, usize), f64)> = None;
+        for block in &self.blocks {
+            if !block
+                .core
+                .inflate(block.height() as i32)
+                .contains(x as i32, y as i32)
+            {
+                continue;
+            }
+            for (j, line) in block.lines.iter().enumerate() {
+                if let Some(d) = line.distance(x, y) {
+                    if d <= 2.0 && best.is_none_or(|(_, b)| d < b) {
+                        best = Some(((block.id, j), d));
+                    }
+                }
+            }
+        }
+        best.map(|(owner, _)| owner)
     }
 
     /// Mesure l'encre de la ligne `line` sur le scan d'origine.
@@ -601,49 +718,22 @@ impl ScanModel {
                 _ => extents.push((*s0, *s1)),
             }
         }
-        let mut gaps: Vec<f64> = extents
-            .windows(2)
-            .map(|p| p[1].0 - p[0].1)
-            .filter(|g| *g > 0.0)
-            .collect();
-        gaps.sort_by(f64::total_cmp);
-        let gap = gaps.get(gaps.len() / 2).copied();
-        // Haut et bas des mots dans la bande.
-        let ts: Vec<f64> = line
-            .words
-            .iter()
-            .flat_map(|&i| {
-                let word = &layer.words[i];
-                [
-                    word.bottom_left(),
-                    word.bottom_right(),
-                    word.top_right(),
-                    word.top_left(),
-                ]
-            })
-            .map(|(x, y)| {
-                let (px, py) = self.image.placement.to_pixels(f64::from(x), f64::from(y));
-                frame.to_line(px, py).1
-            })
-            .collect();
-        let top = ts.iter().copied().fold(f64::INFINITY, f64::min);
-        let bottom = ts.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         LineGeometry {
             ink,
             extents,
-            gap,
-            top,
-            bottom,
+            top: BAND_MARGIN,
+            bottom: frame.height - BAND_MARGIN,
         }
     }
 
-    /// Réglages mesurés de la ligne `line` et les polices candidates.
+    /// Réglages mesurés du bloc `block` (sur sa plus longue ligne) et les
+    /// polices candidates.
     pub fn match_style(
         &self,
-        line: &ScanLine,
+        block: &ScanBlock,
         layer: &TextLayer,
     ) -> (ScanStyle, Vec<ScanCandidate>) {
-        let geometry = self.measure(line, layer);
+        let geometry = self.measure(block.longest(), layer);
         let catalog = fonts::catalog::shared();
         let found = fonts::match_line(&catalog, &geometry.ink.observation);
         let s = self.image.placement.scale as f32;
@@ -724,11 +814,10 @@ fn fallback_style(
 }
 
 /// Mesures d'une ligne : encre, emprise de chaque mot le long de la bande,
-/// espace entre les mots, haut et bas des mots dans la bande.
+/// haut et bas des mots dans la bande.
 pub(crate) struct LineGeometry {
     pub ink: LineInk,
     pub extents: Vec<(f64, f64)>,
-    pub gap: Option<f64>,
     pub top: f64,
     pub bottom: f64,
 }
@@ -753,22 +842,22 @@ fn word_span(frame: &LineFrame, word: &LayerWord, placement: &Placement) -> (f64
     )
 }
 
-/// Bande d'une ligne : suit la direction de ses mots, avec une marge.
-fn line_frame(words: &[&PixelWord]) -> LineFrame {
-    let first = words[0];
-    let last = words[words.len() - 1];
-    let start = first.corners[0];
-    let end = last.corners[1];
-    let (mut dx, mut dy) = (end.0 - start.0, end.1 - start.1);
-    let len = dx.hypot(dy);
-    if len < 1.0 {
-        (dx, dy) = (1.0, 0.0);
-    } else {
-        (dx, dy) = (dx / len, dy / len);
-    }
+/// Portée des jambages sous la ligne de base, en hauteurs d'x : un point à
+/// cette distance au-dessous est aussi proche de la ligne qu'un point à une
+/// hauteur d'x au-dessus de ses lettres basses.
+const BELOW_REACH: f64 = 0.4;
+
+/// Marge de la bande d'une ligne au-dessus et au-dessous de son encre
+/// (pixels).
+const BAND_MARGIN: f64 = 2.0;
+
+/// Bande d'une ligne dont l'encre a les coins `corners`, dans la direction
+/// `direction` (celle des lignes de la page), avec une marge.
+fn line_frame(corners: &[(f64, f64)], direction: (f64, f64)) -> LineFrame {
+    let start = corners[0];
     let probe = LineFrame {
         origin: start,
-        direction: (dx, dy),
+        direction,
         width: 0.0,
         height: 0.0,
     };
@@ -778,32 +867,23 @@ fn line_frame(words: &[&PixelWord]) -> LineFrame {
         f64::INFINITY,
         f64::NEG_INFINITY,
     );
-    for word in words {
-        for &(x, y) in &word.corners {
-            let (s, t) = probe.to_line(x, y);
-            s0 = s0.min(s);
-            s1 = s1.max(s);
-            t0 = t0.min(t);
-            t1 = t1.max(t);
-        }
+    for &(x, y) in corners {
+        let (s, t) = probe.to_line(x, y);
+        s0 = s0.min(s);
+        s1 = s1.max(s);
+        t0 = t0.min(t);
+        t1 = t1.max(t);
     }
     let height = (t1 - t0).max(1.0);
-    let pad_t = 0.3 * height;
+    let pad_t = BAND_MARGIN;
     let pad_s = 0.5 * height;
     let origin = probe.to_image(s0 - pad_s, t0 - pad_t);
     LineFrame {
         origin,
-        direction: (dx, dy),
+        direction,
         width: s1 - s0 + 2.0 * pad_s,
         height: height + 2.0 * pad_t,
     }
-}
-
-/// Écart horizontal entre deux mots (pixels).
-fn gap_between(a: &PixelWord, b: &PixelWord) -> f64 {
-    f64::from(b.rect.x0 - a.rect.x1)
-        .max(f64::from(a.rect.x0 - b.rect.x1))
-        .max(0.0)
 }
 
 /// Inclinaison du texte (degrés) : médiane des pentes des mots de plus de

@@ -964,3 +964,50 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   reconnaissance du texte et le mode Édition pour simplifier l'expérience ; un
   PDF natif passe directement en Édition, un PDF scanné est d'abord reconnu
   en entier.
+
+## D59 — Lignes et paragraphes d'un scan reconnu (après le jalon 9)
+
+- **Constat :** sur un courrier tapé en chasse fixe et justifié, Vision coupe
+  chaque ligne en plusieurs morceaux dès que les espaces s'élargissent, saute
+  des mots courts isolés entre deux grands blancs, et donne parfois à un mot
+  une emprise qui couvre aussi la ligne du dessus. Chaque morceau devenait un
+  bloc : modifier une phrase obligeait à retoucher et replacer plusieurs blocs.
+- **Retenu :**
+  - *Mots oubliés :* après la lecture, les zones d'encre d'une ligne qu'aucun
+    mot ne couvre sont relues en un seul appel à Vision (image composite des
+    morceaux), et les mots trouvés sont insérés dans leur ligne. Les emprises
+    deux fois trop hautes sont ramenées à leur ligne, au blanc qui les sépare
+    de la précédente (`ocr::recover`).
+  - *Regroupement :* les mots sont rangés par la hauteur de leur centre sur la
+    page redressée, sans se fier aux lignes de Vision ; une rangée n'est coupée
+    qu'aux grands blancs (1,5 hauteur de mot, 2,5 si la ligne est justifiée,
+    c'est-à-dire si ses espaces élargis ont une largeur voisine), ou au
+    changement de cellule d'un tableau. Les lignes sont mesurées sur l'encre
+    (ligne de base, hauteur, graisse, couleur, bande d'encre des accents aux
+    jambages) puis regroupées en paragraphes et listes comme le texte natif
+    (D25 : même corps, même graisse, même couleur, interligne régulier, bords
+    alignés) ; un morceau resté seul sur la rangée d'un paragraphe rejoint sa
+    ligne (`pdf_core::scanned::blocks`).
+  - *Réécriture :* un bloc se modifie d'un seul tenant, comme un bloc natif.
+    Les mots inchangés gardent leurs pixels (appariement par plus longue
+    sous-suite commune) ; les nouveaux sont dessinés dans la police retrouvée.
+    Un paragraphe est remis à la ligne dans sa largeur à partir de la première
+    ligne modifiée, en gardant l'espace d'origine entre deux mots restés
+    voisins ; dès que la suite du texte redevient celle d'origine, les lignes
+    sont reprises telles quelles, décalées au besoin. Une liste garde ses
+    retours à la ligne. L'alignement (gauche, droite, centré, justifié) est
+    conservé (`pdf_core::scanned::reflow`).
+  - *Encre des voisines :* une composante d'encre appartient à la ligne dont
+    le corps (des lettres basses à la ligne de base) est le plus proche de son
+    centre ; elle n'est jamais effacée ni déplacée avec une autre ligne. La
+    police d'une ligne est mesurée dans sa seule bande d'encre.
+- **Alternatives :** se fier aux lignes de Vision (le défaut constaté) ;
+  regrouper par proximité des emprises (trompé par les hauteurs variables des
+  emprises de Vision) ; relire toute la page avec un autre moteur (cf. l'étude
+  PaddleOCR-VL : trop lent, sans confiance par mot) ; réécrire tout le
+  paragraphe dans la police retrouvée (le texte inchangé perdrait son aspect
+  d'origine).
+- **Raisons :** demande de Sylvain (2026-10-24) : sur le courrier d'assurance
+  de test, la reconnaissance se faisait par blocs de quelques mots, au lieu de
+  lignes et de paragraphes modifiables d'un seul tenant.
+

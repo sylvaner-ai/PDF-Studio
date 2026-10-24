@@ -224,15 +224,17 @@ l'interprétation du flux de contenu et sur MuPDF.
 - **Objets d'un scan.** Une fois la page reconnue (couche de texte), et si
   elle n'a pas de texte natif mais une image qui en couvre au moins la moitié,
   `pdf_core::scanned` rend l'image dans un espace de pixels sans rotation, à sa
-  résolution native (D38), et construit un `ScanModel` : lignes (couche
-  reconnue), tableaux (filets de l'image redressés, `layout::detect`) et
+  résolution native (D38), et construit un `ScanModel` : blocs de texte
+  (lignes puis paragraphes ou listes, regroupés par `scanned::blocks` sur
+  l'encre de la page redressée, D59), tableaux (filets de l'image redressés, `layout::detect`) et
   éléments (encre hors des mots et des filets) (D39). Ils remplacent l'image
   parmi les objets de la page, avec des numéros marqués `SCAN_ID`.
 - **Modifications.** Elles sont rangées comme les autres (`ObjectEdit` :
-  suppression, déplacement), plus `ScanText` pour une ligne réécrite : texte,
+  suppression, déplacement), plus `ScanText` pour un bloc réécrit : texte,
   réglages actuels et mesurés, polices candidates. `scanned::retouch` calcule
-  les rustines en deux temps : réécriture des lignes sur place (mots changés
-  effacés et redessinés, fin de ligne décalée), puis suppressions et
+  les rustines en deux temps : réécriture des blocs (`scanned::reflow` : mots
+  gardés déplacés avec leur encre, nouveaux mots dessinés, paragraphe remis à
+  la ligne, D59), puis suppressions et
   déplacements (sélection de l'encre, extraction, effacement par `scan::inpaint`,
   pose décalée). La couche de texte est mise à jour en conséquence.
 - **Police et rendu.** `ScanModel::match_style` mesure la ligne
@@ -261,7 +263,8 @@ l'interprétation du flux de contenu et sur MuPDF.
 - **Préparation.** `ocr::recognize` égalise le fond et étire le contraste,
   filtre éventuellement le bruit, détecte une page couchée, mesure et corrige
   l'inclinaison, binarise éventuellement, puis lit ; une lecture douteuse est
-  reprise dans les autres sens (D27). Les mots reviennent dans le repère de
+  reprise dans les autres sens (D27). Les zones d'encre d'une ligne laissées
+  sans mot sont relues en un appel (`ocr::recover`, D59). Les mots reviennent dans le repère de
   l'image reçue.
 - **Une page.** `EditSession.recognize_page` rend la page (contenu modifié
   compris) à 300 ppp, la fait lire, écarte les mots qui recouvrent un texte déjà

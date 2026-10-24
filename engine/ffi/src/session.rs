@@ -1595,6 +1595,7 @@ mod tests {
             flatten: false,
             deskew: false,
             orientation: false,
+            recover: false,
             ..default_recognition_settings()
         };
         let result = session
@@ -1668,6 +1669,7 @@ mod tests {
             flatten: false,
             deskew: false,
             orientation: false,
+            recover: false,
             ..default_recognition_settings()
         };
         let session = EditSession::new(open("scan_simule.pdf"));

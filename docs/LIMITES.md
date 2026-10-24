@@ -255,7 +255,8 @@ complété à chaque jalon.
   où un logo ou une signature a été effacé.
 - **Texte réécrit plus long :** la fin de la ligne est décalée, sans retour à
   la ligne ; un texte qui dépasse le bord de la page ou de la cellule n'est pas
-  remis à la ligne.
+  remis à la ligne. *Résolu par D59 pour les paragraphes : ils sont remis à la
+  ligne dans leur largeur.*
 - **Couleurs :** les couleurs sont lues en RGB, sans profil ICC ; un scan en
   CMJN ou à profil particulier peut donner une encre légèrement différente
   (curseur « Couleur »).
@@ -387,3 +388,28 @@ complété à chaque jalon.
   contenu, sans effet, ainsi que la police de l'ancienne couche dans les
   ressources de la page : chaque relecture suivie d'un enregistrement ajoute
   quelques kilo-octets au fichier.
+
+## Lignes et paragraphes d'un scan (D59)
+
+- **Débordement :** comme pour le texte natif, un paragraphe allongé descend
+  sous ses lignes d'origine sans repousser ce qui suit ; sur un scan, sa
+  dernière ligne peut alors recouvrir l'encre du bloc suivant (le bandeau
+  signale le débordement).
+- **Mots coupés :** un mot coupé en fin de ligne (trait d'union) n'est pas
+  recollé ; une fois le paragraphe remis en page, le trait d'union peut se
+  retrouver au milieu d'une ligne.
+- **Mesures bruitées :** le corps, la graisse et la couleur sont mesurés sur
+  l'encre, ligne par ligne ; sur un scan pâle ou très compressé, une ligne
+  peut se trouver écartée de son paragraphe (bloc à part) ou deux paragraphes
+  voisins de même style réunis.
+- **Mots oubliés par Vision :** la relecture des zones d'encre non couvertes
+  retrouve la plupart des mots courts isolés ; un mot qu'elle ne retrouve pas
+  laisse un trou dans la ligne, qui peut alors être coupée en deux blocs.
+- **Colonnes sans filets :** sur un ticket de caisse, des montants séparés par
+  de grands blancs inégaux forment des blocs distincts ; des lignes centrées
+  de même largeur (adresse en tête) forment un paragraphe et se remettent en
+  page comme tel.
+- **Accents des capitales :** dans un interligne très serré, l'accent d'une
+  capitale peut être attribué à la ligne du dessus, et suivre celle-ci si elle
+  se déplace.
+
