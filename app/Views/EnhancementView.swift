@@ -88,9 +88,7 @@ private struct EnhancementPreviewArea: View {
 /// curseur, l'image « avant » à droite ; le curseur se fait glisser.
 ///
 /// L'image « avant », ajustée à la place disponible, fixe le format ; tout le
-/// reste se pose dessus en calques, sans placement calculé : la version
-/// précédente, placée tout entière dans un `GeometryReader`, faisait tourner la
-/// mise à jour de l'interface sans fin.
+/// reste se pose dessus en calques.
 struct BeforeAfterView: View {
     let before: CGImage
     let after: CGImage
@@ -155,15 +153,18 @@ struct BeforeAfterView: View {
 
     private var labels: some View {
         HStack {
-            tag("Après")
+            caption("Après")
             Spacer()
-            tag("Avant")
+            caption("Avant")
         }
         .padding(Design.Spacing.small)
         .allowsHitTesting(false)
     }
 
-    private func tag(_ text: LocalizedStringKey) -> some View {
+    /// Étiquette d'une image. Surtout pas `tag(_:)` : `tag("Après")` appellerait
+    /// le modificateur `View.tag(_:)`, qui renvoie la vue elle-même, et l'aperçu
+    /// se contiendrait sans fin (l'application se figeait).
+    private func caption(_ text: LocalizedStringKey) -> some View {
         Text(text)
             .font(.caption)
             .padding(.horizontal, Design.Spacing.small)
