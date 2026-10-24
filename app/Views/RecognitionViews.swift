@@ -66,3 +66,21 @@ struct NoticeBadge: View {
             .allowsHitTesting(false)
     }
 }
+
+/// Exportation en cours, en bas de la fenêtre.
+struct ActivityBadge: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: Design.Spacing.small) {
+            ProgressView()
+                .controlSize(.small)
+            Text(text)
+        }
+        .padding(.horizontal, Design.Spacing.large)
+        .padding(.vertical, Design.Spacing.small)
+        .floatingBadge()
+        .padding(.bottom, Design.Spacing.large)
+        .accessibilityElement(children: .combine)
+    }
+}

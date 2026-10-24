@@ -221,8 +221,8 @@ l'endroit. Sens : quarts de tour trouvés (attendus).
 - **Critères :** écart maximal de 0,02° et résidu maximal de 0,10°
   (critère : moins de 0,2°) ; 04 et 11, page 1, sans correction (fichier
   inchangé pour 04) ; 03 marquée « à vérifier » ; aucune page hors critères.
-  Le lot de 50 pages : 50 sur 50 conformes, 20 s page après page (le lot en
-  parallèle vient au jalon 4).
+  Le lot de 50 pages : 50 sur 50 conformes, traité page après page (le lot
+  en parallèle vient au jalon 4).
 - **Saillance de l'angle retenu** (netteté relative du profil) : de 22 à 51
   pour les pages de texte, 9,3 pour la photo 12 ; une recherche limitée à
   ±15° trouvait sur 03 un faux angle de 15,4° de saillance 1,6, d'où la
@@ -234,8 +234,10 @@ l'endroit. Sens : quarts de tour trouvés (attendus).
   fois pour 10 (scan d'origine en qualité 35, dont le bruit est gardé). Le
   nettoyage du fond (jalon 3), qui rend le papier uniforme, devrait réduire
   nettement ces tailles ; à mesurer alors.
-- **Durée :** 0,25 à 1 s par page sur le processeur du cloud (rendu du scan,
-  mesure, rotation, encodage), à mesurer sur le Mac.
+- **Durée :** sur le MacBook Air M3 de Sylvain (même banc, même jour),
+  190 ms par page en moyenne (de 92 ms pour 10 à 377 ms pour 01, à 300 ppp)
+  et 6,3 s pour le lot de 50 pages ; mêmes angles et mêmes tailles qu'au
+  cloud (0,25 à 1 s par page, 20 s pour le lot).
 
 ### Perspective (option facultative)
 

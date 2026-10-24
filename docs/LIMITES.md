@@ -434,5 +434,5 @@ complété à chaque jalon.
 - **Annotations dans l'aperçu :** les annotations d'une page (notes,
   surlignages) ne sont pas dessinées sur une page améliorée pendant la
   session ; elles sont gardées à l'enregistrement.
-- **Durée :** le traitement se fait page après page (0,25 à 1 s par page
-  dans le cloud) ; le lot en parallèle arrive au jalon 4.
+- **Durée :** le traitement se fait page après page (0,1 à 0,4 s par page
+  sur un Mac M3) ; le lot en parallèle arrive au jalon 4.
