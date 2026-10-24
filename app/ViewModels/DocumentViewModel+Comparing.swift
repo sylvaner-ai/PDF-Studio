@@ -13,7 +13,7 @@ extension DocumentViewModel {
     /// Montre les pages d'origine ou les pages modifiées, selon `isComparing`.
     func showComparison() {
         // Le canevas d'abord : un texte en cours de saisie est validé.
-        canvas.setEditing(workspace == .editing && !isComparing ? editing : nil)
+        updateCanvasEditing()
         canvas.setPages(isComparing ? pages.map(\.original) : pages)
     }
 }

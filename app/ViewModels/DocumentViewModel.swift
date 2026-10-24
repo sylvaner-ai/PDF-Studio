@@ -40,13 +40,16 @@ final class DocumentViewModel {
     /// Nombre de pages sélectionnées, publié seulement quand il change : la
     /// sélection suit la page lue, et les menus ne dépendent que de ce nombre.
     private(set) var selectionCount = 0
-    /// Lecture des pages, grille pour les organiser, ou édition de leur contenu.
+    /// Lecture des pages, grille pour les organiser, ou édition de leur contenu ;
+    /// l'entrée en Édition commence par la reconnaissance du texte des pages
+    /// scannées (cf. `DocumentViewModel+Recognizing.swift`).
     var workspace = Workspace.reading {
         didSet {
             guard workspace != oldValue else { return }
             isComparing = false
+            prepareEditing()
             // Le canevas d'abord : un texte en cours de saisie est validé.
-            canvas.setEditing(workspace == .editing ? editing : nil)
+            updateCanvasEditing()
             if workspace != .editing {
                 editing.endEditing()
             }
@@ -80,9 +83,16 @@ final class DocumentViewModel {
     var activity: String?
     /// Modifications non enregistrées retrouvées à l'ouverture, en attente d'une réponse.
     var recoveryOffer: RecoveryRecord?
-    /// Reconnaissance du texte en cours (cf. `DocumentViewModel+Recognizing.swift`) ;
+    /// Préparation du mode Édition en cours : recherche des pages scannées puis
+    /// reconnaissance de leur texte (cf. `DocumentViewModel+Recognizing.swift`) ;
     /// les pages restent figées jusqu'à sa fin.
-    var recognition: RecognitionProgress?
+    var recognition: RecognitionProgress? {
+        didSet {
+            if recognition?.isSearching != oldValue?.isSearching {
+                updateCanvasEditing()
+            }
+        }
+    }
     /// Information passagère, en bas de la fenêtre (bilan d'une reconnaissance).
     var notice: String?
 
@@ -97,8 +107,11 @@ final class DocumentViewModel {
     @ObservationIgnored private(set) var isClosed = false
     /// Dernière insertion demandée ; la suivante attend sa fin.
     @ObservationIgnored var insertionTask: Task<Void, Never>?
-    /// Reconnaissance du texte en cours, à interrompre.
+    /// Préparation du mode Édition en cours, à interrompre.
     @ObservationIgnored var recognitionTask: Task<Void, Never>?
+    /// Pages lues sans qu'aucun texte y soit trouvé (photo, dessin) : elles ne
+    /// sont pas relues à chaque entrée en Édition.
+    @ObservationIgnored var pagesWithoutText: Set<UInt64> = []
     /// Fin de l'affichage de l'information passagère.
     @ObservationIgnored var noticeTask: Task<Void, Never>?
     @ObservationIgnored private var declaredTitle: String?
@@ -213,7 +226,8 @@ final class DocumentViewModel {
             await Task.detached(priority: .userInitiated) { (try? session.selectableText(page: page)) ?? [] }.value
         }
         editing.reset()
-        canvas.setEditing(workspace == .editing ? editing : nil)
+        pagesWithoutText = []
+        updateCanvasEditing()
         search = SearchModel(session: session, pages: pages, canvas: canvas)
         selection = pages.first.map { [$0.id] } ?? []
         phase = .ready

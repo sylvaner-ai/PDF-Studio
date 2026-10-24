@@ -48,9 +48,12 @@ locale, hors ligne, sans compte ni télémétrie.
 
 ## Modifier le contenu des pages
 
-- **Mode Édition** (⌘3, ou le crayon de la barre d'outils) : un clic sélectionne un
-  bloc de texte, une image ou un tracé ; ⇧-clic en ajoute ; un rectangle tracé sur
-  la page en sélectionne plusieurs.
+- **Mode Édition** (⌘3, ou le crayon de la barre d'outils) : un PDF natif s'y
+  modifie aussitôt ; pour un PDF scanné, le texte de toutes ses pages scannées est
+  d'abord reconnu (bandeau d'avancement, « Arrêter » ou ⌘.), puis ses objets
+  deviennent modifiables. Un clic sélectionne un bloc de texte, une image ou un
+  tracé ; ⇧-clic en ajoute ; un rectangle tracé sur la page en sélectionne
+  plusieurs.
 - **Déplacer** en glissant, ou avec les flèches (1 pt, 10 pt avec ⇧) ; **supprimer**
   avec ⌫.
 - **Modifier un texte** par double-clic ou Retour : Retour valide, ⇧Retour passe à
@@ -63,9 +66,9 @@ locale, hors ligne, sans compte ni télémétrie.
   cellule (une cellule vide prend le style de ses voisines) ; le **menu Tableau**
   et le clic droit suppriment, montent ou descendent la ligne, suppriment ou
   déplacent la colonne. Le tableau se resserre, ses filets et ses fonds suivent.
-- **Pages scannées :** une fois la page reconnue (bouton « Reconnaître le texte »),
-  ses lignes, ses tableaux, ses logos et signatures se sélectionnent comme des
-  objets ; les déplacer ou les supprimer retouche l'image (le fond est
+- **Pages scannées :** une fois la page reconnue (à l'entrée en Édition, y compris
+  un scan qui portait déjà le texte d'un autre logiciel), ses lignes, ses tableaux,
+  ses logos et signatures se sélectionnent comme des objets ; les déplacer ou les supprimer retouche l'image (le fond est
   reconstitué). Réécrire une ligne la redessine dans la police la plus proche du
   scan ; le **panneau de retouche**, en haut à gauche, propose les trois polices
   retrouvées (avec leur ressemblance) et règle le corps, la graisse,

@@ -629,8 +629,11 @@ impl EditSession {
             .collect())
     }
 
-    /// Pages qui doivent passer par la reconnaissance de texte : sans aucun
-    /// texte, mais avec un contenu (image d'un scan), et pas encore reconnues.
+    /// Pages qui doivent passer par la reconnaissance de texte, pas encore
+    /// reconnues dans la session : sans aucun texte mais avec un contenu (image
+    /// d'un scan), ou dont le seul texte est la couche invisible d'un OCR
+    /// précédent, posée sur un scan (la nouvelle lecture la remplace). Chaque
+    /// page source n'est examinée qu'une fois.
     pub fn pages_to_recognize(&self) -> Result<Vec<u64>, EngineError> {
         let candidates: Vec<(u64, Arc<PdfDocument>, u32)> = {
             let state = self.lock();
@@ -660,8 +663,9 @@ impl EditSession {
     /// Lit le texte de la page `page` avec `recognizer`, sans modifier le
     /// document : le résultat s'applique ensuite, avec celui des autres pages,
     /// par [`EditSession::apply_recognitions`]. Les mots qui recouvrent un
-    /// texte déjà présent dans la page sont écartés. Une page vierge ne
-    /// donne aucun mot.
+    /// texte déjà présent dans la page sont écartés, sauf le texte invisible
+    /// d'un OCR précédent, que la nouvelle couche remplace (recherche,
+    /// sélection et enregistrement). Une page vierge ne donne aucun mot.
     pub fn recognize_page(
         &self,
         page: u64,
@@ -1464,8 +1468,9 @@ mod tests {
         assert!(session.undo_name().is_none());
     }
 
-    /// Moteur factice : trois mots sur une ligne, à un endroit fixe de l'image.
-    struct Factice;
+    /// Moteur factice : trois mots sur une ligne (le premier donné), à un
+    /// endroit fixe de l'image.
+    struct Factice(&'static str);
 
     impl TextRecognizer for Factice {
         fn name(&self) -> String {
@@ -1485,7 +1490,7 @@ mod tests {
                 quad: vec![x, 300.0, x + 100.0, 300.0, x + 100.0, 330.0, x, 330.0],
             };
             Ok(vec![
-                word("Facture", 150.0, 0.95),
+                word(self.0, 150.0, 0.95),
                 word("n°", 260.0, 0.9),
                 word("4521", 370.0, 0.3),
             ])
@@ -1593,7 +1598,7 @@ mod tests {
             ..default_recognition_settings()
         };
         let result = session
-            .recognize_page(page, Arc::new(Factice), settings)
+            .recognize_page(page, Arc::new(Factice("Facture")), settings)
             .unwrap();
         assert_eq!(result.words.len(), 3);
         assert_eq!(result.words[0].line, 0);
@@ -1654,6 +1659,68 @@ mod tests {
             .unwrap()
             .is_empty());
         assert!(session.selectable_text(page).unwrap().is_empty());
+    }
+
+    #[test]
+    fn relit_une_page_deja_reconnue() {
+        let settings = RecognitionSettings {
+            dpi: 150.0,
+            flatten: false,
+            deskew: false,
+            orientation: false,
+            ..default_recognition_settings()
+        };
+        let session = EditSession::new(open("scan_simule.pdf"));
+        let page = session.pages()[0].id;
+        let first = session
+            .recognize_page(page, Arc::new(Factice("Facture")), settings.clone())
+            .unwrap();
+        session.apply_recognitions(vec![first]);
+        let saved = session.export_pdf().unwrap().bytes;
+
+        // Rouvert, le scan porte une couche invisible : il se relit, et la
+        // couche enregistrée n'écarte aucun mot.
+        let session = EditSession::new(PdfDocument::from_data(saved, None).unwrap());
+        let page = session.pages()[0].id;
+        assert_eq!(session.pages_to_recognize().unwrap(), [page]);
+        assert_eq!(
+            session.search_page(page, "facture".into()).unwrap().len(),
+            1
+        );
+        let second = session
+            .recognize_page(page, Arc::new(Factice("Devis")), settings)
+            .unwrap();
+        assert_eq!(second.words.len(), 3);
+        session.apply_recognitions(vec![second]);
+        assert!(session.pages_to_recognize().unwrap().is_empty());
+        // La page se retouche comme un scan reconnu dans la session.
+        assert!(session
+            .page_objects(page)
+            .unwrap()
+            .iter()
+            .any(|object| object.scanned));
+
+        // La nouvelle couche remplace l'ancienne : avant l'enregistrement…
+        assert!(session
+            .search_page(page, "facture".into())
+            .unwrap()
+            .is_empty());
+        assert_eq!(session.search_page(page, "devis".into()).unwrap().len(), 1);
+        let lines = session.selectable_text(page).unwrap();
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(lines[0].text.starts_with("Devis"), "{lines:?}");
+        // … comme après, avec une seule fois le texte.
+        let reopened = PdfDocument::from_data(session.export_pdf().unwrap().bytes, None).unwrap();
+        assert!(reopened
+            .search_page(0, "facture".into())
+            .unwrap()
+            .is_empty());
+        assert_eq!(reopened.search_page(0, "devis".into()).unwrap().len(), 1);
+        assert_eq!(reopened.search_page(0, "4521".into()).unwrap().len(), 1);
+
+        // Le texte visible d'une page native n'est jamais relu.
+        let native = EditSession::new(open("texte_simple.pdf"));
+        assert!(native.pages_to_recognize().unwrap().is_empty());
     }
 
     #[test]

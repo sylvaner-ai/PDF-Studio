@@ -36,11 +36,7 @@ struct PageCommands: Commands {
             Button("Scinder le document…") { model?.split() }
                 .disabled(!canEdit || (model?.pageCount ?? 0) < 2)
             Divider()
-            Button("Reconnaître le texte des pages scannées") { model?.recognizeText(.scannedPages) }
-                .keyboardShortcut("o", modifiers: [.command, .option])
-                .disabled(!canEdit)
-            Button("Reconnaître le texte des pages sélectionnées") { model?.recognizeText(.selection) }
-                .disabled(!canEdit || (model?.selectionCount ?? 0) == 0)
+            // La reconnaissance du texte se lance à l'entrée en mode Édition (D58).
             Button("Arrêter la reconnaissance du texte") { model?.stopRecognition() }
                 .keyboardShortcut(".", modifiers: .command)
                 .disabled(model?.recognition == nil)

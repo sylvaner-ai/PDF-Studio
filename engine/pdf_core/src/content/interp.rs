@@ -837,6 +837,41 @@ impl Run<'_> {
     }
 }
 
+/// Vrai si l'opération affiche du texte (`Tj`, `TJ`, `'` ou `"`).
+pub fn shows_text(op: &Operation) -> bool {
+    matches!(op.operator.as_slice(), b"Tj" | b"TJ" | b"'" | b"\"")
+}
+
+/// Vrai si le seul texte du flux est invisible (mode de rendu 3), comme la
+/// couche de texte d'un OCR : chaque opération d'affichage dessine au moins un
+/// glyphe connu, et aucun n'est visible ni ne sert de détourage. Un glyphe de
+/// police inconnue ou un formulaire, dont le texte n'est pas interprété,
+/// laissent le doute : le flux est alors traité comme ayant du texte visible.
+pub fn only_invisible_text(ops: &[Operation], run: &Interpretation) -> bool {
+    if run.units.iter().any(|unit| unit.kind == UnitKind::Form) {
+        return false;
+    }
+    let mut drawn = vec![false; ops.len()];
+    for glyph in &run.glyphs {
+        if glyph.visible || run.states[glyph.state].render_mode != 3 {
+            return false;
+        }
+        if let Some(slot) = drawn.get_mut(glyph.op) {
+            *slot = true;
+        }
+    }
+    let mut any = false;
+    for (index, op) in ops.iter().enumerate() {
+        if shows_text(op) {
+            if !drawn[index] {
+                return false;
+            }
+            any = true;
+        }
+    }
+    any
+}
+
 /// Texte source d'une opération, reconstitué : opérandes puis opérateur.
 fn op_bytes(op: &Operation) -> Vec<u8> {
     let mut out = Vec::new();
@@ -989,5 +1024,24 @@ pub(crate) mod tests {
         let out = run(b"BT /F1 10 Tf 3 Tr (A) Tj 0 Tr (B) Tj ET");
         assert!(!out.glyphs[0].visible);
         assert!(out.glyphs[1].visible);
+    }
+
+    #[test]
+    fn texte_invisible_seul() {
+        let only = |source: &[u8]| {
+            let mut resources = TestResources { font: test_font() };
+            let ops = parse(source);
+            let out = interpret(&ops, &mut resources, Rect::new(0.0, 0.0, 600.0, 800.0));
+            only_invisible_text(&ops, &out)
+        };
+        // Couche d'OCR posée sur une image.
+        assert!(only(
+            b"q 600 0 0 800 0 0 cm /Im1 Do Q BT 3 Tr /F1 10 Tf (A) Tj [(B) -50 (C)] TJ ET"
+        ));
+        // Du texte visible, un détourage par le texte, aucun texte, un formulaire.
+        assert!(!only(b"BT /F1 10 Tf 3 Tr (A) Tj 0 Tr (B) Tj ET"));
+        assert!(!only(b"BT /F1 10 Tf 7 Tr (A) Tj ET"));
+        assert!(!only(b"q 600 0 0 800 0 0 cm /Im1 Do Q"));
+        assert!(!only(b"/Fm1 Do BT /F1 10 Tf 3 Tr (A) Tj ET"));
     }
 }

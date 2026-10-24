@@ -162,7 +162,9 @@ complété à chaque jalon.
 - **Nouvelle reconnaissance d'une page déjà enregistrée avec sa couche :** le
   texte invisible compte comme un texte de la page ; les mots relus qui le
   recouvrent sont écartés, la page n'est donc pas relue. Il n'existe pas encore
-  de commande pour retirer une couche enregistrée.
+  de commande pour retirer une couche enregistrée. *Résolu par D58 : une page
+  scannée dont le seul texte est invisible est relue à l'entrée en Édition, et
+  la nouvelle couche remplace l'ancienne.*
 - **Arrêt :** la page en cours de lecture va jusqu'au bout (quelques secondes au
   plus) ; les pages restent figées jusque-là.
 - **Image non redressée :** l'inclinaison est corrigée pour la lecture
@@ -227,7 +229,9 @@ complété à chaque jalon.
   fois le document enregistré puis rouvert, ou pour un scan qui porte déjà le
   texte d'un autre logiciel (scanner, Acrobat), la page n'est plus reconnue
   (limite du jalon 5) et ne se retouche donc plus comme un scan. Reprendre la
-  couche de texte existante est une évolution possible.
+  couche de texte existante est une évolution possible. *Résolu par D58 pour
+  les scans dont le seul texte est invisible : ils sont relus à l'entrée en
+  Édition, puis se retouchent.*
 - **Pages concernées :** une page est traitée comme un scan si elle n'a aucun
   texte natif et qu'une image en couvre au moins la moitié. Une page mixte
   (scan avec un en-tête vectoriel, par exemple) n'est pas retouchable comme un
@@ -352,3 +356,34 @@ complété à chaque jalon.
   par la page elle-même une fois enregistré, dans d'autres lecteurs.
 - **Texte vertical ou couché :** les lignes verticales sont reconnues par leur
   forme, mais la sélection n'a été vérifiée que sur du texte horizontal.
+
+## Reconnaissance intégrée au mode Édition (D58)
+
+- **Relecture à chaque session :** un scan enregistré par PDF Studio porte sa
+  couche invisible ; à la réouverture, la première entrée en Édition le relit
+  entièrement (0,3 à 0,5 s par page sur le Mac de développement), faute de
+  reprendre la couche existante.
+- **Recherche des pages scannées :** faite en un seul appel au moteur, elle ne
+  s'interrompt pas (0,4 s pour 600 pages, mesuré dans le cloud) ; « Arrêter »
+  prend effet à sa fin.
+- **Pages non relues :** une page qui a du texte visible n'est jamais lue, même
+  si ce texte est faux ou partiel (texte vectoriel d'un scanner, en-tête ajouté
+  sur un scan) ; il n'y a plus de commande pour forcer la lecture d'une page.
+  Une couche invisible logée dans un formulaire, ou en mode détourage, n'est pas
+  remplacée : la page est traitée comme native.
+- **Texte d'une annotation :** sur un scan relu, le texte d'une annotation
+  (note, zone de texte) qui recouvre un mot n'écarte pas ce mot ; il peut alors
+  être trouvé deux fois par la recherche.
+- **Annulation :** ⌘Z défait la reconnaissance comme avant ; en restant en
+  Édition, la page redevient une image d'un seul tenant, jusqu'à la prochaine
+  entrée en Édition, qui la relit.
+- **Pages sans texte :** une page lue sans y trouver de texte n'est pas relue
+  dans la même fenêtre ; il faut rouvrir le document pour la relire.
+- **Pages figées :** pendant la lecture, rien ne se modifie, y compris
+  l'organisation des pages ; sur un long document scanné, il faut attendre la
+  fin ou arrêter la lecture.
+- **Ancienne couche :** ses opérations d'affichage sont retirées, mais les
+  réglages du texte qui les entouraient (police, position) restent dans le
+  contenu, sans effet, ainsi que la police de l'ancienne couche dans les
+  ressources de la page : chaque relecture suivie d'un enregistrement ajoute
+  quelques kilo-octets au fichier.

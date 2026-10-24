@@ -36,7 +36,9 @@ final class RecognitionTests: XCTestCase {
         let exported = try session.exportPdf()
         let reopened = try PdfDocument.fromData(data: exported.bytes, password: nil)
         XCTAssertFalse(try reopened.searchPage(index: 0, query: "efficacité").isEmpty)
-        XCTAssertTrue(try EditSession(document: reopened).pagesToRecognize().isEmpty)
+        // Rouvert, le scan n'a pour texte que sa couche invisible : il se relit à
+        // l'entrée en Édition, la nouvelle couche remplaçant l'ancienne (D58).
+        XCTAssertEqual(try EditSession(document: reopened).pagesToRecognize().count, 1)
         // PDFKit (Aperçu) lit la couche ligne par ligne, et non mot par mot en colonnes.
         let pdfKitText = try XCTUnwrap(PDFDocument(data: exported.bytes)?.page(at: 0)?.string)
         let lines = pdfKitText.split(whereSeparator: \.isNewline)

@@ -114,6 +114,7 @@ pub fn write_document(
     } else {
         rebuild(&mut doc, sources, pages, original_count)?;
     }
+    remove_replaced_text(&mut doc, layers)?;
     let layers = apply_edits(&mut doc, edits, layers)?;
     apply_layers(&mut doc, &layers)?;
 
@@ -127,6 +128,30 @@ pub fn write_document(
     doc.write_to_with_options(&mut output, options)?;
     verify(&output, base.password.as_deref(), pages.len())?;
     Ok(output)
+}
+
+/// Retire des pages qui reçoivent une couche de texte le texte invisible
+/// qu'elles portaient déjà, posé sur leur scan par un OCR précédent (cf.
+/// [`scanned::has_replaceable_text`]) : la nouvelle couche le remplace, et le
+/// texte ne se trouve pas deux fois. Le texte invisible n'est pas un objet de
+/// la page : les numéros des objets, et donc les modifications, ne changent
+/// pas.
+fn remove_replaced_text(doc: &mut PdfDocument, layers: &[Option<Arc<TextLayer>>]) -> Result<()> {
+    for (position, layer) in layers.iter().enumerate() {
+        if !layer.as_ref().is_some_and(|layer| !layer.is_empty()) {
+            continue;
+        }
+        let mut page = doc.find_page(position as i32)?;
+        let model = PageModel::load(&page)?;
+        let bounds = doc.load_page(position as i32)?.bounds()?;
+        let area = f64::from(bounds.x1 - bounds.x0) * f64::from(bounds.y1 - bounds.y0);
+        if !scanned::has_replaceable_text(&page, &model, area)? {
+            continue;
+        }
+        let stream = doc.add_stream(&Buffer::from_bytes(&model.without_text())?, None, false)?;
+        page.dict_put("Contents", stream)?;
+    }
+    Ok(())
 }
 
 /// Remplace le contenu des pages modifiées. Chaque page est alors un objet

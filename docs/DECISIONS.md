@@ -675,6 +675,9 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   Lecture tient la place de l'outil Sélection lorsqu'on ne modifie rien.
 - **Raisons :** six outils, la limite du §5 ; des boutons toujours à la même
   place ; un bouton Enregistrer actif rappelle qu'un document est modifié.
+- **Révisé par D58 (23 octobre 2026) :** le bouton « Reconnaître le texte » est
+  retiré, la reconnaissance se faisant à l'entrée en mode Édition ; la barre
+  compte désormais cinq outils, toujours aux mêmes places.
 
 ## D45 — Animations : ressort de 0,22 s, fondu seul si les animations sont réduites (jalon 8)
 
@@ -904,3 +907,60 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   dans le moteur (la géométrie du pointeur est un souci d'interface).
 - **Raisons :** demande de Sylvain (2026-10-23) : copier le texte reconnu depuis
   le volet Lecture.
+
+## D58 — Reconnaissance du texte intégrée au mode Édition (après le jalon 9)
+
+- **Retenu :** le mode Édition (bouton crayon, ⌘3) commence par chercher les
+  pages scannées qui n'ont pas encore été reconnues. Un PDF natif passe
+  aussitôt en Édition. Pour un PDF scanné, le texte de toutes ses pages
+  scannées est d'abord lu par Vision, page après page, avec un bandeau
+  d'avancement et le bouton « Arrêter » (⌘.) ; les pages restent figées et
+  montrées comme en lecture, puis la couche de texte est appliquée en une étape
+  d'annulation (D29) et les objets des pages deviennent modifiables. Le
+  document s'ouvre toujours en Lecture : c'est l'entrée en Édition qui
+  déclenche la lecture. La recherche des pages scannées ne s'affiche que si
+  elle dure plus de 0,4 s.
+- **Pages concernées :** une page sans aucun texte mais qui dessine quelque
+  chose (règle du jalon 5), et désormais une page dont le seul texte est
+  invisible (mode de rendu 3), posé sur une image qui couvre au moins la moitié
+  de la page : la couche d'un scanner, d'un autre logiciel ou d'un
+  enregistrement précédent de PDF Studio. Sur un document mixte, seules les
+  pages scannées sont lues. Le résultat de l'examen de chaque page source est
+  retenu par le moteur ; sans opérateur `Tr` dans son contenu, une page qui a
+  du texte est écartée sans être interprétée. Mesure dans le cloud (Linux,
+  compilation optimisée) : 0,4 s pour les 600 pages de `volumineux_600.pdf`.
+- **Couche existante remplacée :** sur une telle page, la nouvelle lecture
+  n'écarte aucun mot (le texte invisible ne compte pas comme un texte de la
+  page) ; avant l'enregistrement, la recherche et la sélection ne voient plus
+  que la nouvelle couche ; à l'enregistrement, les opérations d'affichage du
+  texte de l'ancien contenu sont retirées (`rewrite::without_text`), le reste
+  du flux est recopié octet pour octet. La page n'ayant aucun texte visible,
+  rien d'autre ne change. Elle devient retouchable comme un scan reconnu dans
+  la session (D39), ce qui lève la limite du jalon 7 pour ces pages. Par
+  prudence, un texte en mode détourage (7), un formulaire (dont le texte n'est
+  pas interprété) ou un glyphe de police illisible font traiter la page comme
+  ayant du texte visible.
+- **Arrêt et sortie :** « Arrêter » applique les pages déjà lues et laisse en
+  Édition ; les pages restantes sont lues à la prochaine entrée en Édition.
+  Quitter l'Édition pendant la recherche n'en lit aucune ; pendant la lecture,
+  celle-ci continue (on peut l'arrêter). Une page lue sans y trouver de texte
+  (photo, dessin) n'est pas relue dans la même fenêtre. Des pages insérées
+  pendant l'Édition sont lues aussitôt.
+- **Commandes retirées :** le bouton « Reconnaître le texte » de la barre
+  d'outils (D44) et les commandes du menu Pages « Reconnaître le texte des
+  pages scannées » (⌥⌘O) et « … des pages sélectionnées » ; « Arrêter la
+  reconnaissance du texte » (⌘.) reste. Il n'est plus possible de faire relire
+  une page qui a du texte visible.
+- **Alternatives :**
+  - garder un bouton OCR à côté du mode Édition : deux chemins pour le même
+    résultat, ce que Sylvain veut simplifier ;
+  - lire les scans dès l'ouverture du document : du temps de calcul pour un
+    document qu'on ne fait que lire, en concurrence avec le rendu des pages ;
+  - reprendre la couche existante sans la relire : instantané, mais sans la
+    confiance des mots (mots douteux non signalés) et avec la qualité, variable,
+    de l'OCR d'un autre logiciel. Reste une évolution possible pour la couche
+    écrite par PDF Studio lui-même.
+- **Raisons :** demande de Sylvain du 23 octobre 2026 : fusionner la
+  reconnaissance du texte et le mode Édition pour simplifier l'expérience ; un
+  PDF natif passe directement en Édition, un PDF scanné est d'abord reconnu
+  en entier.

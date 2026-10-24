@@ -152,6 +152,8 @@ extension DocumentViewModel {
         var inserted: [UInt32] = []
         perform { inserted = try $0.insertPages(at: insertion, source: source, indices: indices) }
         select(inserted)
+        // En mode Édition, les pages scannées insérées sont reconnues aussitôt.
+        prepareEditing()
     }
 
     private func select(_ positions: [UInt32]) {
