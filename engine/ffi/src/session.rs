@@ -67,6 +67,7 @@ pub struct PageItem {
     pub text_layer_revision: u64,
     /// Page d'origine d'une page améliorée (mode Amélioration) : celle que
     /// la page remplace à l'enregistrement, et à laquelle elle peut revenir.
+    #[uniffi(default = None)]
     pub replaces: Option<ReplacedPageItem>,
 }
 

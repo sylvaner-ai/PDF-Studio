@@ -213,6 +213,9 @@ fn report(
     batch: Option<(String, usize, usize, Duration)>,
 ) -> String {
     let mut out = String::new();
+    let settings = pdfstudio_ffi::enhancement_settings_to_json(default_enhancement_settings());
+    let _ = writeln!(out, "Réglages : `{settings}`.");
+    let _ = writeln!(out);
     let _ = writeln!(out, "| Fichier | Page | Vérité | Mesurée | Corrigée | Écart | Résidu | Sens (attendu) | Conclusion | Durée |");
     let _ = writeln!(out, "|---|---:|---:|---:|---:|---:|---:|---:|---|---:|");
     let mut worst_error: f64 = 0.0;

@@ -22,7 +22,7 @@ locale, hors ligne, sans compte ni télémétrie.
 | 9. Durcissement | performances, récupération, documentation, jeu de tests | terminé (à valider) |
 
 **Mode Amélioration** (redresser, nettoyer et reconnaître les scans) : en cours,
-jalon 1 sur 6 (plan et jeu de test) ; voir [docs/AMELIORATION.md](docs/AMELIORATION.md).
+jalon 2 sur 6 (redressement des pages, ⌘4) ; voir [docs/AMELIORATION.md](docs/AMELIORATION.md).
 
 ## Lire et copier le texte
 
@@ -83,6 +83,20 @@ jalon 1 sur 6 (plan et jeu de test) ; voir [docs/AMELIORATION.md](docs/AMELIORAT
   les pages sans leurs modifications, à la même place, le temps de comparer.
 - Tout s'annule par ⌘Z, avec l'organisation des pages ; les limites sont décrites
   dans [docs/LIMITES.md](docs/LIMITES.md).
+
+## Améliorer les scans
+
+- **Mode Amélioration** (⌘4, ou la baguette de la barre d'outils) : la page
+  affichée est montrée avant et après redressement ; faire glisser le curseur
+  pour comparer. Le panneau de droite règle le redressement (inclinaison) et
+  l'orientation (pages couchées ou à l'envers), et les pages à traiter :
+  toutes, la sélection de la barre latérale ou la page affichée.
+- **Appliquer** traite les pages (bandeau d'avancement, « Arrêter ») ; ⌘Z
+  annule. Une page inclinée de plus de 15° n'est pas redressée : elle est
+  listée « à vérifier ». **Rétablir l'original** rend les pages d'origine ;
+  ⌥⌘K les montre le temps de comparer.
+- À l'enregistrement, la page redressée remplace l'originale ; signets, liens
+  et annotations sont gardés.
 
 ## Sécurité des documents
 

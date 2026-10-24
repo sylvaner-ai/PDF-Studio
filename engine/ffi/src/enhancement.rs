@@ -41,13 +41,19 @@ impl From<&EnhancementSettings> for Settings {
             straighten: StraightenSettings {
                 deskew: settings.deskew,
                 orientation: settings.orientation,
-                min_degrees: f64::from(settings.min_angle),
-                max_degrees: f64::from(settings.max_angle),
+                min_degrees: degrees(settings.min_angle),
+                max_degrees: degrees(settings.max_angle),
             },
             jpeg_quality: settings.jpeg_quality,
         }
         .bounded()
     }
+}
+
+/// Angle de l'application en degrés, au dix-millième (0,1 et non
+/// 0,10000000149 une fois passé en `f64`, dans les réglages retenus).
+fn degrees(angle: f32) -> f64 {
+    (f64::from(angle) * 1e4).round() / 1e4
 }
 
 impl From<&Settings> for EnhancementSettings {

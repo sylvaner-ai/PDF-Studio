@@ -37,6 +37,16 @@ struct RecoveryRecord: Codable, Equatable, Sendable {
         var edits: [ObjectEdit]?
         /// Couche de texte reconnue de la page, s'il y en a une.
         var layer: [LayerWord]?
+        /// Page d'origine d'une page améliorée (absente des enregistrements
+        /// antérieurs au mode Amélioration).
+        var replaces: Replaced?
+    }
+
+    /// Page d'origine d'une page améliorée (cf. ``ReplacedPageItem``).
+    struct Replaced: Codable, Equatable, Sendable {
+        let source: Int
+        let index: Int
+        let quarterTurns: Int
     }
 
     /// Mot de la couche de texte d'une page reconnue (cf. ``LayerWordItem``).
@@ -110,6 +120,9 @@ extension RecoveryRecord.Page {
         self.layer = layer.isEmpty ? nil : layer.map {
             RecoveryRecord.LayerWord(text: $0.text, quad: $0.quad, confidence: $0.confidence, line: $0.line)
         }
+        replaces = page.replaced.map {
+            RecoveryRecord.Replaced(source: $0.source.document, index: $0.source.index, quarterTurns: $0.quarterTurns)
+        }
     }
 
     /// Couche de texte au format du moteur.
@@ -126,8 +139,15 @@ extension RecoveryRecord.Page {
     var item: PageItem {
         let kind: PageKind = source.map { .source(source: UInt32($0), index: UInt32(index)) }
             ?? .blank(size: PageSize(width: width, height: height))
+        let original = replaces.map {
+            ReplacedPageItem(
+                kind: .source(source: UInt32($0.source), index: UInt32($0.index)),
+                quarterTurns: UInt8($0.quarterTurns & 3)
+            )
+        }
         return PageItem(
-            id: 0, kind: kind, quarterTurns: UInt8(quarterTurns & 3), editRevision: 0, textLayerRevision: 0
+            id: 0, kind: kind, quarterTurns: UInt8(quarterTurns & 3), editRevision: 0, textLayerRevision: 0,
+            replaces: original
         )
     }
 }

@@ -31,8 +31,8 @@ use crate::settings::StraightenSettings;
 const SEARCH_DEGREES: f64 = 45.0;
 
 /// Netteté relative en dessous de laquelle l'angle mesuré n'est pas fiable
-/// (cf. `docs/AMELIORATION.md` : 8,6 au moins pour les pages du jeu de test,
-/// 1,6 pour un faux angle).
+/// (cf. `docs/AMELIORATION.md` : 9,3 au moins pour les pages du jeu de test,
+/// 1,6 pour le faux angle d'une recherche limitée à ±15°).
 const MIN_PROMINENCE: f64 = 4.0;
 
 /// Pixels d'encre (à 100 ppp) en dessous desquels la page n'a pas assez de

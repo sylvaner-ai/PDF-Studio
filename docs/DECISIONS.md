@@ -1035,3 +1035,114 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   chiffre sur une référence connue. Le test `amelioration_jeu.rs` vérifie que
   la vérité terrain tombe au bon endroit de l'image. Le jeu reste synthétique ;
   les documents réels de Sylvain servent de contrôle (`docs/AMELIORATION.md`).
+
+
+## D61 — Mesure de l'inclinaison et du sens d'une page (Amélioration, jalon 2)
+
+- **Retenu :** sur l'image du scan égalisée (`flatten_background`), remise
+  d'aplomb si ses lignes sont verticales (`is_sideways`, D27) :
+  - *inclinaison* par profil de projection (`ocr::preprocess::measure_skew`),
+    sur l'encre de forme textuelle seule (les ombres, bandeaux et photos sont
+    écartés), cherchée de −45° à 45° puis affinée au centième de degré ; les
+    points échantillonnés sont décalés au hasard (graine fixe) dans leur
+    pixel pour qu'aucune direction de la grille (45°, 26,6°) ne ressorte ;
+  - *fiabilité* par la saillance : score de l'angle retenu rapporté à la
+    médiane des scores ; en dessous de 4, ou avec moins de 500 points
+    d'encre, rien n'est corrigé ;
+  - *sens* par le rapport des hampes aux jambages (`ascender_ratio`), mesuré
+    sur la page et sur la page retournée (moyenne géométrique des deux) : au
+    moins 1,5, la page est à l'endroit ; au plus 1/1,5, à l'envers ; entre
+    les deux, Vision lit la page dans les deux sens et la lecture la plus
+    sûre décide ; sans réponse nette, la page garde son sens ;
+  - *garde-fous* réglables : seuil de 0,1°, plafond de 15° (au-delà, page
+    « à vérifier », non redressée).
+- **Alternatives :** transformée de Hough sur les lignes de base (sensible
+  aux filets et aux bords de photos, plus lente) ; recherche limitée à ±15°
+  (faux angle de 15,4° trouvé sur la page inclinée de 18°) ; sens par la
+  seule lecture OCR dans les quatre sens (quatre lectures par page, quand la
+  forme des lignes suffit presque toujours).
+- **Raisons :** sur le jeu de test, écart à la vérité de 0,02° au plus, et
+  sens juste pour toutes les pages, sans lecture ; la mesure de départ
+  (`estimate_skew`, D27) était déjà de cette précision dans sa plage. Le
+  chemin de l'OCR (`estimate_skew`) n'est pas modifié.
+
+## D62 — Rotation bicubique et coins à la couleur du papier (Amélioration, jalon 2)
+
+- **Retenu :** rotation autour du centre, image de même taille (la page
+  garde son format et sa place), interpolation bicubique (noyau de Keys,
+  a = −0,5), calculée en parallèle par bandes de rangées. Les pixels venus
+  d'en dehors de l'image prennent la couleur du papier au bord le plus
+  proche : couleur estimée par blocs (24 sur le grand côté, médiane des
+  pixels clairs, blocs couverts remplacés par leurs voisins) et, pour les
+  bords, sur une bande étroite juste à l'intérieur ; la bande que le
+  couvercle du scanner occupe autour d'une page inclinée (largeur × sinus
+  de l'angle) est écartée de l'estimation.
+- **Alternatives :** Lanczos (plus net, avec un léger rebond autour des
+  traits, plus lent) ; une couleur unique pour toute la page (visible comme
+  une pièce rapportée sur un éclairage inégal : 19 niveaux d'écart sur la
+  photocopie 06) ; blanc (le fond n'est blanchi qu'à l'étape 2, jalon 3).
+- **Raisons :** aller-retour de 3° quasi exact loin des bords ; coins à
+  moins de 16 niveaux du papier voisin sur tout le jeu. Le prompt demande
+  la couleur du fond « estimée à l'étape 2 » : au jalon 3, le fond devenant
+  blanc, les coins le seront aussi.
+
+## D63 — Image améliorée en JPEG de qualité 90, par `jpeg-encoder` (Amélioration, jalon 2)
+
+- **Retenu :** l'image redressée est encodée en JPEG de qualité 90 (réglable
+  de 50 à 100), chrominance sous-échantillonnée (4:2:0) comme les scans,
+  tables de Huffman optimisées, en niveaux de gris si tous les pixels sont
+  gris ; encodeur `jpeg-encoder` 0.7 (Rust pur, MIT ou Apache-2.0, avec une
+  part sous licence IJG, celle de libjpeg déjà présente par MuPDF).
+- **Alternatives :** sans perte (Flate : dix fois plus lourd) ; l'encodeur
+  JPEG de MuPDF (non exposé par le crate `mupdf` 0.8) ; le crate `image`
+  (bien plus de dépendances pour le seul encodage) ; garder la qualité de
+  l'original (inconnue sans lire ses tables de quantification).
+- **Raisons :** le scan d'origine est déjà un JPEG ; la qualité 90 n'ajoute
+  pas de dégradation visible. Coût mesuré : fichier 1,3 à 1,9 fois plus
+  lourd, 3,5 fois pour un scan d'origine très compressé (consigné dans
+  `docs/AMELIORATION.md`).
+
+## D64 — La page améliorée remplace la page d'origine (Amélioration, jalon 2)
+
+- **Retenu :** les images améliorées forment un document de plus, ajouté
+  aux sources de la session comme un document inséré (une page par page
+  améliorée, au format, aux cadres et à la rotation de la page d'origine,
+  l'image posée à la place exacte du scan). Dans la session, la page vise
+  ce document et retient sa page d'origine (`PageEntry.replaces`) ; les
+  modifications de contenu et la couche de texte de la page sont retirées
+  quand l'image change. Un quart ou un demi-tour passe par la rotation de la
+  page, sans réécrire l'image. À l'écriture (`OutputPage::Replaced`), l'objet
+  de la page d'origine est gardé, avec ses annotations, liens, champs et les
+  signets qui le visent ; seuls `Contents`, `Resources` et les cadres sont
+  remplacés. Une page modifiée en Édition, ou qui n'est pas un scan pleine
+  page (image couvrant moins de 90 % de la page), n'est pas améliorée. Les
+  deux opérations (« l'amélioration des pages », « le retour aux pages
+  d'origine ») s'annulent ; la récupération retient la page d'origine.
+- **Alternatives :** remplacer la page entière par la page améliorée (les
+  signets, liens et annotations seraient perdus) ; garder aussi l'image
+  d'origine dans le fichier (point ouvert du jalon 1 : non retenu par défaut,
+  le fichier doublerait de taille) ; réécrire l'image pour les quarts de
+  tour (perte JPEG sans raison).
+- **Raisons :** une page améliorée reste la même page pour le reste du
+  document ; l'annulation, la comparaison (⌥⌘K), l'enregistrement et la
+  récupération reposent sur les mécanismes existants (sources de la session,
+  D12, D51).
+
+## D65 — Interface du mode Amélioration (Amélioration, jalon 2)
+
+- **Retenu :** quatrième mode de la barre d'outils (⌘4). La page affichée
+  est montrée avant et après, superposées, avec un curseur à faire glisser ;
+  les deux images sont rendues par le moteur dans le sens final, pour être
+  comparables. Panneau à droite : redressement et orientation, pages
+  traitées (toutes, sélection, page affichée), réglages avancés repliés
+  (seuil, plafond, qualité), bilan de la page, Appliquer, Rétablir
+  l'original, pages à vérifier. Le traitement se fait page après page hors
+  du fil principal, pages figées, avec un bandeau d'avancement et d'arrêt ;
+  les pages déjà traitées sont appliquées à l'arrêt. Réglages retenus en
+  JSON dans les préférences.
+- **Alternatives :** l'aperçu dans le canevas de lecture (le curseur
+  avant/après demande deux images de même format) ; appliquer page par page
+  au fil du traitement (une étape d'annulation par page).
+- **Raisons :** reprise des usages des modes Édition et OCR (D58) ; le lot
+  parallèle et l'enregistrement dans un nouveau fichier viennent aux jalons
+  4 et 6, comme prévu au plan.

@@ -115,6 +115,11 @@ targets:
         includes:
           - "*.pdf"
         buildPhase: resources
+      # Jeu du mode Amélioration : page retournée, page couchée et inclinée.
+      - path: ../tests/fixtures/amelioration
+        includes:
+          - "11_orientation.pdf"
+        buildPhase: resources
     dependencies:
       - target: PDFStudio
     settings:

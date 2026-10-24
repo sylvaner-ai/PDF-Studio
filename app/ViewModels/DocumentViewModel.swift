@@ -65,6 +65,8 @@ final class DocumentViewModel {
     }
     /// Sélection et modification des objets des pages (mode Édition).
     let editing = PageEditing()
+    /// Redressement des pages scannées (mode Amélioration).
+    let enhancement = PageEnhancement()
     /// Largeur des vignettes de la grille, en points (⌘+ et ⌘- dans la grille).
     var gridThumbnailWidth: CGFloat = 150
     private(set) var renderer: PageRenderer?
@@ -129,6 +131,7 @@ final class DocumentViewModel {
         self.title = reference.displayName
         OpenDocuments.register(self)
         editing.model = self
+        enhancement.model = self
     }
 
     var pageCount: Int { pages.count }
@@ -201,6 +204,7 @@ final class DocumentViewModel {
     /// La fenêtre se ferme : ses actions d'annulation n'ont plus d'objet.
     func close() {
         recognitionTask?.cancel()
+        enhancement.cancel()
         noticeTask?.cancel()
         undoManager?.removeAllActions(withTarget: self)
         DocumentOpener.shared.setUnsaved(false, for: self)
@@ -274,11 +278,11 @@ final class DocumentViewModel {
 
 extension DocumentViewModel {
     /// Les pages restent figées tant que des modifications retrouvées attendent une
-    /// réponse, pendant une exportation ou une reconnaissance du texte, et une fois
-    /// la fenêtre fermée.
+    /// réponse, pendant une exportation, une reconnaissance du texte ou une
+    /// amélioration des pages, et une fois la fenêtre fermée.
     var canEdit: Bool {
         phase == .ready && session != nil && recoveryOffer == nil && activity == nil && recognition == nil
-            && !isClosed
+            && enhancement.progress == nil && !isClosed
     }
 
     /// Un document garde au moins une page.
