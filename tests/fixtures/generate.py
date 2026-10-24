@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Génère le jeu de PDF de test publics de PDF Studio.
 
-Usage : python3 tests/fixtures/generate.py
+Usage : python3 tests/fixtures/generate.py [amelioration]
+(avec « amelioration », seul le jeu du mode Amélioration est régénéré).
 Dépendances : reportlab, pikepdf, pillow, fonttools
 (pip install reportlab pikepdf pillow fonttools).
 
@@ -14,11 +15,13 @@ exclu du dépôt.
 from __future__ import annotations
 
 import io
+import math
 import random
+import sys
 from pathlib import Path
 
 import pikepdf
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, A5, landscape, letter
 from reportlab.lib.styles import getSampleStyleSheet
@@ -937,11 +940,855 @@ def scan_retouche() -> None:
     c.save()
 
 
+# MARK: - Mode Amélioration : scans à redresser et à nettoyer
+#
+# Chaque page est d'abord dessinée « droite » et propre, à la résolution du
+# scan, en relevant tout ce qu'elle contient (la vérité terrain) ; elle est
+# ensuite dégradée comme par un scanner ou un téléphone : papier teinté,
+# éclairage inégal, inclinaison, page retournée, perspective, flou, bruit,
+# compression JPEG. Le fichier .json de même nom décrit la page droite et la
+# transformation subie. Conventions : rectangles [x0, y0, x1, y1] en points
+# sur la page droite, origine en haut à gauche ; inclinaison en degrés,
+# positive quand les lignes descendent vers la droite dans l'image (comme
+# ocr::preprocess::estimate_skew) ; quarts de tour dans le sens horaire.
+# Textes originaux, écrits pour ce jeu.
+
+AMELIORATION = OUT / "amelioration"
+
+AM_NOTE = [
+    "Afin d'assurer la continuité du service pendant la période estivale, chaque "
+    "équipe établira son planning de congés avant le 15 mai. Les demandes seront "
+    "validées par le responsable de service dans un délai de dix jours ouvrés.",
+    "Une permanence minimale de deux personnes est requise du 14 juillet au 25 août. "
+    "Les collaborateurs qui souhaitent fractionner leurs congés sont invités à le "
+    "signaler dès que possible, afin de faciliter les arbitrages.",
+    "Les jours de réduction du temps de travail non pris au 31 décembre seront "
+    "perdus, sauf accord écrit de la direction des ressources humaines.",
+]
+
+AM_COMITE = [
+    "Le comité de pilotage s'est réuni le 9 septembre en présence des responsables "
+    "des trois sites. L'avancement global du programme atteint 64 %, contre 58 % "
+    "prévus au planning de référence.",
+    "La migration des postes de travail du site de Nantes est terminée ; celle de "
+    "Lille débutera le 6 octobre. Le budget engagé s'élève à 412 300 €, soit 47 % "
+    "de l'enveloppe votée.",
+    "Deux risques sont suivis : le délai de livraison des serveurs et la "
+    "disponibilité des équipes pendant la clôture comptable de fin d'année.",
+]
+
+AM_PARC = [
+    "Au cœur du massif, le sentier des crêtes offre une boucle de 14 km accessible "
+    "d'avril à novembre. Comptez cinq heures de marche et 620 m de dénivelé.",
+    "Les gardes du parc proposent chaque samedi une sortie commentée sur la faune "
+    "d'altitude : chamois, marmottes et gypaètes barbus y sont régulièrement observés.",
+    "Le refuge de la Combe accueille les randonneurs de juin à septembre ; la "
+    "réservation est obligatoire pour la nuitée et le repas du soir.",
+]
+
+AM_STATUS = [
+    "The network upgrade programme remains on schedule for completion in the first "
+    "quarter. Fibre links between the three main buildings were commissioned on "
+    "October 2, and the legacy switches will be retired after a two-week overlap.",
+    "Spending to date is $286,400 against a budget of $540,000. The only significant "
+    "variance concerns cabling labour, which ran 9% above estimate because of "
+    "asbestos checks in the older wing.",
+    "Next steps: migrate the wireless controllers, update the disaster recovery plan, "
+    "and run a full failover test before the end of November.",
+]
+
+AM_MEMO = [
+    "Please note that the visitor badge system will be replaced over the weekend of "
+    "March 14. From Monday, all guests must be registered online at least one day "
+    "before their visit.",
+    "Reception staff will print badges on arrival and collect them at departure. "
+    "Contractors working on site for more than a week will receive a temporary "
+    "access card valid for thirty days.",
+    "Questions about the new procedure can be sent to the facilities team, who will "
+    "also run two short training sessions for assistants on March 12 and 13.",
+]
+
+
+def am_round(values, digits=2):
+    return [round(float(v), digits) for v in values]
+
+
+def am_clamp(value) -> int:
+    return max(0, min(255, int(round(value))))
+
+
+def am_smooth_noise(w: int, h: int, cell: int, rng: random.Random) -> Image.Image:
+    """Bruit lisse : valeurs uniformes sur une grille de `cell` pixels, interpolées."""
+    cell = max(1, cell)
+    gw, gh = max(2, w // cell + 2), max(2, h // cell + 2)
+    small = Image.frombytes("L", (gw, gh), rng.randbytes(gw * gh))
+    return small.resize((w, h), Image.BICUBIC)
+
+
+def am_gaussian_noise(size, sigma: float, rng: random.Random) -> Image.Image:
+    """Bruit gaussien d'écart type `sigma`, centré sur 128 (déterministe)."""
+    from statistics import NormalDist
+    normal = NormalDist()
+    lut = [am_clamp(128 + sigma * normal.inv_cdf((u + 0.5) / 256)) for u in range(256)]
+    return Image.frombytes("L", size, rng.randbytes(size[0] * size[1])).point(lut)
+
+
+def am_mottle(w: int, h: int, dpi: int, rng: random.Random) -> Image.Image:
+    """Nuances d'un aplat imprimé puis scanné : taches claires et sombres de
+    tailles variées (128 = couleur de base). Une zone morte laisse environ un
+    tiers des pixels à la couleur de base, qui reste la plus présente."""
+    coarse = am_smooth_noise(w, h, int(dpi * 0.35), rng)
+    fine = am_smooth_noise(w, h, int(dpi * 0.12), rng)
+    noise = Image.blend(coarse, fine, 0.35)
+
+    def shape(v):
+        d = v - 128
+        if abs(d) <= 16:
+            return 128
+        return am_clamp(128 + (d - math.copysign(16, d)) * 2.4)
+
+    return noise.point([shape(v) for v in range(256)])
+
+
+def am_photo(w: int, h: int, rng: random.Random) -> Image.Image:
+    """Photographie de paysage synthétique : ciel en dégradé, soleil, deux
+    chaînes de montagnes texturées, prairie ; texture fine partout."""
+    sky = ImageOps.colorize(Image.linear_gradient("L").resize((w, h)), (64, 112, 186), (214, 226, 236))
+    img = sky.convert("RGB")
+    sun = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(sun).ellipse([w * 0.68, h * 0.12, w * 0.8, h * 0.12 + w * 0.12], fill=255)
+    sun = sun.filter(ImageFilter.GaussianBlur(w * 0.01))
+    img.paste((255, 244, 206), (0, 0), sun)
+
+    def ridge(base: float, roughness: float):
+        n = 64
+        heights = [0.0] * (n + 1)
+        step, amplitude = n, roughness
+        heights[0], heights[n] = rng.uniform(-1, 1) * roughness, rng.uniform(-1, 1) * roughness
+        while step > 1:
+            half = step // 2
+            for i in range(half, n, step):
+                heights[i] = (heights[i - half] + heights[i + half]) / 2 + rng.uniform(-1, 1) * amplitude
+            step, amplitude = half, amplitude * 0.55
+        return [(w * i / n, h * (base - heights[i])) for i in range(n + 1)] + [(w, h), (0, h)]
+
+    def texture(c1, c2, cell):
+        noise = Image.blend(am_smooth_noise(w, h, cell, rng), am_smooth_noise(w, h, max(2, cell // 6), rng), 0.4)
+        return ImageOps.colorize(ImageOps.autocontrast(noise), c1, c2)
+
+    for base, rough, c1, c2, cell in [
+        (0.48, 0.16, (92, 104, 132), (150, 160, 182), w // 10),
+        (0.62, 0.12, (46, 70, 52), (104, 124, 88), w // 14),
+        (0.8, 0.03, (70, 112, 44), (150, 176, 82), w // 20),
+    ]:
+        mask = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(mask).polygon(ridge(base, rough), fill=255)
+        img.paste(texture(c1, c2, cell), (0, 0), mask)
+    grain = am_gaussian_noise((w, h), 10, rng)
+    bands = [ImageChops.add(band, grain, 1.0, -128) for band in img.split()]
+    return Image.merge("RGB", bands).filter(ImageFilter.GaussianBlur(0.6))
+
+
+class AmPage:
+    """Page droite dessinée à `dpi` points par pouce, et relevé de son contenu."""
+
+    def __init__(self, dpi: int, size=A4, seed: int = 0):
+        self.dpi, self.size = dpi, size
+        self.w, self.h = round(size[0] * dpi / 72), round(size[1] * dpi / 72)
+        self.img = Image.new("RGB", (self.w, self.h), (255, 255, 255))
+        self.draw = ImageDraw.Draw(self.img)
+        self.rng = random.Random(seed)
+        self.lines, self.flats, self.photos, self.gradients, self.rules = [], [], [], [], []
+        self.occupied = []
+
+    def px(self, value: float) -> float:
+        return value * self.dpi / 72
+
+    def pt(self, value: float) -> float:
+        return value * 72 / self.dpi
+
+    def box(self, rect):
+        return [round(self.px(v)) for v in rect]
+
+    def font(self, name: str, size: float) -> ImageFont.FreeTypeFont:
+        return ImageFont.truetype(str(FONTS / f"{name}.ttf"), max(1, round(self.px(size))))
+
+    def text(self, x, baseline, text, font="Carlito-Regular", size=11.0, fill=(28, 28, 34),
+             on="papier", align="left"):
+        face = self.font(font, size)
+        X, Y = self.px(x), self.px(baseline)
+        length = face.getlength(text)
+        if align == "right":
+            X -= length
+        elif align == "center":
+            X -= length / 2
+        self.draw.text((X, Y), text, fill=fill, font=face, anchor="ls")
+        ascent, descent = face.getmetrics()
+        rect = [self.pt(X), self.pt(Y - ascent), self.pt(X + length), self.pt(Y + descent)]
+        self.lines.append({"texte": text, "rect": am_round(rect), "corps_pt": size, "police": font,
+                           "couleur": list(fill), "fond": on})
+        self.occupied.append(rect)
+        return rect
+
+    def paragraph(self, x, baseline, width, text, font="Caladea-Regular", size=11.0,
+                  leading=None, fill=(28, 28, 34), on="papier") -> float:
+        """Texte coupé en lignes de `width` points au plus ; rend la ligne de
+        base suivant le paragraphe."""
+        leading = leading or size * 1.32
+        face = self.font(font, size)
+        line = []
+        for word in text.split():
+            if line and face.getlength(" ".join(line + [word])) > self.px(width):
+                self.text(x, baseline, " ".join(line), font, size, fill, on)
+                baseline += leading
+                line = []
+            line.append(word)
+        if line:
+            self.text(x, baseline, " ".join(line), font, size, fill, on)
+            baseline += leading
+        return baseline
+
+    def flat(self, ident, rect, color, nuances=24, border=None):
+        """Aplat imprimé d'une couleur unie, perturbé de nuances (taches)."""
+        x0, y0, x1, y1 = self.box(rect)
+        delta = am_mottle(x1 - x0, y1 - y0, self.dpi, self.rng)
+        amplitude = [nuances * 0.8, nuances * 0.9, nuances * 1.1]
+        bands = [delta.point([am_clamp(c + (v - 128) * a / 127) for v in range(256)])
+                 for c, a in zip(color, amplitude)]
+        self.img.paste(Image.merge("RGB", bands), (x0, y0))
+        if border:
+            self.frame(rect, *border)
+        self.flats.append({"id": ident, "rect": am_round(rect), "couleur": list(color), "nuances": nuances})
+        self.occupied.append(list(rect))
+
+    def rule(self, x0, y0, x1, y1, width=0.5, color=(40, 40, 40)):
+        """Filet horizontal ou vertical d'épaisseur `width` points, éventuellement
+        inférieure au pixel (couverture partielle, comme un vrai rendu)."""
+        thickness = self.px(width)
+        horizontal = abs(y1 - y0) < abs(x1 - x0)
+        full, part = int(thickness), thickness - int(thickness)
+        if horizontal:
+            Y = self.px(y0) - thickness / 2
+            X0, X1 = round(self.px(x0)), round(self.px(x1))
+            start = round(Y)
+            for i in range(full):
+                self.img.paste(color, (X0, start + i, X1, start + i + 1))
+            if part > 0.05:
+                mask = Image.new("L", (X1 - X0, 1), round(255 * part))
+                self.img.paste(color, (X0, start + full), mask)
+            rect = [x0, y0 - width / 2, x1, y0 + width / 2]
+        else:
+            X = self.px(x0) - thickness / 2
+            Y0, Y1 = round(self.px(y0)), round(self.px(y1))
+            start = round(X)
+            for i in range(full):
+                self.img.paste(color, (start + i, Y0, start + i + 1, Y1))
+            if part > 0.05:
+                mask = Image.new("L", (1, Y1 - Y0), round(255 * part))
+                self.img.paste(color, (start + full, Y0), mask)
+            rect = [x0 - width / 2, y0, x0 + width / 2, y1]
+        self.rules.append({"rect": am_round(rect), "epaisseur_pt": width, "couleur": list(color)})
+        self.occupied.append(rect)
+
+    def frame(self, rect, width, color):
+        x0, y0, x1, y1 = rect
+        self.rule(x0, y0, x1, y0, width, color)
+        self.rule(x0, y1, x1, y1, width, color)
+        self.rule(x0, y0, x0, y1, width, color)
+        self.rule(x1, y0, x1, y1, width, color)
+
+    def photo(self, rect):
+        x0, y0, x1, y1 = self.box(rect)
+        self.img.paste(am_photo(x1 - x0, y1 - y0, self.rng), (x0, y0))
+        self.photos.append({"rect": am_round(rect)})
+        self.occupied.append(list(rect))
+
+    def gradient(self, rect, start, end):
+        """Dégradé volontaire, de gauche à droite."""
+        x0, y0, x1, y1 = self.box(rect)
+        ramp = Image.linear_gradient("L").rotate(90, expand=True)
+        ramp = ramp.resize((x1 - x0, y1 - y0), Image.BICUBIC)
+        self.img.paste(ImageOps.colorize(ramp, start, end), (x0, y0))
+        self.gradients.append({"rect": am_round(rect), "de": list(start), "a": list(end)})
+        self.occupied.append(list(rect))
+
+
+def am_light(w: int, h: int, factor) -> Image.Image:
+    """Carte d'éclairage (255 = pleine lumière) : `factor(u, v)` pour u, v de 0 à 1."""
+    gw, gh = max(2, w // 8), max(2, h // 8)
+    values = [am_clamp(255 * factor(x / (gw - 1), y / (gh - 1))) for y in range(gh) for x in range(gw)]
+    small = Image.new("L", (gw, gh))
+    small.putdata(values)
+    return small.resize((w, h), Image.BICUBIC)
+
+
+def am_multiply(img: Image.Image, light: Image.Image) -> Image.Image:
+    return ImageChops.multiply(img, Image.merge("RGB", (light, light, light)))
+
+
+class AmScan:
+    """Dégradation d'une page droite comme par un scanner, et transformation
+    qui envoie un point de la page droite (pixels) dans l'image scannée."""
+
+    def __init__(self, page: AmPage, *, paper=(255, 255, 255), lid=(232, 232, 230),
+                 light=None, light_note="uniforme", angle=0.0, quarter=0, expand=False,
+                 blur=0.7, noise=4.0, chroma=1.5, jpeg=85, gray=False, verso=None,
+                 show_through=0.0, seed=0):
+        rng = random.Random(seed)
+        self.page = page
+        self.meta = {"papier": list(paper), "couvercle": list(lid), "eclairage": light_note,
+                     "inclinaison_deg": angle, "quart_de_tour": quarter, "perspective": False,
+                     "courbure_px": 0, "flou_px": blur,
+                     "bruit": noise, "jpeg": jpeg, "niveaux_de_gris": gray,
+                     "transparence_verso": show_through}
+        img = page.img
+        if verso is not None and show_through > 0:
+            back = verso.img.transpose(Image.FLIP_LEFT_RIGHT).filter(ImageFilter.GaussianBlur(page.px(1.2)))
+            back = Image.blend(Image.new("RGB", img.size, (255, 255, 255)), back, show_through)
+            img = ImageChops.multiply(img, back)
+        img = ImageChops.multiply(img, Image.new("RGB", img.size, paper))
+        w, h = img.size
+        transpose = {1: Image.ROTATE_270, 2: Image.ROTATE_180, 3: Image.ROTATE_90}
+        if quarter:
+            img = img.transpose(transpose[quarter])
+        qw, qh = img.size
+        if angle:
+            img = img.rotate(-angle, resample=Image.BICUBIC, expand=expand, fillcolor=lid)
+        fw, fh = img.size
+        theta = math.radians(angle)
+
+        def forward(x, y):
+            # Quarts de tour (sens horaire, ordonnées vers le bas).
+            if quarter == 1:
+                x, y = h - y, x
+            elif quarter == 2:
+                x, y = w - x, h - y
+            elif quarter == 3:
+                x, y = y, w - x
+            # Inclinaison autour du centre (sens horaire pour un angle positif).
+            dx, dy = x - qw / 2, y - qh / 2
+            return (fw / 2 + dx * math.cos(theta) - dy * math.sin(theta),
+                    fh / 2 + dx * math.sin(theta) + dy * math.cos(theta))
+
+        self.forward = forward
+        if light is not None:
+            img = am_multiply(img, am_light(fw, fh, light))
+        if blur:
+            img = img.filter(ImageFilter.GaussianBlur(blur))
+        if gray:
+            img = img.convert("L")
+            img = ImageChops.add(img, am_gaussian_noise(img.size, noise, rng), 1.0, -128)
+        else:
+            shared = am_gaussian_noise(img.size, noise, rng)
+            bands = []
+            for band in img.split():
+                band = ImageChops.add(band, shared, 1.0, -128)
+                if chroma:
+                    band = ImageChops.add(band, am_gaussian_noise(img.size, chroma, rng), 1.0, -128)
+                bands.append(band)
+            img = Image.merge("RGB", bands)
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=jpeg, optimize=True)
+        self.jpeg = buffer.getvalue()
+        self.image = Image.open(io.BytesIO(self.jpeg))
+        self.image.load()
+
+    def corners(self):
+        p = self.page
+        return [am_round(self.forward(x, y), 1) for x, y in [(0, 0), (p.w, 0), (p.w, p.h), (0, p.h)]]
+
+    def inside(self, rect, margin=3) -> bool:
+        x0, y0, x1, y1 = [self.page.px(v) for v in rect]
+        fw, fh = self.image.size
+        return all(margin <= X <= fw - margin and margin <= Y <= fh - margin
+                   for X, Y in (self.forward(x, y) for x, y in [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]))
+
+    def dominant(self, rect, exclude, inset=4.0):
+        """Couleur la plus présente de la zone dans l'image scannée (pic d'un
+        histogramme en cases de 6 niveaux, puis moyenne autour du pic), hors
+        des lignes de texte posées dessus."""
+        x0, y0, x1, y1 = rect[0] + inset, rect[1] + inset, rect[2] - inset, rect[3] - inset
+        rng = random.Random(1)
+        image = self.image.convert("RGB")
+        samples = []
+        for _ in range(6000):
+            x, y = rng.uniform(x0, x1), rng.uniform(y0, y1)
+            if any(e[0] - 2 <= x <= e[2] + 2 and e[1] - 2 <= y <= e[3] + 2 for e in exclude):
+                continue
+            X, Y = self.forward(self.page.px(x), self.page.px(y))
+            if 0 <= X < image.width and 0 <= Y < image.height:
+                samples.append(image.getpixel((int(X), int(Y))))
+        bins = {}
+        for s in samples:
+            key = (s[0] // 6, s[1] // 6, s[2] // 6)
+            bins[key] = bins.get(key, 0) + 1
+        peak = max(bins, key=lambda k: sum(bins.get((k[0] + a, k[1] + b, k[2] + c), 0)
+                                           for a in (-1, 0, 1) for b in (-1, 0, 1) for c in (-1, 0, 1)))
+        near = [s for s in samples if all(abs(s[i] // 6 - peak[i]) <= 1 for i in range(3))]
+        return [round(sum(s[i] for s in near) / len(near)) for i in range(3)]
+
+    def blank_zones(self, count=10, size=40.0):
+        """Carrés de papier vierge de la page droite, visibles dans le scan."""
+        p = self.page
+        pw, ph = p.size
+        candidates = []
+        y = 24.0
+        while y + size <= ph - 24:
+            x = 24.0
+            while x + size <= pw - 24:
+                rect = [x, y, x + size, y + size]
+                clear = all(rect[2] < o[0] - 8 or rect[0] > o[2] + 8 or rect[3] < o[1] - 8 or rect[1] > o[3] + 8
+                            for o in p.occupied)
+                if clear and self.inside(rect, 6):
+                    candidates.append(rect)
+                x += size / 2
+            y += size / 2
+        chosen = []
+        while candidates and len(chosen) < count:
+            def spread(r):
+                if not chosen:
+                    return -abs(r[0] - pw / 2) - abs(r[1] - ph / 2)
+                return min(abs(r[0] - c[0]) + abs(r[1] - c[1]) for c in chosen)
+            best = max(candidates, key=spread)
+            chosen.append(best)
+            candidates.remove(best)
+        return [am_round(r) for r in chosen]
+
+    def truth(self, page_points):
+        p = self.page
+        for line in p.lines:
+            assert self.inside(line["rect"], 1), f"ligne coupée par le cadrage : {line['texte']}"
+        flats = []
+        for flat in p.flats:
+            on_top = [l["rect"] for l in p.lines if l["fond"] == flat["id"]]
+            flats.append(dict(flat, dominante_scan=self.dominant(flat["rect"], on_top)))
+        width, height = self.image.size
+        return dict(
+            format_pt=am_round(p.size), page_pdf_pt=am_round(page_points), ppp=p.dpi,
+            image_px=[width, height], coins_page_px=self.corners(), a_verifier=abs(self.meta["inclinaison_deg"] or 0) > 15,
+            **self.meta, zones_fond=self.blank_zones(), aplats=flats, photos=p.photos,
+            degrades=p.gradients, filets=p.rules, lignes=p.lines,
+        )
+
+
+def am_write(name: str, title: str, description: str, langues, scans) -> None:
+    """Écrit le PDF (une image JPEG par page, telle quelle, comme un scanner)
+    et sa vérité terrain."""
+    import json
+    pdf = pikepdf.new()
+    pages = []
+    for scan in scans:
+        width, height = scan.image.size
+        points = (width * 72 / scan.page.dpi, height * 72 / scan.page.dpi)
+        image = pikepdf.Stream(pdf, scan.jpeg)
+        image.Type, image.Subtype = pikepdf.Name.XObject, pikepdf.Name.Image
+        image.Width, image.Height, image.BitsPerComponent = width, height, 8
+        image.ColorSpace = pikepdf.Name.DeviceGray if scan.image.mode == "L" else pikepdf.Name.DeviceRGB
+        image.Filter = pikepdf.Name.DCTDecode
+        page = pdf.add_blank_page(page_size=points)
+        page.obj.Resources = pikepdf.Dictionary(XObject=pikepdf.Dictionary(Im0=image))
+        page.obj.Contents = pdf.make_stream(b"q %.4f 0 0 %.4f 0 0 cm /Im0 Do Q" % points)
+        pages.append(scan.truth(points))
+    pdf.docinfo["/Title"] = title
+    pdf.docinfo["/Author"] = "PDF Studio — jeu de test"
+    save(pdf, f"amelioration/{name}.pdf")
+    truth = {"fichier": f"{name}.pdf", "description": description, "langues": langues,
+             "unites": "rectangles [x0, y0, x1, y1] en points sur la page droite, origine en haut "
+                       "à gauche ; coins_page_px : coins de la page droite (haut gauche, haut droit, "
+                       "bas droit, bas gauche) dans l'image scannée, en pixels ; inclinaison positive "
+                       "quand les lignes descendent vers la droite ; quarts de tour dans le sens horaire",
+             "pages": pages}
+    (AMELIORATION / f"{name}.json").write_text(json.dumps(truth, ensure_ascii=False, indent=1) + "\n",
+                                                encoding="utf-8")
+
+
+def am_letter(page: AmPage, paragraphs, sender, place_date, subject, signature) -> None:
+    """Lettre : expéditeur, date, objet, paragraphes, signature."""
+    pw, _ = page.size
+    left = 72.0
+    y = 92.0
+    page.text(left, y, sender[0], "Caladea-Bold", 12)
+    for line in sender[1:]:
+        y += 15
+        page.text(left, y, line, "Caladea-Regular", 10.5)
+    page.text(pw - left, 196, place_date, "Caladea-Regular", 11, align="right")
+    page.text(left, 240, subject, "Caladea-Bold", 11.5)
+    y = 276.0
+    for text in paragraphs:
+        y = page.paragraph(left, y, pw - 2 * left, text, "Caladea-Regular", 11.5) + 8
+    page.text(pw - 230, y + 30, signature[0], "Caladea-Regular", 11.5)
+    page.text(pw - 230, y + 46, signature[1], "Caladea-Italic", 10.5)
+
+
+def am_report(page: AmPage, title, paragraphs, font="Carlito-Regular", size=11.0, top=96.0) -> float:
+    pw, _ = page.size
+    left = 72.0
+    page.text(left, top, title, font.replace("Regular", "Bold"), size * 1.7)
+    y = top + size * 3
+    for text in paragraphs:
+        y = page.paragraph(left, y, pw - 2 * left, text, font, size) + size * 0.7
+    return y
+
+
+def am_01_lettre_inclinee() -> None:
+    page = AmPage(300, seed=SEED + 101)
+    am_letter(page, OCR_LETTRE, ["Société Durand & Fils", "12, rue des Lilas", "69003 Lyon"],
+              "Lyon, le 2 avril 2026", "Objet : confirmation de commande n° 2026-0412",
+              ["Claire Martin", "Directrice administrative"])
+    scan = AmScan(page, paper=(236, 236, 232), angle=2.3, blur=0.9, noise=4, jpeg=80, seed=1,
+                  light=lambda u, v: 1.0 - 0.05 * u, light_note="léger assombrissement vers la droite (5 %)")
+    am_write("01_lettre_inclinee", "Lettre inclinée", "Lettre en français, 300 ppp, inclinée de 2,3°, "
+             "papier gris clair.", ["fr"], [scan])
+
+
+def am_02_rapport_incline() -> None:
+    page = AmPage(200, seed=SEED + 102)
+    y = am_report(page, "Project Status Report", AM_STATUS)
+    for item in ["Fibre backbone: completed", "Core switches: in progress (70%)",
+                 "Wireless controllers: planned for November"]:
+        page.text(90, y, "•  " + item, "Carlito-Regular", 11)
+        y += 16
+    scan = AmScan(page, paper=(244, 242, 236), angle=-7.5, blur=0.7, noise=4, jpeg=80, seed=2)
+    am_write("02_rapport_incline", "Rapport incliné", "Rapport en anglais, 200 ppp, incliné de −7,5°.",
+             ["en"], [scan])
+
+
+def am_03_hors_plafond() -> None:
+    page = AmPage(200, seed=SEED + 103)
+    am_report(page, "Archives : du papier au texte", [OCR_ARTICLE], "Caladea-Regular", 11.5, top=120)
+    scan = AmScan(page, paper=(246, 244, 238), lid=(226, 226, 224), angle=18.0, expand=True, blur=0.7,
+                  noise=4, jpeg=80, seed=3)
+    am_write("03_hors_plafond", "Inclinaison hors plafond", "Article en français, 200 ppp, posé de "
+             "travers (18°, au-delà du plafond de 15°) : la page doit être marquée « à vérifier », "
+             "sans correction automatique. L'image montre toute la page sur le fond du scanner.",
+             ["fr"], [scan])
+
+
+def am_04_page_droite() -> None:
+    page = AmPage(300, seed=SEED + 104)
+    am_report(page, "Visitor Badges: New Procedure", AM_MEMO, "Carlito-Regular", 11.5)
+    scan = AmScan(page, paper=(253, 253, 252), angle=0.05, blur=0.5, noise=1.5, chroma=0.5, jpeg=92, seed=4)
+    am_write("04_page_droite", "Page droite et propre", "Note en anglais, 300 ppp, déjà droite (0,05°, "
+             "sous le seuil de 0,1°) et propre : aucune correction ni dégradation attendue.", ["en"], [scan])
+
+
+def am_05_fond_jauni() -> None:
+    page = AmPage(200, seed=SEED + 105)
+    pw, _ = page.size
+    y = am_report(page, "Note de service", AM_NOTE, "Caladea-Regular", 11)
+    # Formulaire : filets fins à remplir.
+    y += 10
+    for label in ["Nom et prénom", "Service", "Dates souhaitées", "Visa du responsable"]:
+        page.text(72, y, label, "Caladea-Regular", 10)
+        page.rule(200, y + 2, pw - 72, y + 2, 0.3, (60, 60, 60))
+        y += 26
+    y += 16
+    page.rule(72, y, pw - 72, y, 0.5, (30, 30, 30))
+    y += 16
+    for text in ["Article 1. Les demandes incomplètes ne seront pas traitées.",
+                 "Article 2. Toute modification après validation suit la même procédure.",
+                 "Article 3. Les plannings validés sont affichés dans chaque service."]:
+        y = page.paragraph(72, y, pw - 144, text, "Carlito-Regular", 7) + 2
+    scan = AmScan(page, paper=(240, 226, 188), angle=0.6, blur=0.8, noise=5, jpeg=78, seed=5,
+                  light=lambda u, v: (1.0 - 0.35 * math.exp(-u / 0.06)) * (1.0 - 0.06 * v),
+                  light_note="ombre de reliure à gauche (−35 % au bord), léger dégradé vertical")
+    am_write("05_fond_jauni", "Papier jauni", "Note de service en français, 200 ppp, papier jauni, "
+             "ombre de reliure, filets de 0,3 pt et texte en 7 pt.", ["fr"], [scan])
+
+
+def am_06_photocopie_grise() -> None:
+    page = AmPage(200, seed=SEED + 106)
+    am_report(page, OCR_ANGLAIS[0], OCR_ANGLAIS[1:] + AM_STATUS[:2], "Caladea-Regular", 11)
+    scan = AmScan(page, paper=(212, 212, 212), angle=-0.8, gray=True, blur=0.9, noise=7, jpeg=70, seed=6,
+                  light=lambda u, v: 1.0 - 0.32 * u ** 1.5 - 0.08 * v,
+                  light_note="éclairage très inégal : −32 % au bord droit, −8 % en bas")
+    am_write("06_photocopie_grise", "Photocopie grise", "Rapport en anglais, photocopie en niveaux de "
+             "gris à 200 ppp, papier gris, éclairage très inégal.", ["en"], [scan])
+
+
+def am_07_bandeaux_couleur() -> None:
+    page = AmPage(200, seed=SEED + 107)
+    pw, ph = page.size
+    page.flat("bandeau", [0, 36, pw, 120], (35, 90, 170), nuances=28)
+    page.text(72, 88, "Compte rendu du comité de pilotage", "Carlito-Bold", 22, (255, 255, 255), "bandeau")
+    page.text(72, 108, "Programme de modernisation — séance du 9 septembre", "Carlito-Regular", 11,
+              (232, 240, 252), "bandeau")
+    y = 160.0
+    for text in AM_COMITE:
+        y = page.paragraph(72, y, pw - 144, text, "Caladea-Regular", 11) + 8
+    box = [72, y + 6, pw - 72, y + 120]
+    page.flat("encadre", box, (252, 226, 196), nuances=18, border=(1.0, (214, 120, 40)))
+    page.text(88, y + 30, "À retenir", "Carlito-Bold", 12, (120, 52, 10), "encadre")
+    yy = y + 50
+    for text in ["Prochaine réunion le 14 octobre à 10 h.",
+                 "Validation du budget complémentaire attendue avant le 30 septembre.",
+                 "Point d'étape sur la migration de Lille à la prochaine séance."]:
+        page.text(88, yy, "– " + text, "Carlito-Regular", 10.5, (70, 40, 20), "encadre")
+        yy += 17
+    page.flat("pied", [0, ph - 70, pw, ph - 30], (40, 140, 90), nuances=26)
+    page.text(pw / 2, ph - 45, "Direction des systèmes d'information — document interne", "Carlito-Regular",
+              9.5, (255, 255, 255), "pied", align="center")
+    scan = AmScan(page, paper=(246, 244, 238), angle=1.2, blur=0.8, noise=5, chroma=2.5, jpeg=80, seed=7,
+                  light=lambda u, v: 1.0 - 0.07 * v, light_note="léger dégradé vertical (−7 % en bas)")
+    am_write("07_bandeaux_couleur", "Bandeaux de couleur", "Compte rendu en français, 200 ppp : bandeau "
+             "bleu aux nuances multiples sous du texte blanc, encadré orangé bordé, pied de page vert.",
+             ["fr"], [scan])
+
+
+def am_08_tableau_cellules() -> None:
+    page = AmPage(200, seed=SEED + 108)
+    pw, _ = page.size
+    page.text(72, 96, "INVOICE", "Carlito-Bold", 24, (30, 60, 120))
+    for i, (label, value) in enumerate([("Invoice no.", "INV-2026-0193"), ("Date", "March 3, 2026"),
+                                        ("Customer", "Harbour Logistics Ltd")]):
+        page.text(72, 128 + 16 * i, label, "Carlito-Bold", 10.5)
+        page.text(160, 128 + 16 * i, value, "Carlito-Regular", 10.5)
+    columns = [72, 132, 330, 380, 450, pw - 72]
+    rows = [["Ref.", "Description", "Qty", "Unit price", "Amount"],
+            ["N-101", "Managed switch, 48 ports", "2", "$1,240.00", "$2,480.00"],
+            ["N-207", "Wireless access point", "6", "$315.00", "$1,890.00"],
+            ["S-330", "Rack-mounted UPS, 3 kVA", "1", "$2,150.00", "$2,150.00"],
+            ["C-012", "Patch cables, pack of 24", "4", "$58.00", "$232.00"],
+            ["L-900", "Installation (hours)", "12", "$95.00", "$1,140.00"],
+            ["", "", "", "Total", "$7,892.00"]]
+    top, height = 200.0, 24.0
+    fills = {0: ("entete", (30, 60, 120), 30), 2: ("ligne_2", (222, 233, 247), 14),
+             4: ("ligne_4", (222, 233, 247), 14), 6: ("total", (232, 232, 232), 12)}
+    for r, row in enumerate(rows):
+        y0 = top + r * height
+        if r in fills:
+            ident, color, nuances = fills[r]
+            page.flat(ident, [columns[0], y0, columns[-1], y0 + height], color, nuances)
+        if r == 3:
+            page.flat("cellule_surlignee", [columns[4], y0, columns[5], y0 + height], (255, 234, 128), 20)
+    for r in range(len(rows) + 1):
+        page.rule(columns[0], top + r * height, columns[-1], top + r * height, 0.5, (70, 70, 70))
+    for x in columns:
+        page.rule(x, top, x, top + len(rows) * height, 0.5, (70, 70, 70))
+    for r, row in enumerate(rows):
+        y0 = top + r * height
+        on = {0: "entete", 2: "ligne_2", 4: "ligne_4", 6: "total"}.get(r, "papier")
+        for c, value in enumerate(row):
+            if not value:
+                continue
+            cell_on = "cellule_surlignee" if (r == 3 and c == 4) else on
+            fill = (255, 255, 255) if r == 0 else (28, 28, 34)
+            font = "Carlito-Bold" if r in (0, 6) else "Carlito-Regular"
+            if c >= 2:
+                page.text(columns[c + 1] - 6, y0 + 16, value, font, 10, fill, cell_on, align="right")
+            else:
+                page.text(columns[c] + 6, y0 + 16, value, font, 10, fill, cell_on)
+    page.paragraph(72, top + len(rows) * height + 40, pw - 144,
+                   "Payment due within 30 days. Please quote the invoice number with your payment. "
+                   "Late payments incur interest at 1.5% per month.", "Carlito-Regular", 9.5)
+    scan = AmScan(page, paper=(245, 244, 240), angle=-1.6, blur=0.8, noise=5, chroma=2.5, jpeg=80, seed=8)
+    am_write("08_tableau_cellules", "Tableau à cellules colorées", "Facture en anglais, 200 ppp : en-tête "
+             "bleu foncé sous du texte blanc, lignes alternées bleu clair, cellule surlignée en jaune, "
+             "ligne de total grise, quadrillage de 0,5 pt.", ["en"], [scan])
+
+
+def am_09_photo_et_degrade() -> None:
+    page = AmPage(200, seed=SEED + 109)
+    pw, _ = page.size
+    page.gradient([0, 40, pw, 118], (24, 128, 140), (118, 64, 150))
+    page.text(72, 92, "Parc naturel régional", "Carlito-Bold", 26, (255, 255, 255), "degrade")
+    page.photo([72, 140, pw - 72, 430])
+    page.text(72, 446, "Le lac et la chaîne des crêtes au lever du jour.", "Caladea-Italic", 9.5)
+    y = 480.0
+    for text in AM_PARC:
+        y = page.paragraph(72, y, pw - 144, text, "Caladea-Regular", 11) + 8
+    box = [72, y + 4, pw - 72, y + 84]
+    page.flat("encadre_vert", box, (212, 238, 218), nuances=20)
+    page.text(88, y + 28, "Informations pratiques", "Carlito-Bold", 11.5, (24, 90, 50), "encadre_vert")
+    page.text(88, y + 46, "Accueil du parc : 04 76 00 12 34, tous les jours de 9 h à 18 h.",
+              "Carlito-Regular", 10.5, (30, 50, 36), "encadre_vert")
+    page.text(88, y + 63, "Parkings gratuits au départ des sentiers balisés.", "Carlito-Regular", 10.5,
+              (30, 50, 36), "encadre_vert")
+    scan = AmScan(page, paper=(248, 246, 240), angle=0.9, blur=0.7, noise=4, chroma=2.0, jpeg=82, seed=9)
+    am_write("09_photo_et_degrade", "Photo et dégradé", "Dépliant en français, 200 ppp : photographie et "
+             "dégradé volontaire (à ne pas aplatir), encadré vert uni (à aplatir).", ["fr"], [scan])
+
+
+def am_10_basse_qualite() -> None:
+    page = AmPage(150, seed=SEED + 110)
+    am_report(page, "Note de service", AM_NOTE + [OCR_ARTICLE], "Caladea-Regular", 11)
+    verso = AmPage(150, seed=SEED + 111)
+    am_report(verso, "Compte rendu", AM_COMITE * 2, "Carlito-Regular", 11)
+    scan = AmScan(page, paper=(226, 222, 206), angle=1.1, gray=True, blur=1.1, noise=11, jpeg=35, seed=10,
+                  verso=verso, show_through=0.1,
+                  light=lambda u, v: 1.0 - 0.12 * (1 - v) * u, light_note="assombri vers le haut à droite (−12 %)")
+    am_write("10_basse_qualite", "Scan de basse qualité", "Note en français, 150 ppp en niveaux de gris, "
+             "flou, bruit fort, JPEG de qualité 35, verso visible par transparence.", ["fr"], [scan])
+
+
+def am_11_orientation() -> None:
+    first = AmPage(200, seed=SEED + 112)
+    am_report(first, "Visitor Badges: New Procedure", AM_MEMO, "Carlito-Regular", 11)
+    upside_down = AmScan(first, paper=(246, 245, 240), quarter=2, blur=0.7, noise=4, jpeg=80, seed=11)
+    second = AmPage(200, seed=SEED + 113)
+    am_report(second, "Note de service", AM_NOTE, "Caladea-Regular", 11)
+    sideways = AmScan(second, paper=(246, 245, 240), quarter=1, angle=0.8, blur=0.7, noise=4, jpeg=80, seed=12)
+    am_write("11_orientation", "Pages retournées", "Page 1 en anglais, à l'envers (deux quarts de tour) ; "
+             "page 2 en français, couchée (un quart de tour) et inclinée de 0,8°. 200 ppp.",
+             ["en", "fr"], [upside_down, sideways])
+
+
+def am_homography(src, dst):
+    """Homographie qui envoie les quatre points `src` sur `dst` (coefficients
+    a…h, avec i = 1)."""
+    rows, rhs = [], []
+    for (x, y), (u, v) in zip(src, dst):
+        rows.append([x, y, 1, 0, 0, 0, -u * x, -u * y])
+        rhs.append(u)
+        rows.append([0, 0, 0, x, y, 1, -v * x, -v * y])
+        rhs.append(v)
+    n = 8
+    m = [row + [b] for row, b in zip(rows, rhs)]
+    for col in range(n):
+        pivot = max(range(col, n), key=lambda r: abs(m[r][col]))
+        m[col], m[pivot] = m[pivot], m[col]
+        for r in range(n):
+            if r != col:
+                factor = m[r][col] / m[col][col]
+                m[r] = [a - factor * b for a, b in zip(m[r], m[col])]
+    return [m[i][n] / m[i][i] for i in range(n)]
+
+
+class AmPhoto(AmScan):
+    """Page photographiée sur un bureau : courbure de la feuille, perspective,
+    éclairage en coin et ombre, fond de bois."""
+
+    def __init__(self, page: AmPage, quad, size, bend, seed):
+        rng = random.Random(seed)
+        self.page = page
+        w, h = page.img.size
+        paper = (244, 241, 233)
+        img = ImageChops.multiply(page.img, Image.new("RGB", (w, h), paper))
+
+        # Courbure : les lignes se creusent vers le milieu de la page.
+        def bend_at(x, y):
+            return bend * (1 - (2 * x / w - 1) ** 2) * (0.55 + 0.45 * abs(2 * y / h - 1))
+
+        mesh, step = [], 64
+        for y0 in range(0, h, step):
+            for x0 in range(0, w, step):
+                x1, y1 = min(w, x0 + step), min(h, y0 + step)
+                quad_src = [(x0, y0 - bend_at(x0, y0)), (x0, y1 - bend_at(x0, y1)),
+                            (x1, y1 - bend_at(x1, y1)), (x1, y0 - bend_at(x1, y0))]
+                mesh.append(((x0, y0, x1, y1), [v for p in quad_src for v in p]))
+        img = img.transform((w, h), Image.MESH, mesh, Image.BICUBIC, fillcolor=paper)
+
+        fw, fh = size
+        page_corners = [(0, 0), (w, 0), (w, h), (0, h)]
+        to_photo = am_homography(page_corners, quad)
+        to_page = am_homography(quad, page_corners)
+
+        def apply(hm, x, y):
+            d = hm[6] * x + hm[7] * y + 1
+            return ((hm[0] * x + hm[1] * y + hm[2]) / d, (hm[3] * x + hm[4] * y + hm[5]) / d)
+
+        desk = ImageOps.colorize(ImageOps.autocontrast(Image.blend(
+            am_smooth_noise(fw, fh, fw // 6, rng).resize((fw, fh)),
+            am_smooth_noise(fw // 40, fh, 3, rng).resize((fw, fh), Image.BICUBIC), 0.6)),
+            (96, 62, 38), (168, 120, 78))
+        warped = img.transform((fw, fh), Image.PERSPECTIVE, to_page, Image.BICUBIC)
+        mask = Image.new("L", (w, h), 255).transform((fw, fh), Image.PERSPECTIVE, to_page, Image.BICUBIC)
+        shadow = mask.filter(ImageFilter.GaussianBlur(fw * 0.012))
+        shadow = ImageChops.offset(shadow, int(fw * 0.008), int(fw * 0.012)).point(lambda v: 255 - v * 0.45)
+        photo = ImageChops.multiply(desk, Image.merge("RGB", (shadow, shadow, shadow)))
+        photo.paste(warped, (0, 0), mask)
+        photo = am_multiply(photo, am_light(fw, fh, lambda u, v: 1.0 - 0.28 * ((u - 0.1) ** 2 + (v - 0.05) ** 2)))
+        photo = photo.filter(ImageFilter.GaussianBlur(1.0))
+        shared = am_gaussian_noise((fw, fh), 5, rng)
+        photo = Image.merge("RGB", [ImageChops.add(b, shared, 1.0, -128) for b in photo.split()])
+        buffer = io.BytesIO()
+        photo.save(buffer, format="JPEG", quality=82, optimize=True)
+        self.jpeg = buffer.getvalue()
+        self.image = Image.open(io.BytesIO(self.jpeg))
+        self.image.load()
+
+        def forward(x, y):
+            return apply(to_photo, x, y + bend_at(x, y))
+
+        self.forward = forward
+        self.meta = {"papier": list(paper), "couvercle": None, "eclairage": "photo : lumière en coin "
+                     "(haut gauche), ombre portée", "inclinaison_deg": None, "quart_de_tour": 0,
+                     "perspective": True, "courbure_px": bend, "flou_px": 1.0, "bruit": 5, "jpeg": 82,
+                     "niveaux_de_gris": False, "transparence_verso": 0.0}
+
+
+def am_12_photo_perspective() -> None:
+    page = AmPage(200, seed=SEED + 114)
+    am_letter(page, OCR_LETTRE, ["Atelier Lefèvre", "8, place de l'Église", "33000 Bordeaux"],
+              "Bordeaux, le 18 mars 2026", "Objet : devis de rénovation n° D-2026-077",
+              ["Paul Lefèvre", "Gérant"])
+    size = (2400, 3200)
+    quad = [(330, 260), (2110, 360), (2230, 2960), (180, 2890)]
+    scan = AmPhoto(page, quad, size, bend=22, seed=13)
+    am_write("12_photo_perspective", "Page photographiée", "Lettre en français photographiée sur un "
+             "bureau : perspective, courbure de la feuille, lumière en coin et ombre portée. Sert à "
+             "évaluer l'option facultative de correction de perspective.", ["fr"], [scan])
+
+
+def am_13_lot_50_pages() -> None:
+    """50 pages tirées en boucle de trois fichiers précédents (anglais en
+    couleur, bandeaux, basse qualité en gris) : les images sont partagées, le
+    fichier reste léger, mais chaque page est traitée."""
+    import json
+    sources = [AMELIORATION / f"{name}.pdf" for name in
+               ("02_rapport_incline", "07_bandeaux_couleur", "10_basse_qualite")]
+    pdf = pikepdf.new()
+    copied, origin = [], []
+    for source in sources:
+        src = pikepdf.open(source)
+        for index, page in enumerate(src.pages):
+            pdf.pages.append(page)
+            copied.append(len(pdf.pages) - 1)
+            origin.append({"fichier": source.name, "page": index + 1})
+    base = list(range(len(pdf.pages)))
+    pages = []
+    for n in range(50):
+        k = base[n % len(base)]
+        if n >= len(base):
+            pdf.pages.append(pdf.pages[k])
+        pages.append(origin[k])
+    pdf.docinfo["/Title"] = "Lot de 50 pages"
+    pdf.docinfo["/Author"] = "PDF Studio — jeu de test"
+    save(pdf, "amelioration/13_lot_50_pages.pdf")
+    truth = {"fichier": "13_lot_50_pages.pdf", "description": "50 pages tirées en boucle des fichiers "
+             "02, 07 et 10 (images partagées) : traitement par lots en arrière-plan et annulation. La "
+             "vérité terrain de chaque page est celle de son fichier d'origine.", "pages": pages}
+    (AMELIORATION / "13_lot_50_pages.json").write_text(json.dumps(truth, ensure_ascii=False, indent=1) + "\n",
+                                                        encoding="utf-8")
+
+
+def amelioration_documents() -> None:
+    AMELIORATION.mkdir(exist_ok=True)
+    am_01_lettre_inclinee()
+    am_02_rapport_incline()
+    am_03_hors_plafond()
+    am_04_page_droite()
+    am_05_fond_jauni()
+    am_06_photocopie_grise()
+    am_07_bandeaux_couleur()
+    am_08_tableau_cellules()
+    am_09_photo_et_degrade()
+    am_10_basse_qualite()
+    am_11_orientation()
+    am_12_photo_perspective()
+    am_13_lot_50_pages()
+    for f in sorted(AMELIORATION.glob("*.pdf")):
+        print(f"amelioration/{f.name:28} {f.stat().st_size / 1024:8.1f} Kio")
+
+
 def pas_un_pdf() -> None:
     (OUT / "pas_un_pdf.pdf").write_text("Ceci est un fichier texte, pas un PDF.\n", encoding="utf-8")
 
 
 def main() -> None:
+    if sys.argv[1:] == ["amelioration"]:
+        amelioration_documents()
+        return
     texte_simple()
     multipage("multipage_100.pdf", 100, "Cent pages")
     multipage("volumineux_600.pdf", 600, "Six cents pages")
@@ -962,6 +1809,7 @@ def main() -> None:
     corrompu()
     pas_un_pdf()
     ocr_documents()
+    amelioration_documents()
     for f in sorted(OUT.glob("*.pdf")):
         print(f"{f.name:24} {f.stat().st_size / 1024:8.1f} Kio")
 

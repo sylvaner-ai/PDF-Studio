@@ -1,0 +1,370 @@
+{
+ "fichier": "06_photocopie_grise.pdf",
+ "description": "Rapport en anglais, photocopie en niveaux de gris à 200 ppp, papier gris, éclairage très inégal.",
+ "langues": [
+  "en"
+ ],
+ "unites": "rectangles [x0, y0, x1, y1] en points sur la page droite, origine en haut à gauche ; coins_page_px : coins de la page droite (haut gauche, haut droit, bas droit, bas gauche) dans l'image scannée, en pixels ; inclinaison positive quand les lignes descendent vers la droite ; quarts de tour dans le sens horaire",
+ "pages": [
+  {
+   "format_pt": [
+    595.28,
+    841.89
+   ],
+   "page_pdf_pt": [
+    595.44,
+    842.04
+   ],
+   "ppp": 200,
+   "image_px": [
+    1654,
+    2339
+   ],
+   "coins_page_px": [
+    [
+     -16.2,
+     11.7
+    ],
+    [
+     1637.6,
+     -11.4
+    ],
+    [
+     1670.2,
+     2327.3
+    ],
+    [
+     16.4,
+     2350.4
+    ]
+   ],
+   "a_verifier": false,
+   "papier": [
+    212,
+    212,
+    212
+   ],
+   "couvercle": [
+    232,
+    232,
+    230
+   ],
+   "eclairage": "éclairage très inégal : −32 % au bord droit, −8 % en bas",
+   "inclinaison_deg": -0.8,
+   "quart_de_tour": 0,
+   "perspective": false,
+   "courbure_px": 0,
+   "flou_px": 0.9,
+   "bruit": 7,
+   "jpeg": 70,
+   "niveaux_de_gris": true,
+   "transparence_verso": 0.0,
+   "zones_fond": [
+    [
+     304.0,
+     424.0,
+     344.0,
+     464.0
+    ],
+    [
+     24.0,
+     24.0,
+     64.0,
+     64.0
+    ],
+    [
+     24.0,
+     764.0,
+     64.0,
+     804.0
+    ],
+    [
+     524.0,
+     84.0,
+     564.0,
+     124.0
+    ],
+    [
+     524.0,
+     724.0,
+     564.0,
+     764.0
+    ],
+    [
+     24.0,
+     364.0,
+     64.0,
+     404.0
+    ],
+    [
+     124.0,
+     564.0,
+     164.0,
+     604.0
+    ],
+    [
+     304.0,
+     24.0,
+     344.0,
+     64.0
+    ],
+    [
+     504.0,
+     344.0,
+     544.0,
+     384.0
+    ],
+    [
+     284.0,
+     684.0,
+     324.0,
+     724.0
+    ]
+   ],
+   "aplats": [],
+   "photos": [],
+   "degrades": [],
+   "filets": [],
+   "lignes": [
+    {
+     "texte": "Quarterly Operations Review",
+     "rect": [
+      72.0,
+      79.08,
+      314.73,
+      100.68
+     ],
+     "corps_pt": 18.7,
+     "police": "Caladea-Bold",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Revenue for the third quarter reached $4.2 million, up 12% compared with the same period last",
+     "rect": [
+      72.0,
+      118.92,
+      503.27,
+      131.88
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "year. Gross margin improved to 41.5%, driven by higher utilisation of the support team and a lower",
+     "rect": [
+      72.0,
+      133.44,
+      517.25,
+      146.4
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "cost of hardware.",
+     "rect": [
+      72.0,
+      147.96,
+      149.64,
+      160.92
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Two new framework agreements were signed in September, with delivery scheduled between",
+     "rect": [
+      72.0,
+      170.18,
+      492.01,
+      183.14
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "October 15 and December 20. Headcount grew from 58 to 63 employees; attrition remained below",
+     "rect": [
+      72.0,
+      184.7,
+      510.47,
+      197.66
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "5% on a rolling twelve-month basis.",
+     "rect": [
+      72.0,
+      199.22,
+      234.93,
+      212.18
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Key risks include supplier lead times, currency exposure on imported equipment, and the pending",
+     "rect": [
+      72.0,
+      221.44,
+      516.28,
+      234.4
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "renewal of the main data-centre lease.",
+     "rect": [
+      72.0,
+      235.96,
+      244.92,
+      248.92
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "The network upgrade programme remains on schedule for completion in the first quarter. Fibre",
+     "rect": [
+      72.0,
+      258.18,
+      504.76,
+      271.14
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "links between the three main buildings were commissioned on October 2, and the legacy switches",
+     "rect": [
+      72.0,
+      272.7,
+      513.16,
+      285.66
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "will be retired after a two-week overlap.",
+     "rect": [
+      72.0,
+      287.22,
+      252.34,
+      300.18
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Spending to date is $286,400 against a budget of $540,000. The only significant variance concerns",
+     "rect": [
+      72.0,
+      309.44,
+      512.44,
+      322.4
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "cabling labour, which ran 9% above estimate because of asbestos checks in the older wing.",
+     "rect": [
+      72.0,
+      323.96,
+      480.25,
+      336.92
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    }
+   ]
+  }
+ ]
+}

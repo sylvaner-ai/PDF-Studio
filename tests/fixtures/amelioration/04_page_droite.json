@@ -1,0 +1,251 @@
+{
+ "fichier": "04_page_droite.pdf",
+ "description": "Note en anglais, 300 ppp, déjà droite (0,05°, sous le seuil de 0,1°) et propre : aucune correction ni dégradation attendue.",
+ "langues": [
+  "en"
+ ],
+ "unites": "rectangles [x0, y0, x1, y1] en points sur la page droite, origine en haut à gauche ; coins_page_px : coins de la page droite (haut gauche, haut droit, bas droit, bas gauche) dans l'image scannée, en pixels ; inclinaison positive quand les lignes descendent vers la droite ; quarts de tour dans le sens horaire",
+ "pages": [
+  {
+   "format_pt": [
+    595.28,
+    841.89
+   ],
+   "page_pdf_pt": [
+    595.2,
+    841.92
+   ],
+   "ppp": 300,
+   "image_px": [
+    2480,
+    3508
+   ],
+   "coins_page_px": [
+    [
+     1.5,
+     -1.1
+    ],
+    [
+     2481.5,
+     1.1
+    ],
+    [
+     2478.5,
+     3509.1
+    ],
+    [
+     -1.5,
+     3506.9
+    ]
+   ],
+   "a_verifier": false,
+   "papier": [
+    253,
+    253,
+    252
+   ],
+   "couvercle": [
+    232,
+    232,
+    230
+   ],
+   "eclairage": "uniforme",
+   "inclinaison_deg": 0.05,
+   "quart_de_tour": 0,
+   "perspective": false,
+   "courbure_px": 0,
+   "flou_px": 0.5,
+   "bruit": 1.5,
+   "jpeg": 92,
+   "niveaux_de_gris": false,
+   "transparence_verso": 0.0,
+   "zones_fond": [
+    [
+     304.0,
+     424.0,
+     344.0,
+     464.0
+    ],
+    [
+     24.0,
+     24.0,
+     64.0,
+     64.0
+    ],
+    [
+     24.0,
+     764.0,
+     64.0,
+     804.0
+    ],
+    [
+     524.0,
+     64.0,
+     564.0,
+     104.0
+    ],
+    [
+     524.0,
+     724.0,
+     564.0,
+     764.0
+    ],
+    [
+     144.0,
+     244.0,
+     184.0,
+     284.0
+    ],
+    [
+     24.0,
+     444.0,
+     64.0,
+     484.0
+    ],
+    [
+     164.0,
+     604.0,
+     204.0,
+     644.0
+    ],
+    [
+     404.0,
+     224.0,
+     444.0,
+     264.0
+    ],
+    [
+     284.0,
+     24.0,
+     324.0,
+     64.0
+    ]
+   ],
+   "aplats": [],
+   "photos": [],
+   "degrades": [],
+   "filets": [],
+   "lignes": [
+    {
+     "texte": "Visitor Badges: New Procedure",
+     "rect": [
+      72.0,
+      77.28,
+      320.46,
+      101.28
+     ],
+     "corps_pt": 19.55,
+     "police": "Carlito-Bold",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Please note that the visitor badge system will be replaced over the weekend of March 14. From",
+     "rect": [
+      72.0,
+      119.46,
+      516.18,
+      133.62
+     ],
+     "corps_pt": 11.5,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Monday, all guests must be registered online at least one day before their visit.",
+     "rect": [
+      72.0,
+      134.64,
+      439.46,
+      148.8
+     ],
+     "corps_pt": 11.5,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Reception staff will print badges on arrival and collect them at departure. Contractors working",
+     "rect": [
+      72.0,
+      157.87,
+      510.57,
+      172.03
+     ],
+     "corps_pt": 11.5,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "on site for more than a week will receive a temporary access card valid for thirty days.",
+     "rect": [
+      72.0,
+      173.05,
+      472.31,
+      187.21
+     ],
+     "corps_pt": 11.5,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Questions about the new procedure can be sent to the facilities team, who will also run two",
+     "rect": [
+      72.0,
+      196.28,
+      500.56,
+      210.44
+     ],
+     "corps_pt": 11.5,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "short training sessions for assistants on March 12 and 13.",
+     "rect": [
+      72.0,
+      211.46,
+      339.12,
+      225.62
+     ],
+     "corps_pt": 11.5,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    }
+   ]
+  }
+ ]
+}

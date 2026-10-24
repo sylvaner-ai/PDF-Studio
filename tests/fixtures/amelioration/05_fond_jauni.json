@@ -1,0 +1,475 @@
+{
+ "fichier": "05_fond_jauni.pdf",
+ "description": "Note de service en français, 200 ppp, papier jauni, ombre de reliure, filets de 0,3 pt et texte en 7 pt.",
+ "langues": [
+  "fr"
+ ],
+ "unites": "rectangles [x0, y0, x1, y1] en points sur la page droite, origine en haut à gauche ; coins_page_px : coins de la page droite (haut gauche, haut droit, bas droit, bas gauche) dans l'image scannée, en pixels ; inclinaison positive quand les lignes descendent vers la droite ; quarts de tour dans le sens horaire",
+ "pages": [
+  {
+   "format_pt": [
+    595.28,
+    841.89
+   ],
+   "page_pdf_pt": [
+    595.44,
+    842.04
+   ],
+   "ppp": 200,
+   "image_px": [
+    1654,
+    2339
+   ],
+   "coins_page_px": [
+    [
+     12.3,
+     -8.6
+    ],
+    [
+     1666.2,
+     8.7
+    ],
+    [
+     1641.7,
+     2347.6
+    ],
+    [
+     -12.2,
+     2330.3
+    ]
+   ],
+   "a_verifier": false,
+   "papier": [
+    240,
+    226,
+    188
+   ],
+   "couvercle": [
+    232,
+    232,
+    230
+   ],
+   "eclairage": "ombre de reliure à gauche (−35 % au bord), léger dégradé vertical",
+   "inclinaison_deg": 0.6,
+   "quart_de_tour": 0,
+   "perspective": false,
+   "courbure_px": 0,
+   "flou_px": 0.8,
+   "bruit": 5,
+   "jpeg": 78,
+   "niveaux_de_gris": false,
+   "transparence_verso": 0.0,
+   "zones_fond": [
+    [
+     304.0,
+     424.0,
+     344.0,
+     464.0
+    ],
+    [
+     24.0,
+     24.0,
+     64.0,
+     64.0
+    ],
+    [
+     24.0,
+     764.0,
+     64.0,
+     804.0
+    ],
+    [
+     524.0,
+     84.0,
+     564.0,
+     124.0
+    ],
+    [
+     524.0,
+     724.0,
+     564.0,
+     764.0
+    ],
+    [
+     24.0,
+     464.0,
+     64.0,
+     504.0
+    ],
+    [
+     184.0,
+     604.0,
+     224.0,
+     644.0
+    ],
+    [
+     304.0,
+     24.0,
+     344.0,
+     64.0
+    ],
+    [
+     524.0,
+     464.0,
+     564.0,
+     504.0
+    ],
+    [
+     284.0,
+     764.0,
+     324.0,
+     804.0
+    ]
+   ],
+   "aplats": [],
+   "photos": [],
+   "degrades": [],
+   "filets": [
+    {
+     "rect": [
+      200.0,
+      280.11,
+      523.28,
+      280.41
+     ],
+     "epaisseur_pt": 0.3,
+     "couleur": [
+      60,
+      60,
+      60
+     ]
+    },
+    {
+     "rect": [
+      200.0,
+      306.11,
+      523.28,
+      306.41
+     ],
+     "epaisseur_pt": 0.3,
+     "couleur": [
+      60,
+      60,
+      60
+     ]
+    },
+    {
+     "rect": [
+      200.0,
+      332.11,
+      523.28,
+      332.41
+     ],
+     "epaisseur_pt": 0.3,
+     "couleur": [
+      60,
+      60,
+      60
+     ]
+    },
+    {
+     "rect": [
+      200.0,
+      358.11,
+      523.28,
+      358.41
+     ],
+     "epaisseur_pt": 0.3,
+     "couleur": [
+      60,
+      60,
+      60
+     ]
+    },
+    {
+     "rect": [
+      72.0,
+      398.01,
+      523.28,
+      398.51
+     ],
+     "epaisseur_pt": 0.5,
+     "couleur": [
+      30,
+      30,
+      30
+     ]
+    }
+   ],
+   "lignes": [
+    {
+     "texte": "Note de service",
+     "rect": [
+      72.0,
+      79.08,
+      199.25,
+      100.68
+     ],
+     "corps_pt": 18.7,
+     "police": "Caladea-Bold",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Afin d'assurer la continuité du service pendant la période estivale, chaque équipe établira son",
+     "rect": [
+      72.0,
+      118.92,
+      494.9,
+      131.88
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "planning de congés avant le 15 mai. Les demandes seront validées par le responsable de service",
+     "rect": [
+      72.0,
+      133.44,
+      499.39,
+      146.4
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "dans un délai de dix jours ouvrés.",
+     "rect": [
+      72.0,
+      147.96,
+      223.19,
+      160.92
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Une permanence minimale de deux personnes est requise du 14 juillet au 25 août. Les",
+     "rect": [
+      72.0,
+      170.18,
+      458.4,
+      183.14
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "collaborateurs qui souhaitent fractionner leurs congés sont invités à le signaler dès que possible,",
+     "rect": [
+      72.0,
+      184.7,
+      508.02,
+      197.66
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "afin de faciliter les arbitrages.",
+     "rect": [
+      72.0,
+      199.22,
+      206.5,
+      212.18
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Les jours de réduction du temps de travail non pris au 31 décembre seront perdus, sauf accord écrit",
+     "rect": [
+      72.0,
+      221.44,
+      518.45,
+      234.4
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "de la direction des ressources humaines.",
+     "rect": [
+      72.0,
+      235.96,
+      254.56,
+      248.92
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Nom et prénom",
+     "rect": [
+      72.0,
+      268.9,
+      136.36,
+      280.78
+     ],
+     "corps_pt": 10,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Service",
+     "rect": [
+      72.0,
+      294.9,
+      101.22,
+      306.78
+     ],
+     "corps_pt": 10,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Dates souhaitées",
+     "rect": [
+      72.0,
+      320.9,
+      140.25,
+      332.78
+     ],
+     "corps_pt": 10,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Visa du responsable",
+     "rect": [
+      72.0,
+      346.9,
+      153.73,
+      358.78
+     ],
+     "corps_pt": 10,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Article 1. Les demandes incomplètes ne seront pas traitées.",
+     "rect": [
+      72.0,
+      407.42,
+      236.56,
+      416.42
+     ],
+     "corps_pt": 7,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Article 2. Toute modification après validation suit la même procédure.",
+     "rect": [
+      72.0,
+      418.66,
+      265.13,
+      427.66
+     ],
+     "corps_pt": 7,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Article 3. Les plannings validés sont affichés dans chaque service.",
+     "rect": [
+      72.0,
+      429.9,
+      251.97,
+      438.9
+     ],
+     "corps_pt": 7,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    }
+   ]
+  }
+ ]
+}

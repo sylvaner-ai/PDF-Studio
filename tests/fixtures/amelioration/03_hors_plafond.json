@@ -1,0 +1,268 @@
+{
+ "fichier": "03_hors_plafond.pdf",
+ "description": "Article en français, 200 ppp, posé de travers (18°, au-delà du plafond de 15°) : la page doit être marquée « à vérifier », sans correction automatique. L'image montre toute la page sur le fond du scanner.",
+ "langues": [
+  "fr"
+ ],
+ "unites": "rectangles [x0, y0, x1, y1] en points sur la page droite, origine en haut à gauche ; coins_page_px : coins de la page droite (haut gauche, haut droit, bas droit, bas gauche) dans l'image scannée, en pixels ; inclinaison positive quand les lignes descendent vers la droite ; quarts de tour dans le sens horaire",
+ "pages": [
+  {
+   "format_pt": [
+    595.28,
+    841.89
+   ],
+   "page_pdf_pt": [
+    826.56,
+    985.32
+   ],
+   "ppp": 200,
+   "image_px": [
+    2296,
+    2737
+   ],
+   "coins_page_px": [
+    [
+     722.9,
+     0.7
+    ],
+    [
+     2295.9,
+     511.8
+    ],
+    [
+     1573.1,
+     2736.3
+    ],
+    [
+     0.1,
+     2225.2
+    ]
+   ],
+   "a_verifier": true,
+   "papier": [
+    246,
+    244,
+    238
+   ],
+   "couvercle": [
+    226,
+    226,
+    224
+   ],
+   "eclairage": "uniforme",
+   "inclinaison_deg": 18.0,
+   "quart_de_tour": 0,
+   "perspective": false,
+   "courbure_px": 0,
+   "flou_px": 0.7,
+   "bruit": 4,
+   "jpeg": 80,
+   "niveaux_de_gris": false,
+   "transparence_verso": 0.0,
+   "zones_fond": [
+    [
+     304.0,
+     424.0,
+     344.0,
+     464.0
+    ],
+    [
+     24.0,
+     24.0,
+     64.0,
+     64.0
+    ],
+    [
+     24.0,
+     764.0,
+     64.0,
+     804.0
+    ],
+    [
+     524.0,
+     84.0,
+     564.0,
+     124.0
+    ],
+    [
+     524.0,
+     724.0,
+     564.0,
+     764.0
+    ],
+    [
+     124.0,
+     264.0,
+     164.0,
+     304.0
+    ],
+    [
+     24.0,
+     464.0,
+     64.0,
+     504.0
+    ],
+    [
+     184.0,
+     604.0,
+     224.0,
+     644.0
+    ],
+    [
+     304.0,
+     24.0,
+     344.0,
+     64.0
+    ],
+    [
+     424.0,
+     264.0,
+     464.0,
+     304.0
+    ]
+   ],
+   "aplats": [],
+   "photos": [],
+   "degrades": [],
+   "filets": [],
+   "lignes": [
+    {
+     "texte": "Archives : du papier au texte",
+     "rect": [
+      72.0,
+      102.36,
+      319.59,
+      125.04
+     ],
+     "corps_pt": 19.55,
+     "police": "Caladea-Bold",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "La numérisation des archives d'une entreprise ne se limite pas à produire des images : encore",
+     "rect": [
+      72.0,
+      144.06,
+      507.4,
+      157.38
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "faut-il pouvoir y retrouver une information. Reconnaître le texte d'une page scannée exige",
+     "rect": [
+      72.0,
+      159.24,
+      491.7,
+      172.56
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "d'abord de la redresser, puis de distinguer le papier de l'encre, enfin de lire chaque ligne. Les",
+     "rect": [
+      72.0,
+      174.42,
+      501.13,
+      187.74
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "caractères accentués, les ligatures et les chiffres mettent les moteurs à l'épreuve ; une virgule",
+     "rect": [
+      72.0,
+      189.6,
+      504.74,
+      202.92
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "mal lue dans un montant suffit à fausser un total. C'est pourquoi chaque mot reçoit une note de",
+     "rect": [
+      72.0,
+      204.78,
+      517.47,
+      218.1
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "confiance, qui signale à l'utilisateur les passages à vérifier. Un œil exercé repère vite ces",
+     "rect": [
+      72.0,
+      219.96,
+      478.57,
+      233.28
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "hésitations : « 1 » pris pour « l », « 0 » pour « O », ou « é » privé de son accent.",
+     "rect": [
+      72.0,
+      235.14,
+      432.47,
+      248.46
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    }
+   ]
+  }
+ ]
+}

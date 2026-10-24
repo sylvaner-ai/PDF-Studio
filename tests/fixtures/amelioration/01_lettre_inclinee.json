@@ -1,0 +1,404 @@
+{
+ "fichier": "01_lettre_inclinee.pdf",
+ "description": "Lettre en français, 300 ppp, inclinée de 2,3°, papier gris clair.",
+ "langues": [
+  "fr"
+ ],
+ "unites": "rectangles [x0, y0, x1, y1] en points sur la page droite, origine en haut à gauche ; coins_page_px : coins de la page droite (haut gauche, haut droit, bas droit, bas gauche) dans l'image scannée, en pixels ; inclinaison positive quand les lignes descendent vers la droite ; quarts de tour dans le sens horaire",
+ "pages": [
+  {
+   "format_pt": [
+    595.28,
+    841.89
+   ],
+   "page_pdf_pt": [
+    595.2,
+    841.92
+   ],
+   "ppp": 300,
+   "image_px": [
+    2480,
+    3508
+   ],
+   "coins_page_px": [
+    [
+     71.4,
+     -48.4
+    ],
+    [
+     2549.4,
+     51.2
+    ],
+    [
+     2408.6,
+     3556.4
+    ],
+    [
+     -69.4,
+     3456.8
+    ]
+   ],
+   "a_verifier": false,
+   "papier": [
+    236,
+    236,
+    232
+   ],
+   "couvercle": [
+    232,
+    232,
+    230
+   ],
+   "eclairage": "léger assombrissement vers la droite (5 %)",
+   "inclinaison_deg": 2.3,
+   "quart_de_tour": 0,
+   "perspective": false,
+   "courbure_px": 0,
+   "flou_px": 0.9,
+   "bruit": 4,
+   "jpeg": 80,
+   "niveaux_de_gris": false,
+   "transparence_verso": 0.0,
+   "zones_fond": [
+    [
+     304.0,
+     444.0,
+     344.0,
+     484.0
+    ],
+    [
+     24.0,
+     24.0,
+     64.0,
+     64.0
+    ],
+    [
+     24.0,
+     764.0,
+     64.0,
+     804.0
+    ],
+    [
+     524.0,
+     84.0,
+     564.0,
+     124.0
+    ],
+    [
+     524.0,
+     744.0,
+     564.0,
+     784.0
+    ],
+    [
+     244.0,
+     144.0,
+     284.0,
+     184.0
+    ],
+    [
+     24.0,
+     464.0,
+     64.0,
+     504.0
+    ],
+    [
+     184.0,
+     624.0,
+     224.0,
+     664.0
+    ],
+    [
+     524.0,
+     344.0,
+     564.0,
+     384.0
+    ],
+    [
+     464.0,
+     544.0,
+     504.0,
+     584.0
+    ]
+   ],
+   "aplats": [],
+   "photos": [],
+   "degrades": [],
+   "filets": [],
+   "lignes": [
+    {
+     "texte": "Société Durand & Fils",
+     "rect": [
+      72.0,
+      81.2,
+      186.62,
+      95.12
+     ],
+     "corps_pt": 12,
+     "police": "Caladea-Bold",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "12, rue des Lilas",
+     "rect": [
+      72.0,
+      97.4,
+      138.71,
+      109.64
+     ],
+     "corps_pt": 10.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "69003 Lyon",
+     "rect": [
+      72.0,
+      112.4,
+      120.84,
+      124.64
+     ],
+     "corps_pt": 10.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Lyon, le 2 avril 2026",
+     "rect": [
+      434.99,
+      185.92,
+      523.28,
+      198.88
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Objet : confirmation de commande n° 2026-0412",
+     "rect": [
+      72.0,
+      229.44,
+      318.15,
+      242.88
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Bold",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Madame, Monsieur,",
+     "rect": [
+      72.0,
+      265.44,
+      165.11,
+      278.88
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Suite à notre entretien du 14 mars dernier, je vous confirme l'accord conclu pour la rénovation",
+     "rect": [
+      72.0,
+      288.62,
+      510.71,
+      302.06
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "des locaux situés au deuxième étage. Les travaux débuteront le lundi 7 avril et s'achèveront au",
+     "rect": [
+      72.0,
+      303.8,
+      510.7,
+      317.24
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "plus tard le 30 mai, sous réserve des délais de livraison des matériaux.",
+     "rect": [
+      72.0,
+      318.98,
+      397.49,
+      332.42
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Le coût total s'élève à 18 450,00 € hors taxes, soit 22 140,00 € TTC. Un acompte de 30 % sera",
+     "rect": [
+      72.0,
+      342.16,
+      498.95,
+      355.6
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "versé à la signature du devis ; le solde sera réglé à la réception des travaux, après la levée",
+     "rect": [
+      72.0,
+      357.34,
+      483.28,
+      370.78
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "d'éventuelles réserves.",
+     "rect": [
+      72.0,
+      372.52,
+      176.66,
+      385.96
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Je reste à votre disposition pour toute précision complémentaire et vous prie d'agréer, Madame,",
+     "rect": [
+      72.0,
+      395.7,
+      516.22,
+      409.14
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Monsieur, l'expression de mes salutations distinguées.",
+     "rect": [
+      72.0,
+      410.88,
+      325.02,
+      424.32
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Claire Martin",
+     "rect": [
+      365.28,
+      464.06,
+      428.56,
+      477.5
+     ],
+     "corps_pt": 11.5,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Directrice administrative",
+     "rect": [
+      365.28,
+      481.02,
+      471.75,
+      493.26
+     ],
+     "corps_pt": 10.5,
+     "police": "Caladea-Italic",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    }
+   ]
+  }
+ ]
+}

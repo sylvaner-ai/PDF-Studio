@@ -1,0 +1,368 @@
+{
+ "fichier": "09_photo_et_degrade.pdf",
+ "description": "Dépliant en français, 200 ppp : photographie et dégradé volontaire (à ne pas aplatir), encadré vert uni (à aplatir).",
+ "langues": [
+  "fr"
+ ],
+ "unites": "rectangles [x0, y0, x1, y1] en points sur la page droite, origine en haut à gauche ; coins_page_px : coins de la page droite (haut gauche, haut droit, bas droit, bas gauche) dans l'image scannée, en pixels ; inclinaison positive quand les lignes descendent vers la droite ; quarts de tour dans le sens horaire",
+ "pages": [
+  {
+   "format_pt": [
+    595.28,
+    841.89
+   ],
+   "page_pdf_pt": [
+    595.44,
+    842.04
+   ],
+   "ppp": 200,
+   "image_px": [
+    1654,
+    2339
+   ],
+   "coins_page_px": [
+    [
+     18.5,
+     -12.8
+    ],
+    [
+     1672.3,
+     13.1
+    ],
+    [
+     1635.5,
+     2351.8
+    ],
+    [
+     -18.3,
+     2325.9
+    ]
+   ],
+   "a_verifier": false,
+   "papier": [
+    248,
+    246,
+    240
+   ],
+   "couvercle": [
+    232,
+    232,
+    230
+   ],
+   "eclairage": "uniforme",
+   "inclinaison_deg": 0.9,
+   "quart_de_tour": 0,
+   "perspective": false,
+   "courbure_px": 0,
+   "flou_px": 0.7,
+   "bruit": 4,
+   "jpeg": 82,
+   "niveaux_de_gris": false,
+   "transparence_verso": 0.0,
+   "zones_fond": [
+    [
+     524.0,
+     444.0,
+     564.0,
+     484.0
+    ],
+    [
+     24.0,
+     764.0,
+     64.0,
+     804.0
+    ],
+    [
+     344.0,
+     684.0,
+     384.0,
+     724.0
+    ],
+    [
+     524.0,
+     764.0,
+     564.0,
+     804.0
+    ],
+    [
+     144.0,
+     684.0,
+     184.0,
+     724.0
+    ],
+    [
+     244.0,
+     764.0,
+     284.0,
+     804.0
+    ],
+    [
+     464.0,
+     684.0,
+     504.0,
+     724.0
+    ],
+    [
+     404.0,
+     744.0,
+     444.0,
+     784.0
+    ],
+    [
+     44.0,
+     684.0,
+     84.0,
+     724.0
+    ],
+    [
+     104.0,
+     744.0,
+     144.0,
+     784.0
+    ]
+   ],
+   "aplats": [
+    {
+     "id": "encadre_vert",
+     "rect": [
+      72.0,
+      595.12,
+      523.28,
+      675.12
+     ],
+     "couleur": [
+      212,
+      238,
+      218
+     ],
+     "nuances": 20,
+     "dominante_scan": [
+      206,
+      230,
+      206
+     ]
+    }
+   ],
+   "photos": [
+    {
+     "rect": [
+      72.0,
+      140.0,
+      523.28,
+      430.0
+     ]
+    }
+   ],
+   "degrades": [
+    {
+     "rect": [
+      0.0,
+      40.0,
+      595.28,
+      118.0
+     ],
+     "de": [
+      24,
+      128,
+      140
+     ],
+     "a": [
+      118,
+      64,
+      150
+     ]
+    }
+   ],
+   "filets": [],
+   "lignes": [
+    {
+     "texte": "Parc naturel régional",
+     "rect": [
+      72.0,
+      67.16,
+      294.85,
+      99.2
+     ],
+     "corps_pt": 26,
+     "police": "Carlito-Bold",
+     "couleur": [
+      255,
+      255,
+      255
+     ],
+     "fond": "degrade"
+    },
+    {
+     "texte": "Le lac et la chaîne des crêtes au lever du jour.",
+     "rect": [
+      72.0,
+      437.36,
+      240.55,
+      448.52
+     ],
+     "corps_pt": 9.5,
+     "police": "Caladea-Italic",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Au cœur du massif, le sentier des crêtes offre une boucle de 14 km accessible d'avril à novembre.",
+     "rect": [
+      72.0,
+      469.92,
+      506.09,
+      482.88
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Comptez cinq heures de marche et 620 m de dénivelé.",
+     "rect": [
+      72.0,
+      484.44,
+      313.41,
+      497.4
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Les gardes du parc proposent chaque samedi une sortie commentée sur la faune d'altitude :",
+     "rect": [
+      72.0,
+      506.96,
+      485.3,
+      519.92
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "chamois, marmottes et gypaètes barbus y sont régulièrement observés.",
+     "rect": [
+      72.0,
+      521.48,
+      391.66,
+      534.44
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Le refuge de la Combe accueille les randonneurs de juin à septembre ; la réservation est obligatoire",
+     "rect": [
+      72.0,
+      544.0,
+      517.56,
+      556.96
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "pour la nuitée et le repas du soir.",
+     "rect": [
+      72.0,
+      558.52,
+      219.34,
+      571.48
+     ],
+     "corps_pt": 11,
+     "police": "Caladea-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Informations pratiques",
+     "rect": [
+      88.0,
+      607.96,
+      197.33,
+      622.36
+     ],
+     "corps_pt": 11.5,
+     "police": "Carlito-Bold",
+     "couleur": [
+      24,
+      90,
+      50
+     ],
+     "fond": "encadre_vert"
+    },
+    {
+     "texte": "Accueil du parc : 04 76 00 12 34, tous les jours de 9 h à 18 h.",
+     "rect": [
+      88.0,
+      627.04,
+      342.53,
+      640.0
+     ],
+     "corps_pt": 10.5,
+     "police": "Carlito-Regular",
+     "couleur": [
+      30,
+      50,
+      36
+     ],
+     "fond": "encadre_vert"
+    },
+    {
+     "texte": "Parkings gratuits au départ des sentiers balisés.",
+     "rect": [
+      88.0,
+      644.04,
+      287.86,
+      657.0
+     ],
+     "corps_pt": 10.5,
+     "police": "Carlito-Regular",
+     "couleur": [
+      30,
+      50,
+      36
+     ],
+     "fond": "encadre_vert"
+    }
+   ]
+  }
+ ]
+}

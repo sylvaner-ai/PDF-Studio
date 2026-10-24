@@ -1029,6 +1029,7 @@ dependencies = [
  "ocr",
  "pdf_core",
  "render",
+ "serde_json",
  "thiserror",
  "uniffi",
 ]

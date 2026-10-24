@@ -1,0 +1,1127 @@
+{
+ "fichier": "08_tableau_cellules.pdf",
+ "description": "Facture en anglais, 200 ppp : en-tête bleu foncé sous du texte blanc, lignes alternées bleu clair, cellule surlignée en jaune, ligne de total grise, quadrillage de 0,5 pt.",
+ "langues": [
+  "en"
+ ],
+ "unites": "rectangles [x0, y0, x1, y1] en points sur la page droite, origine en haut à gauche ; coins_page_px : coins de la page droite (haut gauche, haut droit, bas droit, bas gauche) dans l'image scannée, en pixels ; inclinaison positive quand les lignes descendent vers la droite ; quarts de tour dans le sens horaire",
+ "pages": [
+  {
+   "format_pt": [
+    595.28,
+    841.89
+   ],
+   "page_pdf_pt": [
+    595.44,
+    842.04
+   ],
+   "ppp": 200,
+   "image_px": [
+    1654,
+    2339
+   ],
+   "coins_page_px": [
+    [
+     -32.3,
+     23.5
+    ],
+    [
+     1621.0,
+     -22.6
+    ],
+    [
+     1686.3,
+     2315.5
+    ],
+    [
+     33.0,
+     2361.6
+    ]
+   ],
+   "a_verifier": false,
+   "papier": [
+    245,
+    244,
+    240
+   ],
+   "couvercle": [
+    232,
+    232,
+    230
+   ],
+   "eclairage": "uniforme",
+   "inclinaison_deg": -1.6,
+   "quart_de_tour": 0,
+   "perspective": false,
+   "courbure_px": 0,
+   "flou_px": 0.8,
+   "bruit": 5,
+   "jpeg": 80,
+   "niveaux_de_gris": false,
+   "transparence_verso": 0.0,
+   "zones_fond": [
+    [
+     304.0,
+     424.0,
+     344.0,
+     464.0
+    ],
+    [
+     24.0,
+     24.0,
+     64.0,
+     64.0
+    ],
+    [
+     24.0,
+     764.0,
+     64.0,
+     804.0
+    ],
+    [
+     524.0,
+     84.0,
+     564.0,
+     124.0
+    ],
+    [
+     524.0,
+     724.0,
+     564.0,
+     764.0
+    ],
+    [
+     264.0,
+     144.0,
+     304.0,
+     184.0
+    ],
+    [
+     24.0,
+     444.0,
+     64.0,
+     484.0
+    ],
+    [
+     164.0,
+     604.0,
+     204.0,
+     644.0
+    ],
+    [
+     524.0,
+     384.0,
+     564.0,
+     424.0
+    ],
+    [
+     424.0,
+     564.0,
+     464.0,
+     604.0
+    ]
+   ],
+   "aplats": [
+    {
+     "id": "entete",
+     "rect": [
+      72.0,
+      200.0,
+      523.28,
+      224.0
+     ],
+     "couleur": [
+      30,
+      60,
+      120
+     ],
+     "nuances": 30,
+     "dominante_scan": [
+      28,
+      57,
+      111
+     ]
+    },
+    {
+     "id": "ligne_2",
+     "rect": [
+      72.0,
+      248.0,
+      523.28,
+      272.0
+     ],
+     "couleur": [
+      222,
+      233,
+      247
+     ],
+     "nuances": 14,
+     "dominante_scan": [
+      213,
+      222,
+      232
+     ]
+    },
+    {
+     "id": "cellule_surlignee",
+     "rect": [
+      450.0,
+      272.0,
+      523.28,
+      296.0
+     ],
+     "couleur": [
+      255,
+      234,
+      128
+     ],
+     "nuances": 20,
+     "dominante_scan": [
+      243,
+      221,
+      118
+     ]
+    },
+    {
+     "id": "ligne_4",
+     "rect": [
+      72.0,
+      296.0,
+      523.28,
+      320.0
+     ],
+     "couleur": [
+      222,
+      233,
+      247
+     ],
+     "nuances": 14,
+     "dominante_scan": [
+      214,
+      223,
+      233
+     ]
+    },
+    {
+     "id": "total",
+     "rect": [
+      72.0,
+      344.0,
+      523.28,
+      368.0
+     ],
+     "couleur": [
+      232,
+      232,
+      232
+     ],
+     "nuances": 12,
+     "dominante_scan": [
+      220,
+      219,
+      214
+     ]
+    }
+   ],
+   "photos": [],
+   "degrades": [],
+   "filets": [
+    {
+     "rect": [
+      72.0,
+      199.75,
+      523.28,
+      200.25
+     ],
+     "epaisseur_pt": 0.5,
+     "couleur": [
+      70,
+      70,
+      70
+     ]
+    },
+    {
+     "rect": [
+      72.0,
+      223.75,
+      523.28,
+      224.25
+     ],
+     "epaisseur_pt": 0.5,
+     "couleur": [
+      70,
+      70,
+      70
+     ]
+    },
+    {
+     "rect": [
+      72.0,
+      247.75,
+      523.28,
+      248.25
+     ],
+     "epaisseur_pt": 0.5,
+     "couleur": [
+      70,
+      70,
+      70
+     ]
+    },
+    {
+     "rect": [
+      72.0,
+      271.75,
+      523.28,
+      272.25
+     ],
+     "epaisseur_pt": 0.5,
+     "couleur": [
+      70,
+      70,
+      70
+     ]
+    },
+    {
+     "rect": [
+      72.0,
+      295.75,
+      523.28,
+      296.25
+     ],
+     "epaisseur_pt": 0.5,
+     "couleur": [
+      70,
+      70,
+      70
+     ]
+    },
+    {
+     "rect": [
+      72.0,
+      319.75,
+      523.28,
+      320.25
+     ],
+     "epaisseur_pt": 0.5,
+     "couleur": [
+      70,
+      70,
+      70
+     ]
+    },
+    {
+     "rect": [
+      72.0,
+      343.75,
+      523.28,
+      344.25
+     ],
+     "epaisseur_pt": 0.5,
+     "couleur": [
+      70,
+      70,
+      70
+     ]
+    },
+    {
+     "rect": [
+      72.0,
+      367.75,
+      523.28,
+      368.25
+     ],
+     "epaisseur_pt": 0.5,
+     "couleur": [
+      70,
+      70,
+      70
+     ]
+    },
+    {
+     "rect": [
+      71.75,
+      200.0,
+      72.25,
+      368.0
+     ],
+     "epaisseur_pt": 0.5,
+     "couleur": [
+      70,
+      70,
+      70
+     ]
+    },
+    {
+     "rect": [
+      131.75,
+      200.0,
+      132.25,
+      368.0
+     ],
+     "epaisseur_pt": 0.5,
+     "couleur": [
+      70,
+      70,
+      70
+     ]
+    },
+    {
+     "rect": [
+      329.75,
+      200.0,
+      330.25,
+      368.0
+     ],
+     "epaisseur_pt": 0.5,
+     "couleur": [
+      70,
+      70,
+      70
+     ]
+    },
+    {
+     "rect": [
+      379.75,
+      200.0,
+      380.25,
+      368.0
+     ],
+     "epaisseur_pt": 0.5,
+     "couleur": [
+      70,
+      70,
+      70
+     ]
+    },
+    {
+     "rect": [
+      449.75,
+      200.0,
+      450.25,
+      368.0
+     ],
+     "epaisseur_pt": 0.5,
+     "couleur": [
+      70,
+      70,
+      70
+     ]
+    },
+    {
+     "rect": [
+      523.03,
+      200.0,
+      523.53,
+      368.0
+     ],
+     "epaisseur_pt": 0.5,
+     "couleur": [
+      70,
+      70,
+      70
+     ]
+    }
+   ],
+   "lignes": [
+    {
+     "texte": "INVOICE",
+     "rect": [
+      72.0,
+      72.96,
+      155.38,
+      102.48
+     ],
+     "corps_pt": 24,
+     "police": "Carlito-Bold",
+     "couleur": [
+      30,
+      60,
+      120
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Invoice no.",
+     "rect": [
+      72.0,
+      117.92,
+      119.26,
+      130.88
+     ],
+     "corps_pt": 10.5,
+     "police": "Carlito-Bold",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "INV-2026-0193",
+     "rect": [
+      160.0,
+      117.92,
+      223.51,
+      130.88
+     ],
+     "corps_pt": 10.5,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Date",
+     "rect": [
+      72.0,
+      133.92,
+      92.38,
+      146.88
+     ],
+     "corps_pt": 10.5,
+     "police": "Carlito-Bold",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "March 3, 2026",
+     "rect": [
+      160.0,
+      133.92,
+      221.11,
+      146.88
+     ],
+     "corps_pt": 10.5,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Customer",
+     "rect": [
+      72.0,
+      149.92,
+      113.76,
+      162.88
+     ],
+     "corps_pt": 10.5,
+     "police": "Carlito-Bold",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Harbour Logistics Ltd",
+     "rect": [
+      160.0,
+      149.92,
+      248.53,
+      162.88
+     ],
+     "corps_pt": 10.5,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Ref.",
+     "rect": [
+      78.0,
+      206.28,
+      93.87,
+      218.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Bold",
+     "couleur": [
+      255,
+      255,
+      255
+     ],
+     "fond": "entete"
+    },
+    {
+     "texte": "Description",
+     "rect": [
+      138.0,
+      206.28,
+      185.83,
+      218.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Bold",
+     "couleur": [
+      255,
+      255,
+      255
+     ],
+     "fond": "entete"
+    },
+    {
+     "texte": "Qty",
+     "rect": [
+      358.82,
+      206.28,
+      374.0,
+      218.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Bold",
+     "couleur": [
+      255,
+      255,
+      255
+     ],
+     "fond": "entete"
+    },
+    {
+     "texte": "Unit price",
+     "rect": [
+      403.0,
+      206.28,
+      444.0,
+      218.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Bold",
+     "couleur": [
+      255,
+      255,
+      255
+     ],
+     "fond": "entete"
+    },
+    {
+     "texte": "Amount",
+     "rect": [
+      483.33,
+      206.28,
+      517.28,
+      218.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Bold",
+     "couleur": [
+      255,
+      255,
+      255
+     ],
+     "fond": "entete"
+    },
+    {
+     "texte": "N-101",
+     "rect": [
+      78.0,
+      230.28,
+      102.92,
+      242.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Managed switch, 48 ports",
+     "rect": [
+      138.0,
+      230.28,
+      243.78,
+      242.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "2",
+     "rect": [
+      368.89,
+      230.28,
+      374.0,
+      242.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "$1,240.00",
+     "rect": [
+      403.19,
+      230.28,
+      444.0,
+      242.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "$2,480.00",
+     "rect": [
+      476.47,
+      230.28,
+      517.28,
+      242.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "N-207",
+     "rect": [
+      78.0,
+      254.28,
+      102.92,
+      266.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "ligne_2"
+    },
+    {
+     "texte": "Wireless access point",
+     "rect": [
+      138.0,
+      254.28,
+      225.21,
+      266.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "ligne_2"
+    },
+    {
+     "texte": "6",
+     "rect": [
+      368.89,
+      254.28,
+      374.0,
+      266.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "ligne_2"
+    },
+    {
+     "texte": "$315.00",
+     "rect": [
+      410.81,
+      254.28,
+      444.0,
+      266.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "ligne_2"
+    },
+    {
+     "texte": "$1,890.00",
+     "rect": [
+      476.47,
+      254.28,
+      517.28,
+      266.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "ligne_2"
+    },
+    {
+     "texte": "S-330",
+     "rect": [
+      78.0,
+      278.28,
+      100.99,
+      290.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Rack-mounted UPS, 3 kVA",
+     "rect": [
+      138.0,
+      278.28,
+      243.74,
+      290.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "1",
+     "rect": [
+      368.89,
+      278.28,
+      374.0,
+      290.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "$2,150.00",
+     "rect": [
+      403.19,
+      278.28,
+      444.0,
+      290.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "$2,150.00",
+     "rect": [
+      476.47,
+      278.28,
+      517.28,
+      290.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "cellule_surlignee"
+    },
+    {
+     "texte": "C-012",
+     "rect": [
+      78.0,
+      302.28,
+      101.79,
+      314.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "ligne_4"
+    },
+    {
+     "texte": "Patch cables, pack of 24",
+     "rect": [
+      138.0,
+      302.28,
+      235.32,
+      314.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "ligne_4"
+    },
+    {
+     "texte": "4",
+     "rect": [
+      368.89,
+      302.28,
+      374.0,
+      314.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "ligne_4"
+    },
+    {
+     "texte": "$58.00",
+     "rect": [
+      415.92,
+      302.28,
+      444.0,
+      314.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "ligne_4"
+    },
+    {
+     "texte": "$232.00",
+     "rect": [
+      484.09,
+      302.28,
+      517.28,
+      314.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "ligne_4"
+    },
+    {
+     "texte": "L-900",
+     "rect": [
+      78.0,
+      326.28,
+      100.65,
+      338.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Installation (hours)",
+     "rect": [
+      138.0,
+      326.28,
+      214.92,
+      338.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "12",
+     "rect": [
+      363.79,
+      326.28,
+      374.0,
+      338.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "$95.00",
+     "rect": [
+      415.92,
+      326.28,
+      444.0,
+      338.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "$1,140.00",
+     "rect": [
+      476.47,
+      326.28,
+      517.28,
+      338.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "Total",
+     "rect": [
+      423.62,
+      350.28,
+      444.0,
+      362.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Bold",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "total"
+    },
+    {
+     "texte": "$7,892.00",
+     "rect": [
+      476.23,
+      350.28,
+      517.28,
+      362.88
+     ],
+     "corps_pt": 10,
+     "police": "Carlito-Bold",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "total"
+    },
+    {
+     "texte": "Payment due within 30 days. Please quote the invoice number with your payment. Late payments incur interest at",
+     "rect": [
+      72.0,
+      399.0,
+      504.28,
+      410.52
+     ],
+     "corps_pt": 9.5,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    },
+    {
+     "texte": "1.5% per month.",
+     "rect": [
+      72.0,
+      411.54,
+      135.26,
+      423.06
+     ],
+     "corps_pt": 9.5,
+     "police": "Carlito-Regular",
+     "couleur": [
+      28,
+      28,
+      34
+     ],
+     "fond": "papier"
+    }
+   ]
+  }
+ ]
+}

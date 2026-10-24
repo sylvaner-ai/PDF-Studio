@@ -373,7 +373,10 @@ lancé depuis Xcode reste donc à jour.
   Helvetica, image, tracés, page tournée) pour le jalon 4, `ocr/` (lettre,
   facture, colonnes, tableau dense, petits caractères, texte anglais) pour le
   jalon 5, `tableaux.pdf` (cellules fusionnées, cellules vides, fonds de
-  cellule, tableau à filets horizontaux) pour le jalon 6 ;
+  cellule, tableau à filets horizontaux) pour le jalon 6, `amelioration/`
+  (douze scans dégradés et leur vérité terrain en `.json`, lot de 50 pages) pour
+  le mode Amélioration (D60, `docs/AMELIORATION.md`), vérifié par
+  `engine/ffi/tests/amelioration_jeu.rs` ;
   `tests/fixtures/private/` reçoit les documents personnels, jamais versionnés.
 - `make snapshots` : captures d'écran de l'interface en mode clair et sombre
   (`DesignSnapshotTests`, ignoré par `make test-app`), copiées dans
