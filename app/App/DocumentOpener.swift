@@ -218,26 +218,6 @@ final class DocumentOpener {
         }
     }
 
-    nonisolated static func isPDF(_ url: URL) -> Bool {
-        UTType(filenameExtension: url.pathExtension)?.conforms(to: .pdf) ?? false
-    }
-
-    /// Fichiers PDF d'un glisser-déposer.
-    static func pdfs(on pasteboard: NSPasteboard) -> [URL] {
-        let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
-        return (objects as? [URL] ?? []).filter(isPDF)
-    }
-
-    /// Ouvre en onglets les PDF déposés sur une vue SwiftUI (liste des vignettes).
-    func open(_ providers: [NSItemProvider]) {
-        for provider in providers where provider.canLoadObject(ofClass: URL.self) {
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                guard let url, Self.isPDF(url) else { return }
-                Task { @MainActor in DocumentOpener.shared.open([url]) }
-            }
-        }
-    }
-
     /// Fenêtre de document au premier plan : la fenêtre active (ou celle d'une
     /// alerte affichée en feuille), sinon la plus haute à l'écran.
     private var frontWindow: NSWindow? {
@@ -313,10 +293,37 @@ final class DocumentOpener {
         let surplus = windows.filter { id, entry in
             entry.reference == nil && settled.contains(id) && !keptWelcomes.contains(id)
         }
-        for (id, window) in surplus {
-            logger.notice("Écran d'accueil vide fermé : un document est affiché.")
+        for (id, entry) in surplus {
+            let window = appKitWindows[id]?.window
             unregisterWindow(id: id)
-            window.close()
+            if let window {
+                closeWhenShown(window)
+            } else {
+                entry.close()
+            }
+        }
+    }
+
+    /// Ferme une fenêtre que SwiftUI est peut-être encore en train de montrer :
+    /// fermée pendant sa déclaration, elle serait remise à l'écran juste après,
+    /// vide et inconnue. La fermeture attend donc la fin de l'affichage, et elle
+    /// est refaite tant que la fenêtre reste ouverte.
+    private func closeWhenShown(_ window: NSWindow) {
+        let logger = logger
+        Task { @MainActor in
+            for delay in [50, 250, 1000] {
+                try? await Task.sleep(for: .milliseconds(delay))
+                guard window.isVisible || window.tabbedWindows != nil else {
+                    logger.notice("Écran d'accueil vide fermé : un document est affiché.")
+                    return
+                }
+                window.close()
+            }
+            if window.isVisible || window.tabbedWindows != nil {
+                logger.error("Un écran d'accueil vide est resté ouvert.")
+            } else {
+                logger.notice("Écran d'accueil vide fermé : un document est affiché.")
+            }
         }
     }
 
@@ -325,5 +332,28 @@ final class DocumentOpener {
         alert.messageText = String(localized: "Impossible d'ouvrir « \(url.lastPathComponent) ».")
         alert.informativeText = String(localized: "PDF Studio n'a pas obtenu l'accès à ce fichier.")
         alert.runModal()
+    }
+}
+
+/// Reconnaissance des PDF, et fichiers reçus par glisser-déposer.
+extension DocumentOpener {
+    nonisolated static func isPDF(_ url: URL) -> Bool {
+        UTType(filenameExtension: url.pathExtension)?.conforms(to: .pdf) ?? false
+    }
+
+    /// Fichiers PDF d'un glisser-déposer.
+    static func pdfs(on pasteboard: NSPasteboard) -> [URL] {
+        let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
+        return (objects as? [URL] ?? []).filter(isPDF)
+    }
+
+    /// Ouvre en onglets les PDF déposés sur une vue SwiftUI (liste des vignettes).
+    func open(_ providers: [NSItemProvider]) {
+        for provider in providers where provider.canLoadObject(ofClass: URL.self) {
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                guard let url, Self.isPDF(url) else { return }
+                Task { @MainActor in DocumentOpener.shared.open([url]) }
+            }
+        }
     }
 }

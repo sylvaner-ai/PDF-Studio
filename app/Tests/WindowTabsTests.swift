@@ -58,6 +58,22 @@ final class WindowTabsTests: XCTestCase {
         XCTAssertEqual(front.tabbedWindows?.count, 3)
         XCTAssertEqual(documentWindows().count, 3, "fenêtre ou onglet en trop")
 
+        // Fichier confié par le Finder, comme à un double-clic : SwiftUI ouvre de
+        // lui-même une fenêtre vide, qui doit être refermée. (Un fichier texte, que
+        // PDF Studio ignore : un PDF hors du bac à sable demanderait un signet.)
+        let text = try XCTUnwrap(directory).appendingPathComponent("note.txt")
+        try Data("PDF Studio".utf8).write(to: text)
+        NSApp.delegate?.application?(NSApp, open: [text])
+        var most = documentWindows().count
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            most = max(most, documentWindows().count)
+            await pause(seconds: 0.05)
+        }
+        print("Fenêtres pendant l'ouverture depuis le Finder : \(most) au plus, \(documentWindows().count) ensuite.")
+        XCTAssertEqual(documentWindows().count, 3, "écran d'accueil vide resté ouvert")
+        XCTAssertEqual(front.tabbedWindows?.count, 3)
+
         // Nouvel onglet (⌘T) : un écran d'accueil, qui n'est pas refermé.
         DocumentOpener.shared.openNewTab(besides: secondWindow)
         await wait { front.tabbedWindows?.count == 4 }
