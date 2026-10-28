@@ -38,8 +38,9 @@ struct DocumentWindowBridge: NSViewRepresentable {
 }
 
 /// Délégué placé devant celui de SwiftUI, auquel il transmet tout le reste : il
-/// demande s'il faut enregistrer avant de fermer un document modifié. Il vit
-/// aussi longtemps que sa fenêtre.
+/// demande s'il faut enregistrer avant de fermer un document modifié (fenêtre ou
+/// onglet), et ouvre un nouvel onglet depuis le bouton + de la barre d'onglets.
+/// Il vit aussi longtemps que sa fenêtre.
 @MainActor
 final class WindowCloseGuard: NSObject, NSWindowDelegate {
     private static var guards: [ObjectIdentifier: WindowCloseGuard] = [:]
@@ -47,10 +48,16 @@ final class WindowCloseGuard: NSObject, NSWindowDelegate {
     private weak var model: DocumentViewModel?
     nonisolated(unsafe) private weak var swiftUIDelegate: NSWindowDelegate?
 
-    static func install(on window: NSWindow, model: DocumentViewModel) {
+    /// Sans modèle (écran d'accueil), le délégué déjà installé garde le sien ; il
+    /// se replace devant un délégué que SwiftUI aurait installé depuis.
+    static func install(on window: NSWindow, model: DocumentViewModel?) {
         let key = ObjectIdentifier(window)
         if let existing = guards[key] {
-            existing.model = model
+            if let model { existing.model = model }
+            if window.delegate !== existing {
+                existing.swiftUIDelegate = window.delegate
+                window.delegate = existing
+            }
             return
         }
         let closeGuard = WindowCloseGuard()
@@ -73,6 +80,11 @@ final class WindowCloseGuard: NSObject, NSWindowDelegate {
         guard let window = notification.object as? NSWindow else { return }
         window.delegate = swiftUIDelegate
         Self.guards[ObjectIdentifier(window)] = nil
+    }
+
+    /// Bouton + de la barre d'onglets ; sa présence suffit à l'afficher.
+    @objc func newWindowForTab(_ sender: Any?) {
+        DocumentOpener.shared.openNewTab()
     }
 
     private func askToSave(_ model: DocumentViewModel, before window: NSWindow) {

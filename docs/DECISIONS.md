@@ -1146,3 +1146,32 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
 - **Raisons :** reprise des usages des modes Édition et OCR (D58) ; le lot
   parallèle et l'enregistrement dans un nouveau fichier viennent aux jalons
   4 et 6, comme prévu au plan.
+
+## D66 — Onglets : les onglets de fenêtre de macOS, un document par fenêtre
+
+- **Retenu :** chaque document garde sa fenêtre SwiftUI (`WindowGroup`), avec
+  son `DocumentViewModel`, son gestionnaire d'annulation et son délégué de
+  fermeture ; ces fenêtres sont réunies en onglets par AppKit
+  (`tabbingMode = .preferred`, identifiant d'onglets commun). `DocumentOpener`
+  place chaque fenêtre qu'il ouvre en dernier onglet de la fenêtre d'où vient
+  la demande : celle qui a reçu le dépôt, sinon la fenêtre au premier plan.
+  ⌘T (Fichier > Nouvel onglet, ou le bouton + de la barre d'onglets) ouvre un
+  écran d'accueil en onglet ; un écran d'accueil vide de la fenêtre accueille
+  le prochain document. ⌘W ferme l'onglet, après la demande d'enregistrement
+  existante. Un écran d'accueil que personne n'a demandé est fermé dès qu'un
+  document est affiché : la fenêtre que SwiftUI crée au lancement en plus des
+  fenêtres restaurées, ou celle qu'il ouvre de lui-même quand le Finder lui
+  confie un fichier. Les PDF déposés sur les pages (canevas AppKit) ou sur les
+  vignettes s'ouvrent en onglets, comme sur l'écran d'accueil ; la grille
+  d'organisation garde l'insertion des pages déposées (jalon 3).
+- **Alternatives :** une seule fenêtre SwiftUI avec sa propre barre d'onglets
+  et plusieurs documents (il aurait fallu refaire les commandes de menu, qui
+  visent le document de la fenêtre active, l'annulation, la fermeture, la
+  restauration et le glisser-déposer entre fenêtres, sans gagner ce que macOS
+  donne aux onglets : réordonner, détacher, fusionner, ⌃Tab, « Afficher tous
+  les onglets ») ; imposer les onglets par la préférence `AppleWindowTabbingMode`
+  de l'application (elle s'appliquerait aussi aux fenêtres des tests).
+- **Raisons :** l'état propre à chaque document (mode, page, modifications)
+  existait déjà par fenêtre ; les onglets du système sont ceux d'Aperçu et du
+  Finder, attendus sur macOS (§5).
+

@@ -24,6 +24,23 @@ locale, hors ligne, sans compte ni télémétrie.
 **Mode Amélioration** (redresser, nettoyer et reconnaître les scans) : en cours,
 jalon 2 sur 6 (redressement des pages, ⌘4) ; voir [docs/AMELIORATION.md](docs/AMELIORATION.md).
 
+## Onglets
+
+- Chaque document s'ouvre dans un **onglet** de la fenêtre au premier plan, avec
+  son propre état : mode, page lue, sélection, modifications et annulations.
+- **Nouvel onglet** (⌘T, ou le bouton + de la barre d'onglets) affiche l'écran
+  d'accueil ; **Ouvrir…** (⌘O) y place le document, ou l'ajoute en nouvel onglet.
+  Les PDF déposés depuis le Finder sur une fenêtre s'y ouvrent en onglets
+  (plusieurs à la fois), qu'un document y soit affiché ou non ; seule la grille
+  du mode Pages garde son usage : les pages déposées y sont insérées. Un document
+  déjà ouvert est ramené au premier plan.
+- **Fermer l'onglet** (⌘W, ou la croix de l'onglet) demande d'abord s'il faut
+  enregistrer un document modifié.
+- Le reste est celui de macOS : ⌃Tab et ⌃⇧Tab passent d'un onglet à l'autre ;
+  un onglet se déplace à la souris, ou se détache dans sa propre fenêtre
+  (menu Fenêtre, « Placer l'onglet dans une nouvelle fenêtre ») ; « Fusionner
+  toutes les fenêtres » réunit les fenêtres en onglets.
+
 ## Lire et copier le texte
 
 - **Sélection à la souris :** en mode Lecture, le texte des pages se sélectionne

@@ -101,6 +101,11 @@ l'interprétation du flux de contenu et sur MuPDF.
    (l'application est dans le bac à sable de macOS). Elle sert d'identité à la
    fenêtre : un même fichier n'ouvre jamais deux fenêtres, et les fenêtres sont
    restaurées au relancement.
+   Chaque fenêtre (une par document, avec son `DocumentViewModel`) est un onglet
+   AppKit (D66) : `WindowTabbing` repère la fenêtre AppKit et `DocumentOpener`
+   l'ajoute en dernier onglet de la fenêtre d'où vient la demande (dépôt, ⌘O,
+   ⌘T, Finder) ; un écran d'accueil vide de cette fenêtre accueille le premier
+   document.
 3. Le moteur lit le fichier **une seule fois** en mémoire puis ne le touche plus :
    toute la suite travaille sur cette copie. Le fichier original ne peut donc pas
    être altéré par la lecture.
