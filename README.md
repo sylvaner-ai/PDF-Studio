@@ -31,7 +31,9 @@ jalon 2 sur 6 (redressement des pages, ⌘4) ; voir [docs/AMELIORATION.md](docs/
 - **Nouvel onglet** (⌘T, ou le bouton + de la barre d'onglets) affiche l'écran
   d'accueil ; **Ouvrir…** (⌘O) y place le document, ou l'ajoute en nouvel onglet.
   Les PDF déposés depuis le Finder sur une fenêtre s'y ouvrent en onglets
-  (plusieurs à la fois) ; un document déjà ouvert est ramené au premier plan.
+  (plusieurs à la fois), qu'un document y soit affiché ou non ; seule la grille
+  du mode Pages garde son usage : les pages déposées y sont insérées. Un document
+  déjà ouvert est ramené au premier plan.
 - **Fermer l'onglet** (⌘W, ou la croix de l'onglet) demande d'abord s'il faut
   enregistrer un document modifié.
 - Le reste est celui de macOS : ⌃Tab et ⌃⇧Tab passent d'un onglet à l'autre ;

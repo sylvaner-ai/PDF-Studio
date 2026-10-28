@@ -11,8 +11,8 @@ import os
 /// (celle qui a reçu le dépôt, sinon la fenêtre au premier plan). Un écran
 /// d'accueil encore vide de cette fenêtre accueille le premier document ouvert.
 /// Un même fichier n'est jamais ouvert deux fois : son onglet est ramené au
-/// premier plan. Un écran d'accueil seul dans sa fenêtre ne reste ouvert que si
-/// aucun document n'est affiché ; un onglet d'accueil demandé (⌘T) reste ouvert.
+/// premier plan. Un écran d'accueil ne reste ouvert à côté de documents que
+/// s'il a été demandé (⌘T).
 @MainActor
 final class DocumentOpener {
     static let shared = DocumentOpener()
@@ -29,12 +29,21 @@ final class DocumentOpener {
     private var isFlushing = false
     /// Fenêtres AppKit des fenêtres connues, repérées par ``WindowTabbing``.
     private var appKitWindows: [UUID: WeakWindow] = [:]
-    /// Fenêtres ouvertes à la demande (⌘T, document) : vides, elles restent ouvertes.
+    /// Écrans d'accueil demandés (⌘T) ou déjà présents à cette demande : ils
+    /// restent ouverts même si des documents sont affichés.
     private var keptWelcomes: Set<UUID> = []
-    /// Fenêtre dont la barre d'onglets accueille les prochaines fenêtres ouvertes,
-    /// et nombre de fenêtres demandées qui ne s'y sont pas encore placées.
+    /// Fenêtres déclarées et reliées à leur fenêtre AppKit, dont la place a été
+    /// décidée.
+    private var settled: Set<UUID> = []
+    /// Fenêtre dont la barre d'onglets accueille les prochaines fenêtres ouvertes.
     private weak var tabTarget: NSWindow?
-    private var awaitingPlacement = 0
+    /// Fenêtres demandées qui ne se sont pas encore placées dans `tabTarget` :
+    /// documents ouverts dans une nouvelle fenêtre, et onglets d'accueil (⌘T).
+    /// Une autre fenêtre (celle que SwiftUI ouvre de lui-même quand le Finder
+    /// lui confie un fichier, par exemple) n'est pas placée, et un écran
+    /// d'accueil ainsi ouvert est refermé dès qu'un document est affiché.
+    private var awaitingDocuments: [DocumentReference] = []
+    private var awaitingWelcomes = 0
     /// Documents dont des modifications ne sont pas enregistrées, et si elles
     /// pourront être proposées à leur prochaine ouverture.
     private var unsaved: [ObjectIdentifier: Bool] = [:]
@@ -77,6 +86,7 @@ final class DocumentOpener {
             return
         }
         windows[id] = WindowEntry(reference: reference, adopt: adopt, close: close)
+        settle(id)
         flush()
         closeSurplusWelcomeWindows()
     }
@@ -85,6 +95,7 @@ final class DocumentOpener {
         windows[id] = nil
         appKitWindows[id] = nil
         keptWelcomes.remove(id)
+        settled.remove(id)
     }
 
     /// Relie une fenêtre déclarée à sa fenêtre AppKit, et la place dans la barre
@@ -96,12 +107,23 @@ final class DocumentOpener {
         window.tabbingIdentifier = Self.tabbingIdentifier
         WindowCloseGuard.install(on: window, model: nil)
         guard isNew else { return }
-        if awaitingPlacement > 0 {
-            awaitingPlacement -= 1
-            placeAsTab(window)
-            keptWelcomes.insert(id)
-        }
+        settle(id)
         closeSurplusWelcomeWindows()
+    }
+
+    /// Une fois la fenêtre déclarée et reliée à sa fenêtre AppKit, la place en
+    /// onglet si elle a été demandée.
+    private func settle(_ id: UUID) {
+        guard !settled.contains(id), let entry = windows[id], let window = appKitWindows[id]?.window else { return }
+        settled.insert(id)
+        if let reference = entry.reference, let index = awaitingDocuments.firstIndex(of: reference) {
+            awaitingDocuments.remove(at: index)
+            placeAsTab(window)
+        } else if entry.reference == nil, awaitingWelcomes > 0 {
+            awaitingWelcomes -= 1
+            keptWelcomes.insert(id)
+            placeAsTab(window)
+        }
     }
 
     /// Vrai si une fenêtre affiche ce fichier.
@@ -176,7 +198,9 @@ final class DocumentOpener {
     func openNewTab(besides window: NSWindow? = nil) {
         guard let openWindow else { return }
         tabTarget = window ?? frontWindow
-        awaitingPlacement += 1
+        awaitingWelcomes += 1
+        // Les onglets d'accueil déjà ouverts sont voulus eux aussi.
+        keptWelcomes.formUnion(windows.filter { $0.value.reference == nil }.keys)
         openWindow(id: Self.windowID)
     }
 
@@ -194,8 +218,24 @@ final class DocumentOpener {
         }
     }
 
-    static func isPDF(_ url: URL) -> Bool {
+    nonisolated static func isPDF(_ url: URL) -> Bool {
         UTType(filenameExtension: url.pathExtension)?.conforms(to: .pdf) ?? false
+    }
+
+    /// Fichiers PDF d'un glisser-déposer.
+    static func pdfs(on pasteboard: NSPasteboard) -> [URL] {
+        let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
+        return (objects as? [URL] ?? []).filter(isPDF)
+    }
+
+    /// Ouvre en onglets les PDF déposés sur une vue SwiftUI (liste des vignettes).
+    func open(_ providers: [NSItemProvider]) {
+        for provider in providers where provider.canLoadObject(ofClass: URL.self) {
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                guard let url, Self.isPDF(url) else { return }
+                Task { @MainActor in DocumentOpener.shared.open([url]) }
+            }
+        }
     }
 
     /// Fenêtre de document au premier plan : la fenêtre active (ou celle d'une
@@ -235,7 +275,7 @@ final class DocumentOpener {
                 entry.adopt(reference)
                 appKitWindows[welcome]?.window?.makeKeyAndOrderFront(nil)
             } else if let openWindow {
-                awaitingPlacement += 1
+                awaitingDocuments.append(reference)
                 openWindow(id: Self.windowID, value: reference)
             }
         }
@@ -264,19 +304,17 @@ final class DocumentOpener {
         window.makeKeyAndOrderFront(nil)
     }
 
-    /// Ferme les écrans d'accueil restés seuls et vides alors qu'un document est
-    /// affiché, comme la fenêtre que SwiftUI crée au lancement en plus des
-    /// fenêtres restaurées. Un onglet d'accueil parmi d'autres, ou ouvert à la
-    /// demande, reste ouvert ; un écran d'accueil n'est jugé qu'une fois sa
-    /// fenêtre AppKit connue.
+    /// Ferme les écrans d'accueil vides que personne n'a demandés alors qu'un
+    /// document est affiché : la fenêtre que SwiftUI crée au lancement en plus
+    /// des fenêtres restaurées, ou celle qu'il ouvre quand le Finder lui confie
+    /// un fichier. Un écran d'accueil n'est jugé qu'une fois sa place décidée.
     private func closeSurplusWelcomeWindows() {
         guard windows.values.contains(where: { $0.reference != nil }) else { return }
         let surplus = windows.filter { id, entry in
-            guard entry.reference == nil, !keptWelcomes.contains(id),
-                  let window = appKitWindows[id]?.window else { return false }
-            return (window.tabbedWindows?.count ?? 1) <= 1
+            entry.reference == nil && settled.contains(id) && !keptWelcomes.contains(id)
         }
         for (id, window) in surplus {
+            logger.notice("Écran d'accueil vide fermé : un document est affiché.")
             unregisterWindow(id: id)
             window.close()
         }

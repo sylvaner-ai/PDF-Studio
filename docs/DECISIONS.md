@@ -1158,9 +1158,12 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   ⌘T (Fichier > Nouvel onglet, ou le bouton + de la barre d'onglets) ouvre un
   écran d'accueil en onglet ; un écran d'accueil vide de la fenêtre accueille
   le prochain document. ⌘W ferme l'onglet, après la demande d'enregistrement
-  existante. Un écran d'accueil seul dans sa fenêtre est encore fermé quand un
-  document est affiché (fenêtre de lancement en surplus), mais pas un onglet
-  d'accueil.
+  existante. Un écran d'accueil que personne n'a demandé est fermé dès qu'un
+  document est affiché : la fenêtre que SwiftUI crée au lancement en plus des
+  fenêtres restaurées, ou celle qu'il ouvre de lui-même quand le Finder lui
+  confie un fichier. Les PDF déposés sur les pages (canevas AppKit) ou sur les
+  vignettes s'ouvrent en onglets, comme sur l'écran d'accueil ; la grille
+  d'organisation garde l'insertion des pages déposées (jalon 3).
 - **Alternatives :** une seule fenêtre SwiftUI avec sa propre barre d'onglets
   et plusieurs documents (il aurait fallu refaire les commandes de menu, qui
   visent le document de la fenêtre active, l'annulation, la fermeture, la

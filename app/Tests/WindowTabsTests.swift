@@ -29,6 +29,7 @@ final class WindowTabsTests: XCTestCase {
         let front = try await applicationWindow()
         let first = try copy("texte_simple")
         let second = try copy("tableau")
+        let third = try copy("organisation")
         DocumentOpener.shared.open([first, second], besides: front)
         await wait {
             DocumentOpener.shared.window(showing: first.path) != nil
@@ -48,11 +49,21 @@ final class WindowTabsTests: XCTestCase {
         await pause(seconds: 1)
         XCTAssertTrue(DocumentOpener.shared.isShown(path: first.path))
 
+        // Un document ouvert depuis la fenêtre au premier plan (⌘O, Finder) la
+        // rejoint, sans écran d'accueil en plus, ni dans un onglet ni à part.
+        DocumentOpener.shared.open([third])
+        await wait { DocumentOpener.shared.window(showing: third.path) != nil }
+        await pause(seconds: 1)
+        XCTAssertTrue(DocumentOpener.shared.window(showing: third.path)?.tabGroup === front.tabGroup)
+        XCTAssertEqual(front.tabbedWindows?.count, 3)
+        XCTAssertEqual(documentWindows().count, 3, "fenêtre ou onglet en trop")
+
         // Nouvel onglet (⌘T) : un écran d'accueil, qui n'est pas refermé.
         DocumentOpener.shared.openNewTab(besides: secondWindow)
-        await wait { front.tabbedWindows?.count == 3 }
+        await wait { front.tabbedWindows?.count == 4 }
         await pause(seconds: 1)
-        XCTAssertEqual(front.tabbedWindows?.count, 3)
+        XCTAssertEqual(front.tabbedWindows?.count, 4)
+        XCTAssertEqual(documentWindows().count, 4)
 
         // Bouton + de la barre d'onglets : traité par le délégué de la fenêtre,
         // que la fenêtre de SwiftUI ne devance pas.
@@ -80,6 +91,14 @@ final class WindowTabsTests: XCTestCase {
             throw XCTSkip("L'application hôte des tests n'a pas ouvert de fenêtre.")
         }
         return window
+    }
+
+    /// Fenêtres de l'application encore ouvertes : visibles, ou onglets cachés.
+    private func documentWindows() -> [NSWindow] {
+        NSApp.windows.filter { window in
+            window.tabbingIdentifier == DocumentOpener.tabbingIdentifier
+                && (window.isVisible || (window.tabbedWindows?.count ?? 0) > 1)
+        }
     }
 
     /// Copie d'un document du jeu de test, ouvrable sans signet de sécurité.

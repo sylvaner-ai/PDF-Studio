@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Barre latérale : vignettes des pages et, s'il existe, plan du document.
 struct SidebarView: View {
@@ -54,6 +55,11 @@ struct ThumbnailList: View {
                 }
                 .onMove { positions, before in
                     model.move(positions, before: before)
+                }
+                // Des PDF déposés depuis le Finder s'ouvrent en onglets (D66) ;
+                // sans cela, la liste refuserait le dépôt.
+                .onInsert(of: [.fileURL]) { _, providers in
+                    DocumentOpener.shared.open(providers)
                 }
             }
             .listStyle(.sidebar)

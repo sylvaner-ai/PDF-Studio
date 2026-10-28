@@ -69,6 +69,10 @@ final class PageCanvasView: NSScrollView {
             self, selector: #selector(liveMagnifyDidEnd(_:)),
             name: NSScrollView.didEndLiveMagnifyNotification, object: self
         )
+        )
+        // PDF déposés depuis le Finder : la vue AppKit ne laisse pas le dépôt à
+        // l'écran SwiftUI qui l'entoure.
+        registerForDraggedTypes([.fileURL])
     }
 
     @available(*, unavailable)
@@ -77,6 +81,17 @@ final class PageCanvasView: NSScrollView {
     }
 
     // MARK: - Événements AppKit
+
+    /// Les PDF déposés sur les pages s'ouvrent en onglets de la fenêtre (D66).
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        DocumentOpener.pdfs(on: sender.draggingPasteboard).isEmpty ? [] : .copy
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let pdfs = DocumentOpener.pdfs(on: sender.draggingPasteboard)
+        DocumentOpener.shared.open(pdfs, besides: window)
+        return !pdfs.isEmpty
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard let direction = Zoom.direction(for: event) else {
