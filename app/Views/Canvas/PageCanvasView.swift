@@ -69,7 +69,6 @@ final class PageCanvasView: NSScrollView {
             self, selector: #selector(liveMagnifyDidEnd(_:)),
             name: NSScrollView.didEndLiveMagnifyNotification, object: self
         )
-        )
         // PDF déposés depuis le Finder : la vue AppKit ne laisse pas le dépôt à
         // l'écran SwiftUI qui l'entoure.
         registerForDraggedTypes([.fileURL])
