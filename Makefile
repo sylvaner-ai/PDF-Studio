@@ -136,7 +136,8 @@ icon:
 	python3 tools/icon/render_icon.py
 
 # Captures d'écran de l'interface sur le jeu de test, en mode clair et sombre
-# (cf. app/Tests/DesignSnapshotTests.swift). Le test écrit dans les caches du bac
+# (cf. app/Tests/DesignSnapshotTests.swift, et WindowTabsTests.swift pour la
+# barre d'onglets). Le test écrit dans les caches du bac
 # à sable de l'application ; les images sont copiées hors d'iCloud, dans
 # SNAPSHOTS_OUT. Les fenêtres apparaissent quelques secondes à l'écran.
 SNAPSHOTS_OUT     := $(PDFSTUDIO_BUILD_ROOT)/snapshots
@@ -145,7 +146,8 @@ SNAPSHOTS_SANDBOX := $(HOME)/Library/Containers/fr.sylvainrobert.pdfstudio/Data/
 snapshots: project
 	TEST_RUNNER_PDFSTUDIO_SNAPSHOTS=1 xcodebuild -project "$(XCODE_PROJECT)" -scheme PDFStudio \
 		-configuration Debug -derivedDataPath "$(DERIVED_DATA)" -destination 'platform=macOS,arch=arm64' \
-		test -only-testing:PDFStudioTests/DesignSnapshotTests
+		test -only-testing:PDFStudioTests/DesignSnapshotTests \
+		-only-testing:PDFStudioTests/WindowTabsTests
 	rm -rf "$(SNAPSHOTS_OUT)"
 	cp -R "$(SNAPSHOTS_SANDBOX)" "$(SNAPSHOTS_OUT)"
 	@echo "Captures : $(SNAPSHOTS_OUT)"

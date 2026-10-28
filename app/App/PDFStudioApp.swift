@@ -2,8 +2,9 @@ import SwiftUI
 
 /// Point d'entrée de PDF Studio.
 ///
-/// Chaque fenêtre affiche un document, identifié par sa ``DocumentReference``.
-/// Une fenêtre sans document affiche l'écran d'accueil.
+/// Chaque fenêtre affiche un document, identifié par sa ``DocumentReference`` ;
+/// les fenêtres se présentent comme les onglets d'une même fenêtre (D66). Une
+/// fenêtre sans document affiche l'écran d'accueil.
 @main
 struct PDFStudioApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -78,12 +79,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-/// Menu Fichier : remplace « Nouveau » par « Ouvrir… ».
+/// Menu Fichier : remplace « Nouveau » par « Nouvel onglet » et « Ouvrir… »,
+/// qui ouvrent dans un nouvel onglet de la fenêtre au premier plan (D66).
 struct FileCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
+            Button("Nouvel onglet") {
+                DocumentOpener.shared.register(openWindow: openWindow)
+                DocumentOpener.shared.openNewTab()
+            }
+            .keyboardShortcut("t")
             Button("Ouvrir…") {
                 DocumentOpener.shared.register(openWindow: openWindow)
                 DocumentOpener.shared.presentOpenPanel()
