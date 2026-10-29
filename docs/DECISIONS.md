@@ -1382,3 +1382,25 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   d'étapes d'annulation).
 - **Raisons :** ⇧-clic est le geste habituel des plages (tableurs, Finder), et
   il ne change rien au clic simple.
+
+## D74 — Mot de police et de corps différents : un bloc à part ; copie alignée sur la ligne de base
+
+- **Constat (document de Sylvain, 29 octobre 2026) :** dans « imh FACTURE V 102-26 »,
+  « imh » est en gras plus gros (13 pt) et le titre en maigre (12 pt) ; ils
+  formaient un seul bloc, dont la modification faisait perdre la mise en forme de
+  « imh ». Par ailleurs, un texte copié se posait plus bas que l'original : le
+  cadre d'un texte d'origine (sa boîte d'encre) n'est pas celui d'un texte ajouté
+  (ascendante et descendante de la police).
+- **Retenu :** deux glyphes dont la police **et** le corps (plus de 5 %) diffèrent,
+  séparés par au moins 0,15 corps (une espace), n'appartiennent plus à la même
+  ligne, donc ni au même bloc. Un mot en gras du même corps, ou une couleur
+  différente, restent dans la phrase (D25). Le moteur donne aussi la ligne de
+  base du texte d'origine (`ObjectInfo.baseline`) et sa couleur de remplissage
+  lue dans `sc`/`scn` (gris, RVB, CMJN selon le nombre de composantes) : la copie
+  en texte ajouté s'aligne sur cette ligne de base (`ClipPiece.baseline`,
+  ascendante de la police par `added_text_ascent`).
+- **Alternatives :** séparer à chaque changement de police (une phrase avec un
+  mot en gras deviendrait plusieurs blocs) ; modifier le texte en gardant les
+  styles mot à mot (plus lourd : le texte réécrit est mis en forme d'une police).
+- **Raisons :** le critère reste prudent (police et corps changent ensemble, comme
+  un mot-logo ou une étiquette), et chaque bloc garde un style homogène (D25).

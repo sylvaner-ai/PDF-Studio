@@ -166,6 +166,10 @@ fn copie_et_colle_sur_une_autre_page() {
     let (first, second) = (pages[0].id, pages[1].id);
     let items = session.page_objects(first).unwrap();
     let line = text_object(&items, LIGNE).unwrap();
+    // La ligne de base du texte d'origine sert à aligner sa copie.
+    assert!(line
+        .baseline
+        .is_some_and(|y| y > line.bounds.y && y <= line.bounds.y + line.bounds.height + 1.0));
     let image = items
         .iter()
         .find(|item| item.kind == PageObjectKind::Image)

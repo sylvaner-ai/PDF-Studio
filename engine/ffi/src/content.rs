@@ -95,6 +95,10 @@ pub struct PageObjectItem {
     /// Couleur du texte d'origine (rouge, vert, bleu), vide si inconnue.
     #[uniffi(default = [])]
     pub text_color: Vec<f32>,
+    /// Ordonnée de la ligne de base de la première ligne d'un texte d'origine,
+    /// sur la page droite.
+    #[uniffi(default = None)]
+    pub baseline: Option<f32>,
 }
 
 /// Réglages du rendu d'un texte dans un scan (longueurs en points).
@@ -294,6 +298,7 @@ impl From<ObjectInfo> for PageObjectItem {
                 .text_color
                 .map(|color| color.to_vec())
                 .unwrap_or_default(),
+            baseline: info.baseline,
         }
     }
 }

@@ -450,6 +450,11 @@ impl Document {
         clip::resize(&model, edits, object, target, &mut self.editing.fonts)
     }
 
+    /// Distance du haut d'un texte ajouté à sa première ligne de base.
+    pub fn added_text_ascent(&mut self, font: &FontChoice, size: f32) -> Option<f64> {
+        added::ascent(font, size, &mut self.editing.fonts)
+    }
+
     /// Contenu affichable de la page avec les modifications `edits` ; pour
     /// une page scannée reconnue (couche `layer`), les pixels retouchés sont
     /// posés par-dessus, puis les objets ajoutés.

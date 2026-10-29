@@ -97,6 +97,9 @@ pub struct ObjectInfo {
     /// Couleur du texte d'origine (rouge, vert, bleu), quand l'opération qui
     /// la fixe est un gris, un RVB ou un CMJN.
     pub text_color: Option<[f32; 3]>,
+    /// Ordonnée, sur la page droite, de la ligne de base de la première ligne
+    /// d'un texte d'origine.
+    pub baseline: Option<f32>,
 }
 
 /// Grille d'un tableau, telle que l'affiche l'application.
@@ -796,6 +799,14 @@ impl PageModel {
                 movable: object.movable,
                 resizable: object.movable && object.table.is_none(),
                 text_color: state.and_then(fill_rgb),
+                baseline: object
+                    .text
+                    .as_ref()
+                    .and_then(|block| block.lines.first())
+                    .map(|line| {
+                        let point = self.to_display.apply(line.start);
+                        point.y as f32
+                    }),
                 editable: object.editable,
                 background: object.background,
                 text,
@@ -906,6 +917,7 @@ impl PageModel {
             movable: object.movable,
             resizable: false,
             text_color: None,
+            baseline: None,
             editable: false,
             background: false,
             text: None,
@@ -1694,9 +1706,9 @@ fn fill_rgb(state: &GraphicsState) -> Option<[f32; 3]> {
     let numbers: Vec<f32> = words.iter().filter_map(|word| word.parse().ok()).collect();
     let unit = |value: f32| value.clamp(0.0, 1.0);
     match (name, numbers.as_slice()) {
-        ("g", [gray]) => Some([unit(*gray); 3]),
-        ("rg", [r, g, b]) => Some([unit(*r), unit(*g), unit(*b)]),
-        ("k", [c, m, y, k]) => {
+        ("g", [gray]) | ("sc" | "scn", [gray]) => Some([unit(*gray); 3]),
+        ("rg" | "sc" | "scn", [r, g, b]) => Some([unit(*r), unit(*g), unit(*b)]),
+        ("k" | "sc" | "scn", [c, m, y, k]) => {
             let key = 1.0 - unit(*k);
             Some([c, m, y].map(|ink| (1.0 - unit(*ink)) * key))
         }

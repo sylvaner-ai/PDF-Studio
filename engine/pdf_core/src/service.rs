@@ -277,6 +277,11 @@ impl DocumentHandle {
         })?
     }
 
+    /// Distance du haut d'un texte ajouté à sa première ligne de base.
+    pub fn added_text_ascent(&self, font: FontChoice, size: f32) -> Result<Option<f64>> {
+        self.run(move |worker| worker.doc.added_text_ascent(&font, size))
+    }
+
     /// Plan du document (signets), aplati en parcours en profondeur.
     pub fn outline(&self) -> Result<Vec<OutlineEntry>> {
         self.run(|worker| worker.doc.outline())

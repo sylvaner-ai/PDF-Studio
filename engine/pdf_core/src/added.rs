@@ -356,6 +356,21 @@ fn plan_text(text: &AddedText, fonts: &mut FontProvider) -> Option<TextPlan> {
     })
 }
 
+/// Distance du haut d'un texte ajouté à sa première ligne de base, dans la
+/// police `font` au corps `size`.
+pub(crate) fn ascent(font: &FontChoice, size: f32, fonts: &mut FontProvider) -> Option<f64> {
+    let probe = AddedText {
+        text: "x".to_owned(),
+        font: font.clone(),
+        size,
+        color: [0.0; 3],
+        x: 0.0,
+        y: 0.0,
+        turns: 0,
+    };
+    plan_text(&probe, fonts).map(|plan| plan.ascent)
+}
+
 // MARK: - Orientation
 
 /// Repère d'un objet ajouté, droit à l'écran (origine en haut à gauche, axe
@@ -438,6 +453,7 @@ pub(crate) fn infos(
             movable: true,
             resizable: true,
             text_color: None,
+            baseline: None,
             editable: false,
             background: false,
             text: None,

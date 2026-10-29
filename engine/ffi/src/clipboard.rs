@@ -55,6 +55,10 @@ pub struct ClipPiece {
     pub width: f32,
     /// Hauteur.
     pub height: f32,
+    /// Pour un texte d'origine : distance du haut du cadre à sa première ligne
+    /// de base (la copie s'y aligne).
+    #[uniffi(default = None)]
+    pub baseline: Option<f32>,
 }
 
 /// Objets copiés, à coller sur une page de ce document ou d'un autre.
@@ -120,6 +124,7 @@ pub fn clipboard_from_file(
             y: 0.0,
             width,
             height,
+            baseline: None,
         }],
         x: 0.0,
         y: 0.0,
@@ -252,7 +257,7 @@ impl EditSession {
             .filter(|item| !native(item) && retyped(item).is_none())
             .map(|item| item.id)
             .collect();
-        let mut pieces: Vec<(ClipContent, Rect)> = Vec::new();
+        let mut pieces: Vec<(ClipContent, Rect, Option<f32>)> = Vec::new();
         let mut originals_pdf = None;
         if !originals.is_empty() {
             if let Some(clip) =
@@ -267,7 +272,11 @@ impl EditSession {
                     height: clip.bounds.height,
                 };
                 originals_pdf = Some(clip.pdf.clone());
-                pieces.push((ClipContent::Image { data: clip.pdf }, upright.rect(&bounds)));
+                pieces.push((
+                    ClipContent::Image { data: clip.pdf },
+                    upright.rect(&bounds),
+                    None,
+                ));
             }
         }
         for item in items.iter().filter(|item| native(item)) {
@@ -283,13 +292,14 @@ impl EditSession {
                     data: image.data.as_ref().clone(),
                 },
             };
-            pieces.push((content, upright.rect(&item.bounds)));
+            pieces.push((content, upright.rect(&item.bounds), None));
         }
         for item in items.iter().filter(|item| !native(item)) {
             if let (Some(style), Some(text)) = (retyped(item), item.text.clone()) {
                 pieces.push((
                     ClipContent::Text { text, style },
                     upright.rect(&item.bounds),
+                    item.baseline.map(|line| line - item.bounds.y),
                 ));
             }
         }
@@ -298,7 +308,7 @@ impl EditSession {
         }
         let group = pieces
             .iter()
-            .fold(Rect::EMPTY, |rect, (_, piece)| rect.union(piece));
+            .fold(Rect::EMPTY, |rect, (_, piece, _)| rect.union(piece));
         // Pour les autres applications : un PDF de tous les objets.
         let pdf = match (&originals_pdf, pieces.len()) {
             (Some(pdf), 1) => pdf.clone(),
@@ -325,8 +335,9 @@ impl EditSession {
         Ok(ObjectClipboard {
             pieces: pieces
                 .into_iter()
-                .map(|(content, rect)| ClipPiece {
+                .map(|(content, rect, baseline)| ClipPiece {
                     content,
+                    baseline,
                     x: (rect.x0 - group.x0) as f32,
                     y: (rect.y0 - group.y0) as f32,
                     width: rect.width() as f32,
@@ -485,10 +496,19 @@ impl EditSession {
                     if text.trim().is_empty() {
                         continue;
                     }
-                    // Le coin supérieur gauche à l'écran, sur la page droite.
-                    let (cx, cy) = upright.back(shown.x0, shown.y0);
-                    let anchor = to_page.apply(Point::new(cx, cy));
                     let (font, size, color) = style.parts();
+                    // Un texte d'origine s'aligne sur sa ligne de base : son
+                    // cadre d'origine n'est pas celui du texte ajouté.
+                    let top = match (piece.baseline, size) {
+                        (Some(line), size) => document
+                            .handle
+                            .added_text_ascent(font.clone(), size)?
+                            .map_or(shown.y0, |ascent| shown.y0 + f64::from(line) - ascent),
+                        _ => shown.y0,
+                    };
+                    // Le coin supérieur gauche à l'écran, sur la page droite.
+                    let (cx, cy) = upright.back(shown.x0, top);
+                    let anchor = to_page.apply(Point::new(cx, cy));
                     AddedObject::Text(AddedText {
                         text: text.clone(),
                         font,

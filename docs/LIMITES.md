@@ -479,8 +479,11 @@ complété à chaque jalon.
   unique de toute la cellule. Entre deux blocs voisins de même style, la
   séparation suit D25 (écart de style, d'interligne ou d'alignement).
 - **Mots de style différent dans une même ligne :** un mot en gras au fil d'une
-  phrase reste dans son bloc, et la modification lui donne le style du début du
-  bloc (limite du jalon 4).
+  phrase (même corps) reste dans son bloc, et la modification lui donne le style
+  du début du bloc (limite du jalon 4). Un mot dont la police et le corps
+  diffèrent à la fois de ses voisins (« imh » en gras et plus gros, devant
+  « FACTURE V 102-26 »), séparé d'eux par au moins une espace, forme son
+  propre bloc (D74).
 
 
 ## Objets redimensionnés, copiés, collés et déplacés (D71 à D73)
