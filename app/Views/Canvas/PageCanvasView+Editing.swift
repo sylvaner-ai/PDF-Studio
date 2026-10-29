@@ -37,15 +37,18 @@ extension PageCanvasView {
         return selectAdjacentObject(forward: !flags.contains(.shift), editing: editing)
     }
 
+    /// Échap abandonne l'outil « Texte » avant le clic sur la page.
+    func handlePlacingKey(_ event: NSEvent, editing: PageEditing) -> Bool {
+        guard event.keyCode == 53, editing.isPlacingText else { return false }
+        editing.cancelPlacingText()
+        return true
+    }
+
     /// Touches de la sélection : flèches (1 pt, 10 pt avec ⇧), ⌫ et ⌦,
     /// Retour pour modifier un texte (ou la cellule courante d'un tableau),
     /// Échap pour tout désélectionner.
     func handleEditingKey(_ event: NSEvent, editing: PageEditing) -> Bool {
         let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
-        if event.keyCode == 53, editing.isPlacingText {
-            editing.cancelPlacingText()
-            return true
-        }
         guard flags.subtracting(.shift).isEmpty, editing.hasSelection, let page = editing.page else { return false }
         switch event.keyCode {
         case 53:

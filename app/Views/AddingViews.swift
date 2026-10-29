@@ -48,9 +48,11 @@ struct AddedTextPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Design.Spacing.medium) {
-            Text(editing.selectedAddedText == nil ? "Nouveau texte" : "Texte ajouté")
+            Text(editing.selectedAddedText == nil
+                 ? LocalizedStringKey("Nouveau texte")
+                 : LocalizedStringKey("Texte ajouté"))
                 .font(.headline)
-            Picker("Police", selection: font(\.family)) {
+            Picker("Police", selection: fontBinding(\.family)) {
                 ForEach(AddedTextFont.standardFamilies, id: \.self) { Text($0).tag($0) }
                 Divider()
                 ForEach(families, id: \.self) { Text($0).tag($0) }
@@ -61,13 +63,13 @@ struct AddedTextPanel: View {
             }
             .help(Text("Helvetica, Times et Courier sont lus partout sans être intégrés au document"))
             HStack(spacing: Design.Spacing.small) {
-                Toggle(isOn: font(\.bold)) {
+                Toggle(isOn: fontBinding(\.bold)) {
                     Image(systemName: "bold")
                 }
                 .toggleStyle(.button)
                 .help(Text("Gras"))
                 .accessibilityLabel(Text("Gras"))
-                Toggle(isOn: font(\.italic)) {
+                Toggle(isOn: fontBinding(\.italic)) {
                     Image(systemName: "italic")
                 }
                 .toggleStyle(.button)
@@ -98,14 +100,14 @@ struct AddedTextPanel: View {
     }
 
     /// Une propriété de la police : la changer applique le style.
-    private func font<Value>(_ property: WritableKeyPath<AddedTextFont, Value>) -> Binding<Value> {
+    private func fontBinding<Value>(_ property: WritableKeyPath<AddedTextFont, Value>) -> Binding<Value> {
         Binding(
             get: { currentFont[keyPath: property] },
             set: { value in
-                var font = currentFont
-                font[keyPath: property] = value
+                var chosen = currentFont
+                chosen[keyPath: property] = value
                 var style = editing.shownTextStyle
-                style.font = font.engine
+                style.font = chosen.engine
                 editing.applyTextStyle(style)
             }
         )

@@ -9,7 +9,8 @@ extension PageCanvasView {
     /// Touches de lecture, reçues de la vue des pages ; en mode Édition, les
     /// touches de la sélection passent d'abord.
     func handleKey(_ event: NSEvent) -> Bool {
-        if let editing, handleTabKey(event, editing: editing) || handleEditingKey(event, editing: editing) {
+        if let editing, handlePlacingKey(event, editing: editing) || handleTabKey(event, editing: editing)
+            || handleEditingKey(event, editing: editing) {
             return true
         }
         if event.keyCode == 53, pagesView.text.hasSelection {
