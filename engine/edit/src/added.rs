@@ -6,7 +6,9 @@
 //! l'espace de la page PDF. Il est numéroté à partir de [`ADDED_ID`], à part
 //! des objets d'origine et de ceux d'un scan, et s'empile dans l'ordre de ses
 //! numéros. `pdf_core` le dessine droit à l'affichage, quelle que soit la
-//! rotation propre de la page.
+//! rotation propre de la page, et compense les quarts de tour que
+//! l'organisation donnait à la page quand il a été ajouté : il se lit droit
+//! sur la page telle qu'elle était montrée.
 
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -70,6 +72,9 @@ pub struct AddedText {
     pub x: f32,
     /// Ordonnée de ce point (vers le haut).
     pub y: f32,
+    /// Quarts de tour (sens horaire, 0 à 3) de la page à l'écran quand le
+    /// texte a été ajouté : il est tourné d'autant en sens inverse.
+    pub turns: u8,
 }
 
 /// Image ajoutée.
@@ -81,17 +86,23 @@ pub struct AddedImage {
     pub key: u64,
     /// Cadre de l'image dans l'espace de la page PDF : x0, y0, x1, y1.
     pub rect: [f32; 4],
+    /// Quarts de tour (sens horaire, 0 à 3) de la page à l'écran quand
+    /// l'image a été ajoutée : elle est tournée d'autant en sens inverse dans
+    /// son cadre.
+    pub turns: u8,
 }
 
 impl AddedImage {
-    /// Image des octets `data`, placée dans le cadre `rect`.
-    pub fn new(data: Vec<u8>, rect: [f32; 4]) -> Self {
+    /// Image des octets `data`, placée dans le cadre `rect`, sur une page
+    /// tournée de `turns` quarts de tour.
+    pub fn new(data: Vec<u8>, rect: [f32; 4], turns: u8) -> Self {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         data.hash(&mut hasher);
         Self {
             key: hasher.finish(),
             data: Arc::new(data),
             rect,
+            turns: turns & 3,
         }
     }
 }
@@ -111,12 +122,13 @@ mod tests {
 
     #[test]
     fn deplace_un_objet_ajoute() {
-        let mut image = AddedObject::Image(AddedImage::new(vec![1, 2, 3], [0.0, 0.0, 10.0, 20.0]));
+        let mut image =
+            AddedObject::Image(AddedImage::new(vec![1, 2, 3], [0.0, 0.0, 10.0, 20.0], 0));
         image.offset(5.0, -2.0);
         let AddedObject::Image(image) = image else {
             unreachable!()
         };
         assert_eq!(image.rect, [5.0, -2.0, 15.0, 18.0]);
-        assert_eq!(image.key, AddedImage::new(vec![1, 2, 3], [0.0; 4]).key);
+        assert_eq!(image.key, AddedImage::new(vec![1, 2, 3], [0.0; 4], 1).key);
     }
 }

@@ -43,6 +43,8 @@ pub enum AddedObjectItem {
         x: f32,
         /// Ordonnée de ce coin dans la page PDF.
         y: f32,
+        /// Quarts de tour de la page à l'écran quand le texte a été ajouté.
+        turns: u8,
     },
     /// Image ajoutée.
     Image {
@@ -56,6 +58,8 @@ pub enum AddedObjectItem {
         x1: f32,
         /// Bord supérieur.
         y1: f32,
+        /// Quarts de tour de la page à l'écran quand l'image a été ajoutée.
+        turns: u8,
     },
 }
 
@@ -97,6 +101,7 @@ impl From<&AddedObject> for AddedObjectItem {
                 style: style_item(&text.font, text.size, text.color),
                 x: text.x,
                 y: text.y,
+                turns: text.turns,
             },
             AddedObject::Image(image) => {
                 let [x0, y0, x1, y1] = image.rect;
@@ -106,6 +111,7 @@ impl From<&AddedObject> for AddedObjectItem {
                     y0,
                     x1,
                     y1,
+                    turns: image.turns,
                 }
             }
         }
@@ -117,7 +123,13 @@ impl AddedObjectItem {
     /// illisible).
     pub(crate) fn object(&self) -> Option<AddedObject> {
         match self {
-            AddedObjectItem::Text { text, style, x, y } => {
+            AddedObjectItem::Text {
+                text,
+                style,
+                x,
+                y,
+                turns,
+            } => {
                 if text.trim().is_empty() {
                     return None;
                 }
@@ -129,6 +141,7 @@ impl AddedObjectItem {
                     color,
                     x: *x,
                     y: *y,
+                    turns: turns & 3,
                 }))
             }
             AddedObjectItem::Image {
@@ -137,11 +150,13 @@ impl AddedObjectItem {
                 y0,
                 x1,
                 y1,
+                turns,
             } => {
                 pdf_core::image_size(data).ok()?;
                 Some(AddedObject::Image(AddedImage::new(
                     data.clone(),
                     [*x0, *y0, *x1, *y1],
+                    *turns,
                 )))
             }
         }
@@ -160,7 +175,9 @@ pub(crate) fn added_text_style(info: &Option<AddedInfo>) -> Option<AddedTextStyl
 impl EditSession {
     /// Ajoute un texte à la page `page`, son coin supérieur gauche au point
     /// (`x`, `y`) de la page droite (en points, origine en haut à gauche),
-    /// au-dessus du reste de la page. Une page vierge doit d'abord recevoir
+    /// au-dessus du reste de la page. Le texte se lit droit sur la page
+    /// telle que l'organisation la tourne à l'écran : son coin supérieur
+    /// gauche est celui qui s'y montre en haut à gauche. Une page vierge doit d'abord recevoir
     /// un document d'une page vierge de son format
     /// ([`EditSession::blank_page_document`]), ajouté aux sources sous le
     /// numéro `blank_source`. Renvoie le texte ajouté.
@@ -176,7 +193,7 @@ impl EditSession {
         if text.trim().is_empty() {
             return Err(invalid("texte vide"));
         }
-        let (document, index, origin) = self.target(page, blank_source)?;
+        let (document, index, origin, turns) = self.target(page, blank_source)?;
         let to_page = from_display(&document, index)?;
         let anchor = to_page.apply(Point::new(f64::from(x), f64::from(y)));
         let (font, size, color) = style.parts();
@@ -187,6 +204,7 @@ impl EditSession {
             color,
             x: anchor.x as f32,
             y: anchor.y as f32,
+            turns,
         });
         let id = self.with_editor(|editor| editor.add_object(page, object, origin))?;
         self.object_item(page, id)
@@ -194,8 +212,10 @@ impl EditSession {
 
     /// Ajoute l'image `data` (fichier JPEG ou PNG) à la page `page`, dans le
     /// cadre `bounds` de la page droite, au-dessus du reste de la page ; pour
-    /// une page vierge, comme [`EditSession::add_text`]. Renvoie l'image
-    /// ajoutée.
+    /// une page vierge, comme [`EditSession::add_text`]. L'image se montre
+    /// droite sur la page telle que l'organisation la tourne à l'écran : sur
+    /// une page couchée, la largeur de `bounds` est sa hauteur à l'écran.
+    /// Renvoie l'image ajoutée.
     pub fn add_image(
         &self,
         page: u64,
@@ -207,9 +227,9 @@ impl EditSession {
             message: "Cette image ne peut pas être lue.".to_owned(),
             detail: err.detail().unwrap_or_default().to_owned(),
         })?;
-        let (document, index, origin) = self.target(page, blank_source)?;
+        let (document, index, origin, turns) = self.target(page, blank_source)?;
         let rect = page_rect(&document, index, bounds)?;
-        let object = AddedObject::Image(AddedImage::new(data, rect));
+        let object = AddedObject::Image(AddedImage::new(data, rect, turns));
         let id = self.with_editor(|editor| editor.add_object(page, object, origin))?;
         self.object_item(page, id)
     }
@@ -286,23 +306,33 @@ impl EditSession {
 }
 
 impl EditSession {
-    /// Document et indice de la page où ajouter un objet, et la nouvelle
-    /// origine d'une page vierge.
+    /// Document et indice de la page où ajouter un objet, la nouvelle
+    /// origine d'une page vierge et les quarts de tour de la page à l'écran.
     fn target(
         &self,
         page: u64,
         blank_source: Option<u32>,
-    ) -> Result<(Arc<PdfDocument>, u32, Option<PageOrigin>), EngineError> {
+    ) -> Result<(Arc<PdfDocument>, u32, Option<PageOrigin>, u8), EngineError> {
+        let turns = self
+            .pages()
+            .into_iter()
+            .find(|item| item.id == page)
+            .map_or(0, |item| item.quarter_turns & 3);
         let (document, index, _) = self.page_source(page)?;
         if let Some(document) = document {
-            return Ok((document, index, None));
+            return Ok((document, index, None, turns));
         }
         let source = blank_source.ok_or_else(|| invalid("page vierge sans document"))?;
         let document = self
             .source_document(source)
             .filter(|document| document.page_count() == 1)
             .ok_or_else(|| invalid("document de page vierge inconnu"))?;
-        Ok((document, 0, Some(PageOrigin::Source { source, index: 0 })))
+        Ok((
+            document,
+            0,
+            Some(PageOrigin::Source { source, index: 0 }),
+            turns,
+        ))
     }
 
     /// L'objet `id` de la page `page`, tel que l'affiche l'application.
@@ -573,5 +603,22 @@ mod tests {
             session.pages()[position as usize].kind,
             PageKind::Blank { .. }
         ));
+    }
+
+    #[test]
+    fn ajoute_droit_sur_une_page_tournee() {
+        let session = EditSession::new(open("texte_simple.pdf"));
+        session.rotate(vec![0], 1).unwrap();
+        let page = session.pages()[0].id;
+        // Sur la page droite, le texte d'une page tournée d'un quart de
+        // tour monte depuis son coin.
+        let text = session
+            .add_text(page, 100.0, 300.0, "Debout".into(), style(20.0), None)
+            .unwrap();
+        assert!(text.bounds.height > text.bounds.width, "{:?}", text.bounds);
+        assert!((text.bounds.y + text.bounds.height - 300.0).abs() < 0.01);
+        let record = session.content_record(page).unwrap();
+        let added = record.iter().find_map(|item| item.added.clone()).unwrap();
+        assert!(matches!(added, AddedObjectItem::Text { turns: 1, .. }));
     }
 }

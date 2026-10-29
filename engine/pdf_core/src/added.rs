@@ -3,8 +3,9 @@
 //! l'aperçu comme pour l'enregistrement.
 //!
 //! Un objet ajouté est placé dans l'espace de la page PDF et dessiné droit
-//! à l'affichage : sa matrice compense la rotation propre de la page
-//! (`/Rotate`), comme le texte que l'on tape à l'écran. Il est dessiné après
+//! à l'écran : sa matrice compense la rotation propre de la page
+//! (`/Rotate`) et les quarts de tour que lui donnait l'organisation quand il
+//! a été ajouté (`turns`), comme le texte que l'on tape. Il est dessiné après
 //! tout le contenu de la page (retouches d'un scan comprises), dans un flux
 //! de plus entouré de `q … Q`.
 //!
@@ -318,6 +319,37 @@ fn plan_text(text: &AddedText, fonts: &mut FontProvider) -> Option<TextPlan> {
     })
 }
 
+// MARK: - Orientation
+
+/// Repère d'un objet ajouté, droit à l'écran (origine en haut à gauche, axe
+/// vers le bas), dans l'espace d'affichage d'une page que l'organisation
+/// tournait de `turns` quarts de tour (sens horaire) : l'objet est tourné
+/// d'autant en sens inverse. `origin` : point d'affichage de son origine.
+fn upright(turns: u8, origin: Point) -> Matrix {
+    let (a, b, c, d) = match turns & 3 {
+        1 => (0.0, -1.0, 1.0, 0.0),
+        2 => (-1.0, 0.0, 0.0, -1.0),
+        3 => (0.0, 1.0, -1.0, 0.0),
+        _ => (1.0, 0.0, 0.0, 1.0),
+    };
+    Matrix::new(a, b, c, d, origin.x, origin.y)
+}
+
+/// Repère droit à l'écran d'un cadre d'affichage `frame` : son origine est
+/// le coin du cadre qui se montre en haut à gauche. Renvoie aussi la largeur
+/// et la hauteur du cadre à l'écran.
+fn upright_frame(turns: u8, frame: Rect) -> (Matrix, f64, f64) {
+    let (width, height) = if turns % 2 == 1 {
+        (frame.height(), frame.width())
+    } else {
+        (frame.width(), frame.height())
+    };
+    let turned =
+        upright(turns, Point::new(0.0, 0.0)).apply_rect(Rect::new(0.0, 0.0, width, height));
+    let origin = Point::new(frame.x0 - turned.x0, frame.y0 - turned.y0);
+    (upright(turns, origin), width, height)
+}
+
 // MARK: - Emprise
 
 /// Rectangle de l'espace d'affichage, au format de l'application.
@@ -333,13 +365,18 @@ fn page_rect(rect: Rect) -> PageRect {
 /// Emprise d'un texte ajouté dans l'espace d'affichage ; `plan` est sa mise
 /// en page.
 fn text_frame(text: &AddedText, plan: &TextPlan, to_display: &Matrix) -> Rect {
+    text_axes(text, to_display).apply_rect(Rect::new(
+        0.0,
+        0.0,
+        plan.width().max(plan.size * 0.25),
+        plan.height(),
+    ))
+}
+
+/// Repère droit à l'écran d'un texte ajouté, dans l'espace d'affichage.
+fn text_axes(text: &AddedText, to_display: &Matrix) -> Matrix {
     let anchor = to_display.apply(Point::new(f64::from(text.x), f64::from(text.y)));
-    Rect::new(
-        anchor.x,
-        anchor.y,
-        anchor.x + plan.width().max(plan.size * 0.25),
-        anchor.y + plan.height(),
-    )
+    upright(text.turns, anchor)
 }
 
 /// Cadre d'une image ajoutée dans l'espace d'affichage.
@@ -512,10 +549,11 @@ fn draw(
                         name
                     }
                 };
-                let anchor = to_display.apply(Point::new(f64::from(text.x), f64::from(text.y)));
                 // Espace du texte (origine au coin supérieur gauche, axe vers
-                // le haut) → affichage → page.
-                let m = Matrix::new(1.0, 0.0, 0.0, -1.0, anchor.x, anchor.y).then(&from_display);
+                // le haut) → repère droit à l'écran → affichage → page.
+                let m = Matrix::new(1.0, 0.0, 0.0, -1.0, 0.0, 0.0)
+                    .then(&text_axes(text, to_display))
+                    .then(&from_display);
                 let out = &mut drawing.content;
                 write_op(out, &[], "q");
                 write_op(out, &[m.a, m.b, m.c, m.d, m.e, m.f], "cm");
@@ -560,9 +598,11 @@ fn draw(
                         name
                     }
                 };
-                // Carré unité de l'image → cadre à l'affichage (première
-                // ligne de pixels en haut) → page.
-                let m = Matrix::new(frame.width(), 0.0, 0.0, -frame.height(), frame.x0, frame.y1)
+                // Carré unité de l'image → cadre droit à l'écran (première
+                // ligne de pixels en haut) → affichage → page.
+                let (axes, width, height) = upright_frame(image.turns, frame);
+                let m = Matrix::new(width, 0.0, 0.0, -height, 0.0, height)
+                    .then(&axes)
                     .then(&from_display);
                 let out = &mut drawing.content;
                 write_op(out, &[], "q");
@@ -708,5 +748,28 @@ mod tests {
         assert_eq!((p.x, p.y), (200.0, 100.0));
         let p = display_matrix(area, 270).apply(top_left);
         assert_eq!((p.x, p.y), (0.0, 200.0));
+    }
+
+    #[test]
+    fn repere_droit_sur_une_page_tournee() {
+        // Page tournée d'un quart de tour à l'écran : la droite de l'écran
+        // est le haut de l'affichage, le bas de l'écran sa droite.
+        let m = upright(1, Point::new(10.0, 50.0));
+        let right = m.apply(Point::new(1.0, 0.0));
+        assert_eq!((right.x, right.y), (10.0, 49.0));
+        let down = m.apply(Point::new(0.0, 1.0));
+        assert_eq!((down.x, down.y), (11.0, 50.0));
+        // Le cadre garde sa place ; ses côtés à l'écran sont échangés.
+        let frame = Rect::new(100.0, 200.0, 140.0, 280.0);
+        for turns in 0..4 {
+            let (axes, width, height) = upright_frame(turns, frame);
+            let back = axes.apply_rect(Rect::new(0.0, 0.0, width, height));
+            assert_eq!(
+                (back.x0, back.y0, back.x1, back.y1),
+                (100.0, 200.0, 140.0, 280.0),
+                "{turns}"
+            );
+            assert_eq!(width, if turns % 2 == 1 { 80.0 } else { 40.0 });
+        }
     }
 }

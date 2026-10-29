@@ -16,8 +16,9 @@ fn fixture() -> Vec<u8> {
         .unwrap()
 }
 
-/// PNG non compressé de `width` × `height` pixels RVBA, de couleur `rgba`.
-fn png(width: u32, height: u32, rgba: [u8; 4]) -> Vec<u8> {
+/// PNG non compressé de `width` × `height` pixels RVBA, de couleur `top`
+/// en haut et `bottom` en bas.
+fn png(width: u32, height: u32, top: [u8; 4], bottom: [u8; 4]) -> Vec<u8> {
     fn crc32(bytes: &[u8]) -> u32 {
         let mut crc = !0u32;
         for &byte in bytes {
@@ -39,11 +40,16 @@ fn png(width: u32, height: u32, rgba: [u8; 4]) -> Vec<u8> {
         out.extend_from_slice(&body);
         out.extend_from_slice(&crc32(&body).to_be_bytes());
     }
-    let mut row = vec![0u8];
-    for _ in 0..width {
-        row.extend_from_slice(&rgba);
-    }
-    let raw = row.repeat(height as usize);
+    let row = |rgba: [u8; 4]| {
+        let mut row = vec![0u8];
+        for _ in 0..width {
+            row.extend_from_slice(&rgba);
+        }
+        row
+    };
+    let half = (height / 2) as usize;
+    let mut raw = row(top).repeat(half);
+    raw.extend(row(bottom).repeat(height as usize - half));
     // zlib, blocs non compressés.
     let mut zlib = vec![0x78, 0x01];
     let blocks: Vec<&[u8]> = raw.chunks(65_535).collect();
@@ -96,13 +102,15 @@ fn additions(doc: &mut Document, index: u32, text: &str, font: FontChoice) -> Ar
             color: [0.0, 0.0, 1.0],
             x,
             y,
+            turns: 0,
         }),
     );
     added.insert(
         ADDED_ID + 1,
         AddedObject::Image(AddedImage::new(
-            png(8, 4, [220, 0, 0, 255]),
+            png(8, 4, RED, RED),
             [x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)],
+            0,
         )),
     );
     Arc::new(PageEdits::with_added(BTreeMap::new(), added, 3))
@@ -125,8 +133,15 @@ fn pixel(content: &PageContent, x: usize, y: usize) -> [u8; 3] {
     [s[at], s[at + 1], s[at + 2]]
 }
 
+const RED: [u8; 4] = [220, 0, 0, 255];
+const BLUE: [u8; 4] = [0, 0, 220, 255];
+
 fn is_red(color: [u8; 3]) -> bool {
     color[0] > 180 && color[1] < 60 && color[2] < 60
+}
+
+fn is_blue(color: [u8; 3]) -> bool {
+    color[2] > 180 && color[0] < 60 && color[1] < 60
 }
 
 #[test]
@@ -269,6 +284,86 @@ fn caracteres_hors_winansi_et_police_introuvable() {
 
 #[test]
 fn image_illisible_refusee() {
-    assert_eq!(pdf_core::image_size(&png(8, 4, [0; 4])).unwrap(), (8, 4));
+    assert_eq!(
+        pdf_core::image_size(&png(8, 4, [0; 4], [0; 4])).unwrap(),
+        (8, 4)
+    );
     assert!(pdf_core::image_size(b"pas une image").is_err());
+}
+
+/// Objets ajoutés sur une page que l'organisation tourne d'un quart de
+/// tour : ils se lisent droits sur la page tournée, à l'écran comme dans le
+/// document enregistré.
+#[test]
+fn objets_ajoutes_droits_sur_une_page_tournee_par_l_organisation() {
+    let mut doc = Document::from_bytes(&fixture(), None).unwrap();
+    let size = doc.page_sizes()[0];
+    let (width, height) = (f64::from(size.width), f64::from(size.height));
+    // Sur la page droite (avant le quart de tour), l'image occupe le cadre
+    // (300, 150)–(340, 230) : 40 de large, 80 de haut ; à l'écran, une fois
+    // la page tournée, 80 de large et 40 de haut, comme l'image.
+    let (x0, y0) = page_point(&mut doc, 0, 300.0, 150.0);
+    let (x1, y1) = page_point(&mut doc, 0, 340.0, 230.0);
+    let (tx, ty) = page_point(&mut doc, 0, 100.0, 300.0);
+    let mut added = BTreeMap::new();
+    added.insert(
+        ADDED_ID,
+        AddedObject::Text(AddedText {
+            text: "Couché".to_owned(),
+            font: FontChoice::Standard {
+                name: "Helvetica".to_owned(),
+            },
+            size: 20.0,
+            color: [0.0, 0.0, 0.0],
+            x: tx,
+            y: ty,
+            turns: 1,
+        }),
+    );
+    added.insert(
+        ADDED_ID + 1,
+        AddedObject::Image(AddedImage::new(
+            png(8, 4, RED, BLUE),
+            [x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)],
+            1,
+        )),
+    );
+    let edits = Arc::new(PageEdits::with_added(BTreeMap::new(), added, 1));
+
+    // Le texte s'étend vers le haut de la page droite, à partir de son coin.
+    let objects = doc.page_objects(0, Some(&edits), None).unwrap();
+    let text = objects.iter().find(|o| o.id == ADDED_ID).unwrap();
+    let b = text.bounds;
+    assert!((b.x - 100.0).abs() < 0.01, "{b:?}");
+    assert!((b.y + b.height - 300.0).abs() < 0.01, "{b:?}");
+    assert!(b.height > b.width, "{b:?}");
+    let image = objects.iter().find(|o| o.id == ADDED_ID + 1).unwrap();
+    assert!((image.bounds.width - 40.0).abs() < 0.01);
+
+    // Page droite : le haut de l'image (rouge) est à gauche du cadre, le
+    // bord gauche de la page passant en haut quand elle tourne.
+    let preview = doc.edited_page_content(0, &edits, None).unwrap();
+    assert!(is_red(pixel(&preview, 310, 190)));
+    assert!(is_blue(pixel(&preview, 330, 190)));
+
+    // Enregistrée avec son quart de tour : le rouge est en haut de l'image.
+    // Le point (x, y) de la page droite passe en (hauteur − y, x).
+    let pages = [OutputPage::Source {
+        source: 0,
+        index: 0,
+        quarter_turns: 1,
+    }];
+    let bytes = write_edited_pdf(
+        &[SourceData::new(fixture(), None)],
+        &pages,
+        &[Some(Arc::clone(&edits))],
+    )
+    .unwrap();
+    let saved = Document::from_bytes(&bytes, None).unwrap();
+    let turned = saved.page_content(0).unwrap();
+    let at = |x: f64, y: f64| pixel(&turned, (height - y) as usize, x as usize);
+    assert!(is_red(at(310.0, 190.0)));
+    assert!(is_blue(at(330.0, 190.0)));
+    assert!(width > 0.0);
+    assert!(saved.plain_text(0).unwrap().contains("Couché"));
 }

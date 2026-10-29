@@ -1068,6 +1068,7 @@ mod tests {
             color: [0.0; 3],
             x: 72.0,
             y: 720.0,
+            turns: 0,
         })
     }
 
@@ -1080,7 +1081,7 @@ mod tests {
             .unwrap();
         assert_eq!(first, crate::ADDED_ID);
         assert_eq!(editor.undo_name(), Some("l'ajout du texte"));
-        let image = crate::AddedImage::new(vec![0xFF, 0xD8], [10.0, 10.0, 110.0, 60.0]);
+        let image = crate::AddedImage::new(vec![0xFF, 0xD8], [10.0, 10.0, 110.0, 60.0], 0);
         let second = editor
             .add_object(page, AddedObject::Image(image), None)
             .unwrap();
