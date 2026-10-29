@@ -298,10 +298,15 @@ impl EditSession {
                         .collect::<HashMap<_, _>>()
                 })
                 .unwrap_or_default();
+            // Un objet ajouté est conservé en entier : il ne vise aucun objet
+            // de la page.
             kept.push(
                 items
                     .into_iter()
-                    .filter(|item| fingerprints.get(&item.object) == Some(&item.fingerprint))
+                    .filter(|item| {
+                        item.added.is_some()
+                            || fingerprints.get(&item.object) == Some(&item.fingerprint)
+                    })
                     .collect(),
             );
         }
@@ -325,6 +330,10 @@ impl EditSession {
         };
         for (position, page) in pages.iter().enumerate() {
             let origin = origin_of(page.kind)?;
+            let (content, added) = kept
+                .get(position)
+                .map(|items| restored_content(items))
+                .unwrap_or_default();
             let replaces = match page.replaces {
                 Some(original) => Some(ReplacedPage {
                     origin: origin_of(original.kind)?,
@@ -336,10 +345,8 @@ impl EditSession {
                 origin,
                 replaces,
                 quarter_turns: page.quarter_turns,
-                content: kept
-                    .get(position)
-                    .map(|items| restored_content(items))
-                    .unwrap_or_default(),
+                content,
+                added,
                 text_layer: layers
                     .get(position)
                     .filter(|items| {
@@ -398,6 +405,21 @@ impl EditSession {
         object: u32,
         text: String,
     ) -> Result<PageObjectItem, EngineError> {
+        if edit::is_added_id(object) {
+            // Texte ajouté : il garde sa police ; un texte vide se supprime
+            // avec l'objet (`delete_objects`).
+            if text.trim().is_empty() {
+                return Err(invalid("texte vide"));
+            }
+            let replacement = TextReplacement {
+                text,
+                font: edit::FontChoice::Original,
+            };
+            self.lock()
+                .editor
+                .replace_text(page, object, Some(replacement))?;
+            return self.object_item(page, object);
+        }
         let (document, index, edits) = self.page_source(page)?;
         let document = document.ok_or_else(|| invalid("page vierge"))?;
         if pdf_core::is_scanned_object(object) {
@@ -655,6 +677,12 @@ impl EditSession {
                     fingerprints.get(&id)?.clone(),
                 ))
             })
+            .chain(
+                edits
+                    .added()
+                    .iter()
+                    .map(|(&id, added)| ObjectEditItem::added(id, added)),
+            )
             .collect())
     }
 
@@ -980,6 +1008,14 @@ impl EditSession {
     /// Applique `change` aux modifications du document.
     pub(crate) fn with_editor<R>(&self, change: impl FnOnce(&mut Editor) -> R) -> R {
         change(&mut self.lock().editor)
+    }
+
+    /// Document source `source` ; `None` s'il n'existe pas.
+    pub(crate) fn source_document(&self, source: u32) -> Option<Arc<PdfDocument>> {
+        self.lock()
+            .sources
+            .get(source as usize)
+            .map(|source| Arc::clone(&source.document))
     }
 
     /// Nombre de pages du document source `source` ; `None` s'il n'existe pas.
@@ -1636,7 +1672,7 @@ mod tests {
         let record = session.content_record(page).unwrap();
         assert_eq!(record.len(), 1);
         assert_eq!(
-            restored_content(&record).get(&line.id).unwrap().scan,
+            restored_content(&record).0.get(&line.id).unwrap().scan,
             session.content(page).unwrap().get(line.id).unwrap().scan
         );
         let exported = session.export_pdf().unwrap();

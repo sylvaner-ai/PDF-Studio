@@ -5,6 +5,7 @@
 //! n'est autorisée dans ce crate.
 #![forbid(unsafe_code)]
 
+mod added;
 pub mod content;
 mod document;
 mod editing;
@@ -20,6 +21,7 @@ mod text;
 mod textlayer;
 mod writer;
 
+pub use added::{blank_document, image_size, AddedInfo};
 pub use document::{Document, RecognitionNeed};
 
 /// Vrai si `id` désigne un objet d'une page scannée (pixels de son image).

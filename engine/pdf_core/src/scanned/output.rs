@@ -80,6 +80,7 @@ pub(crate) fn infos(
             grid: None,
             scanned: true,
             scan,
+            added: None,
         });
     }
     for element in &model.elements {
@@ -104,6 +105,7 @@ pub(crate) fn infos(
             grid: None,
             scanned: true,
             scan: None,
+            added: None,
         });
     }
     for table in &model.tables {
@@ -169,6 +171,7 @@ pub(crate) fn infos(
             grid: Some(grid),
             scanned: true,
             scan: None,
+            added: None,
         });
     }
     out

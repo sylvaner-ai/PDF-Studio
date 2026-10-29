@@ -16,6 +16,7 @@ use edit::{PageEdits, TextLayer};
 use mupdf::pdf::{Encryption, PdfDocument, PdfGraftMap, PdfObject, PdfWriteOptions};
 use mupdf::{Buffer, Size};
 
+use crate::added::{self, AddedResources};
 use crate::document::{has_scan_edits, vector_edits};
 use crate::editing::{self, EmbeddedFonts, FontProvider, PageModel};
 use crate::scanned::{self, ScanModel};
@@ -142,7 +143,7 @@ pub fn write_document(
         rebuild(&mut doc, sources, pages, original_count)?;
     }
     remove_replaced_text(&mut doc, layers)?;
-    let layers = apply_edits(&mut doc, edits, layers)?;
+    let layers = apply_edits(&mut doc, pages, edits, layers)?;
     apply_layers(&mut doc, &layers)?;
 
     let mut options = PdfWriteOptions::default();
@@ -185,15 +186,17 @@ fn remove_replaced_text(doc: &mut PdfDocument, layers: &[Option<Arc<TextLayer>>]
 /// distinct (les pages répétées ont été copiées) : son nouveau contenu ne
 /// s'applique qu'à elle, et les objets partagés (flux, ressources) restent
 /// intacts. Sur une page scannée reconnue, les pixels retouchés sont posés
-/// en calques par-dessus son contenu. Renvoie la couche de texte de chaque
-/// page, retouches comprises.
+/// en calques par-dessus son contenu, puis les objets ajoutés. Renvoie la
+/// couche de texte de chaque page, retouches comprises.
 fn apply_edits(
     doc: &mut PdfDocument,
+    pages: &[OutputPage],
     edits: &[Option<Arc<PageEdits>>],
     layers: &[Option<Arc<TextLayer>>],
 ) -> Result<Vec<Option<Arc<TextLayer>>>> {
     let mut fonts = FontProvider::default();
     let mut embedded = EmbeddedFonts::new();
+    let mut added_resources = AddedResources::default();
     let mut effective = layers.to_vec();
     for (position, edits) in edits.iter().enumerate() {
         let Some(edits) = edits.as_ref().filter(|edits| !edits.is_empty()) else {
@@ -234,6 +237,17 @@ fn apply_edits(
             if let Some(slot) = effective.get_mut(position) {
                 *slot = Some(Arc::new(retouched.layer));
             }
+        }
+        if !edits.added().is_empty() {
+            let turns = pages.get(position).map_or(0, page_turns);
+            added::append(
+                doc,
+                position,
+                turns,
+                edits.added(),
+                &mut fonts,
+                &mut added_resources,
+            )?;
         }
     }
     Ok(effective)

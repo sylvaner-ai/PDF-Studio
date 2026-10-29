@@ -12,12 +12,14 @@ use std::sync::Arc;
 use pdf_core::{DocumentHandle, PdfError, Source, SourceData};
 use render::{Region, Rotation};
 
+mod added;
 mod content;
 mod enhancement;
 mod qos;
 mod recognition;
 mod session;
 
+pub use added::{AddedObjectItem, AddedTextStyle};
 pub use content::{
     ContentEdits, ObjectEditItem, PageObjectItem, PageObjectKind, ScanCandidateItem, ScanStyleItem,
     ScanTextItem, TextFont,
