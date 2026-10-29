@@ -502,6 +502,105 @@ impl Editor {
         Ok(id)
     }
 
+    /// Ajoute des objets à la page `page`, au-dessus des autres et dans
+    /// l'ordre donné, et retire éventuellement des objets de la page
+    /// `removed` (déplacement d'une page à une autre), en une seule étape
+    /// d'annulation nommée `name`. `origin`, s'il est donné, devient ce que la
+    /// page affiche (cf. [`Editor::add_object`]). Renvoie les numéros des
+    /// objets ajoutés.
+    pub fn add_objects(
+        &mut self,
+        page: u64,
+        objects: Vec<AddedObject>,
+        origin: Option<PageOrigin>,
+        removed: Option<(u64, &[u32])>,
+        name: &'static str,
+    ) -> Result<Vec<u32>> {
+        if objects.is_empty() {
+            return Err(EditError::EmptySelection);
+        }
+        let mut state = self.state.clone();
+        if let Some((from, ids)) = removed {
+            if !state.pages.iter().any(|entry| entry.id == from) {
+                return Err(EditError::UnknownPage(from));
+            }
+            let current = state.contents.get(&from);
+            let mut edits = current.map(|content| content.objects()).unwrap_or_default();
+            let mut added = current
+                .map(|content| content.added().clone())
+                .unwrap_or_default();
+            for &id in ids {
+                if is_added_id(id) {
+                    added.remove(&id);
+                } else {
+                    edits.entry(id).or_default().deleted = true;
+                }
+            }
+            let content = self.new_content(edits, added);
+            if content.is_empty() {
+                state.contents.remove(&from);
+            } else {
+                state.contents.insert(from, content);
+            }
+        }
+        let entry = state
+            .pages
+            .iter_mut()
+            .find(|entry| entry.id == page)
+            .ok_or(EditError::UnknownPage(page))?;
+        if let Some(origin) = origin {
+            entry.origin = origin;
+        }
+        let current = state.contents.get(&page);
+        let edits = current.map(|content| content.objects()).unwrap_or_default();
+        let mut added = current
+            .map(|content| content.added().clone())
+            .unwrap_or_default();
+        let first = current.map_or(crate::added::ADDED_ID, |content| content.next_added_id());
+        let mut ids = Vec::with_capacity(objects.len());
+        for (id, object) in (first..).zip(objects) {
+            added.insert(id, object);
+            ids.push(id);
+        }
+        let content = self.new_content(edits, added);
+        state.contents.insert(page, content);
+        self.commit(name, state);
+        Ok(ids)
+    }
+
+    /// Supprime des objets d'une page, comme [`Editor::delete_objects`], sous
+    /// le nom d'action `name` (« la coupe »).
+    pub fn remove_objects(&mut self, page: u64, objects: &[u32], name: &'static str) -> Result<()> {
+        self.edit_objects(page, objects, name, |edit| edit.deleted = true, |_| false)
+    }
+
+    /// Redimensionne l'objet d'origine `object` d'une page : agrandissement
+    /// `scale` autour du coin inférieur gauche de son emprise d'origine,
+    /// puis déplacement (`dx`, `dy`), qui remplacent les précédents.
+    pub fn resize_object(
+        &mut self,
+        page: u64,
+        object: u32,
+        scale: [f32; 2],
+        dx: f32,
+        dy: f32,
+    ) -> Result<()> {
+        if is_added_id(object) {
+            return Err(EditError::EmptySelection);
+        }
+        self.edit_objects(
+            page,
+            &[object],
+            "le redimensionnement",
+            |edit| {
+                edit.scale = (scale != [1.0, 1.0]).then_some(scale);
+                edit.dx = dx;
+                edit.dy = dy;
+            },
+            |_| true,
+        )
+    }
+
     /// Modifie l'objet ajouté `object` d'une page (style d'un texte, cadre
     /// d'une image) ; `name` nomme l'action à annuler.
     pub fn edit_added(

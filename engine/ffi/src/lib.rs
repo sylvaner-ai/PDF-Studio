@@ -13,6 +13,7 @@ use pdf_core::{DocumentHandle, PdfError, Source, SourceData};
 use render::{Region, Rotation};
 
 mod added;
+mod clipboard;
 mod content;
 mod enhancement;
 mod qos;
@@ -20,6 +21,9 @@ mod recognition;
 mod session;
 
 pub use added::{AddedObjectItem, AddedTextStyle};
+pub use clipboard::{
+    clipboard_from_file, pdf_clip_size, ClipContent, ClipPiece, ObjectClipboard, PastePlacement,
+};
 pub use content::{
     ContentEdits, ObjectEditItem, PageObjectItem, PageObjectKind, ScanCandidateItem, ScanStyleItem,
     ScanTextItem, TextFont,
@@ -110,7 +114,7 @@ impl From<render::Bitmap> for RenderedPage {
 
 /// Rectangle sur une page, en points, origine en haut à gauche de la page
 /// droite (sans la rotation d'affichage).
-#[derive(Debug, Clone, Copy, uniffi::Record)]
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
 pub struct PageRect {
     /// Bord gauche.
     pub x: f32,

@@ -64,6 +64,7 @@ pub(crate) fn infos(
             kind: ObjectKind::Text,
             bounds: page_rect(&placement, &zone),
             movable: true,
+            resizable: false,
             editable: true,
             background: false,
             text: Some(
@@ -92,6 +93,7 @@ pub(crate) fn infos(
             kind: element.kind,
             bounds: page_rect(&placement, &zone),
             movable: true,
+            resizable: false,
             editable: false,
             background: false,
             text: None,
@@ -153,6 +155,7 @@ pub(crate) fn infos(
             kind: ObjectKind::Table,
             bounds: page_rect(&placement, &zone),
             movable: true,
+            resizable: false,
             editable: false,
             background: false,
             text: None,

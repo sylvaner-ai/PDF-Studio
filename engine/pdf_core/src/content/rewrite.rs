@@ -11,8 +11,11 @@
 //! - Un texte remplacé est effacé, puis le nouveau texte, mis en page par
 //!   [`super::layout`], est dessiné au même endroit, de la même façon.
 //! - Un objet autre que du texte est supprimé en retirant ses plages
-//!   d'opérations, déplacé en les entourant de `q M cm … Q`. Un tracé qui
-//!   détoure ce qui suit garde son détourage (`W n`).
+//!   d'opérations, déplacé ou redimensionné en les entourant de
+//!   `q M cm … Q`. Un tracé qui détoure ce qui suit garde son détourage
+//!   (`W n`).
+//! - Un texte redimensionné est redessiné comme un texte déplacé, sa
+//!   matrice de texte agrandie autant que l'objet.
 //! - Les tracés d'un tableau réorganisé sont réécrits sous-chemin par
 //!   sous-chemin ([`Reshape`]) : un filet disparaît avec sa ligne, un autre
 //!   change de longueur ou de place.
@@ -40,21 +43,32 @@ pub struct NewText {
 }
 
 /// Modification d'un objet.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Change {
     /// L'objet est supprimé.
     pub deleted: bool,
-    /// Déplacement, dans l'espace de la page PDF.
-    pub offset: (f64, f64),
+    /// Déplacement et agrandissement, dans l'espace de la page PDF.
+    pub transform: Matrix,
     /// Nouveau texte (bloc de texte modifiable seulement).
     pub text: Option<NewText>,
     /// Déformation de ses tracés par les tableaux qu'il traverse.
     pub reshape: Option<Reshape>,
 }
 
+impl Default for Change {
+    fn default() -> Self {
+        Change {
+            deleted: false,
+            transform: Matrix::IDENTITY,
+            text: None,
+            reshape: None,
+        }
+    }
+}
+
 impl Change {
     fn moved(&self) -> bool {
-        self.offset != (0.0, 0.0)
+        !nearly_equal(&self.transform, &Matrix::IDENTITY)
     }
 }
 
@@ -183,7 +197,8 @@ pub fn rewrite(
     let mut edits = Edits::default();
     let mut removed: HashSet<usize> = HashSet::new();
     for insertion in insertions {
-        let snippet = replaced_text(run, &insertion.text, insertion.offset, |state| {
+        let shift = Matrix::translate(insertion.offset.0, insertion.offset.1);
+        let snippet = replaced_text(run, &insertion.text, &shift, |state| {
             insertion_ctm(run, insertion.text_object, state)
         });
         insert_after_text_object(&mut edits, run, ops, insertion.text_object, snippet);
@@ -215,12 +230,12 @@ pub fn rewrite(
                 match new_text {
                     Some(new_text) => {
                         let first = &run.glyphs[block.lines[0].style];
-                        let snippet = replaced_text(run, new_text, change.offset, |state| {
+                        let snippet = replaced_text(run, new_text, &change.transform, |state| {
                             insertion_ctm(run, first.text_object, state)
                         });
                         insert_after_text_object(&mut edits, run, ops, first.text_object, snippet);
                     }
-                    None => moved_text(&mut edits, run, ops, &glyphs, change.offset),
+                    None => moved_text(&mut edits, run, ops, &glyphs, &change.transform),
                 }
             }
             None => {
@@ -390,13 +405,10 @@ fn write_tj(out: &mut Vec<u8>, items: &[LaidItem]) {
     out.extend_from_slice(b"] TJ\n");
 }
 
-/// Matrice qui décale de `offset` (espace de la page) ce qui est dessiné sous
-/// la matrice `ctm` : `ctm × T(offset) × ctm⁻¹`.
-fn offset_matrix(ctm: &Matrix, offset: (f64, f64)) -> Option<Matrix> {
-    Some(
-        ctm.then(&Matrix::translate(offset.0, offset.1))
-            .then(&ctm.inverse()?),
-    )
+/// Matrice qui transforme par `transform` (espace de la page) ce qui est
+/// dessiné sous la matrice `ctm` : `ctm × transform × ctm⁻¹`.
+fn offset_matrix(ctm: &Matrix, transform: &Matrix) -> Option<Matrix> {
+    Some(ctm.then(transform).then(&ctm.inverse()?))
 }
 
 /// Matrice en vigueur là où le texte de l'objet texte `object` est redessiné.
@@ -497,13 +509,14 @@ fn nearly_equal(a: &Matrix, b: &Matrix) -> bool {
     .all(|d| d.abs() < 1e-6)
 }
 
-/// Redessine les glyphes `glyphs`, décalés, après leurs objets texte.
+/// Redessine les glyphes `glyphs`, déplacés ou agrandis par `transform`,
+/// après leurs objets texte.
 fn moved_text(
     edits: &mut Edits,
     run: &Interpretation,
     ops: &[Operation],
     glyphs: &[usize],
-    offset: (f64, f64),
+    transform: &Matrix,
 ) {
     let members: HashSet<usize> = glyphs.iter().copied().collect();
     let mut show_ops: Vec<usize> = glyphs.iter().map(|&g| run.glyphs[g].op).collect();
@@ -561,7 +574,7 @@ fn moved_text(
             let Some(font) = state.font_name.as_deref() else {
                 continue;
             };
-            let Some(shift) = offset_matrix(&state.ctm, offset) else {
+            let Some(shift) = offset_matrix(&state.ctm, transform) else {
                 continue;
             };
             if open != Some(glyph.state) {
@@ -603,16 +616,16 @@ fn moved_text(
     }
 }
 
-/// Dessine le nouveau texte d'un bloc, décalé de `offset`.
+/// Dessine le nouveau texte d'un bloc, déplacé ou agrandi par `transform`.
 fn replaced_text(
     run: &Interpretation,
     new_text: &NewText,
-    offset: (f64, f64),
+    transform: &Matrix,
     ctm_here: impl Fn(&GraphicsState) -> Matrix,
 ) -> Vec<u8> {
     let layout = &new_text.layout;
     let state = &run.states[layout.state];
-    let shift = offset_matrix(&state.ctm, offset).unwrap_or(Matrix::IDENTITY);
+    let shift = offset_matrix(&state.ctm, transform).unwrap_or(Matrix::IDENTITY);
     let frame = layout.frame.then(&shift);
     let mut out = Vec::new();
     // Les espaces sont dessinées avec leur chasse mesurée : pas
@@ -670,7 +683,7 @@ fn segment_replacement(
         .get(segment.start)
         .copied()
         .unwrap_or(Matrix::IDENTITY);
-    match offset_matrix(&ctm, change.offset) {
+    match offset_matrix(&ctm, &change.transform) {
         Some(m) => {
             write_op(&mut out, &[], "q");
             write_op(&mut out, &[m.a, m.b, m.c, m.d, m.e, m.f], "cm");
@@ -896,7 +909,7 @@ mod tests {
 
     fn moved(dx: f64, dy: f64) -> Change {
         Change {
-            offset: (dx, dy),
+            transform: Matrix::translate(dx, dy),
             ..Change::default()
         }
     }

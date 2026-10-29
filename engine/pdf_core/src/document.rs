@@ -6,6 +6,7 @@ use edit::{FontChoice, PageEdits, ScanCandidate, ScanStyle, TextLayer};
 use mupdf::pdf::PdfDocument;
 
 use crate::added::{self, AddedResources};
+use crate::clip::{self, Clip};
 use crate::content::geometry::{Matrix, Point};
 use crate::editing::{self, EmbeddedFonts, FontProvider, ObjectInfo, PageModel, Scratch};
 use crate::enhanced::{self, ScanPixels};
@@ -408,6 +409,45 @@ impl Document {
             text,
             &mut self.editing.scratch,
         )
+    }
+
+    /// Copie des objets `objects` de la page, modifications `edits`
+    /// comprises, en PDF d'une page (cf. [`crate::clip`]) ; `quarter_turns` :
+    /// quarts de tour que l'organisation donne à la page. `None` si aucun
+    /// objet ne peut être copié.
+    pub fn clip(
+        &mut self,
+        index: u32,
+        edits: Option<&PageEdits>,
+        objects: &[u32],
+        quarter_turns: u8,
+    ) -> Result<Option<Clip>> {
+        let model = self.page_model(index)?;
+        let editing = &mut self.editing;
+        clip::clip(
+            &mut self.inner,
+            index,
+            &model,
+            edits,
+            objects,
+            quarter_turns,
+            &mut editing.fonts,
+            &mut editing.embedded,
+        )
+    }
+
+    /// Agrandissement et déplacement qui placent l'objet d'origine `object`
+    /// dans le cadre `target` de l'espace d'affichage ; `None` s'il ne se
+    /// redimensionne pas.
+    pub fn resize_object(
+        &mut self,
+        index: u32,
+        edits: Option<&PageEdits>,
+        object: u32,
+        target: &PageRect,
+    ) -> Result<Option<([f32; 2], f32, f32)>> {
+        let model = self.page_model(index)?;
+        clip::resize(&model, edits, object, target, &mut self.editing.fonts)
     }
 
     /// Contenu affichable de la page avec les modifications `edits` ; pour

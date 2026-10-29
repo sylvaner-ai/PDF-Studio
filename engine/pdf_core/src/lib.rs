@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 mod added;
+mod clip;
 pub mod content;
 mod document;
 mod editing;
@@ -21,7 +22,8 @@ mod text;
 mod textlayer;
 mod writer;
 
-pub use added::{blank_document, image_size, AddedInfo};
+pub use added::{blank_document, image_size, is_pdf, AddedInfo};
+pub use clip::Clip;
 pub use document::{Document, RecognitionNeed};
 
 /// Vrai si `id` désigne un objet d'une page scannée (pixels de son image).

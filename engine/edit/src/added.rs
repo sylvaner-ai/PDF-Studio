@@ -52,6 +52,14 @@ impl AddedObject {
             }
         }
     }
+
+    /// Quarts de tour de la page à l'écran quand l'objet a été ajouté.
+    pub fn turns(&self) -> u8 {
+        match self {
+            AddedObject::Text(text) => text.turns,
+            AddedObject::Image(image) => image.turns,
+        }
+    }
 }
 
 /// Texte ajouté : des lignes séparées par des retours voulus, sans renvoi

@@ -7,6 +7,7 @@ use std::thread;
 
 use edit::{FontChoice, PageEdits, ScanCandidate, ScanStyle, TextLayer};
 
+use crate::clip::Clip;
 use crate::content::geometry::Matrix;
 use crate::document::{self, layer_lines, Document, RecognitionNeed};
 use crate::editing::ObjectInfo;
@@ -15,7 +16,7 @@ use crate::error::{PdfError, Result};
 use crate::outline::OutlineEntry;
 use crate::page::{PageContent, PageSize};
 use crate::qos::Qos;
-use crate::text::{GlyphLine, PageText, TextLine, TextMatch};
+use crate::text::{GlyphLine, PageRect, PageText, TextLine, TextMatch};
 use crate::writer::SourceData;
 
 /// Nombre de pages dont le contenu préparé est gardé en mémoire.
@@ -241,6 +242,38 @@ impl DocumentHandle {
             let model = worker.doc.page_model(index)?;
             let (x, y) = model.display_to_page_offset(f64::from(dx), f64::from(dy));
             Ok((x as f32, y as f32))
+        })?
+    }
+
+    /// Copie des objets `objects` de la page en PDF d'une page (cf.
+    /// [`Document::clip`]).
+    pub fn clip(
+        &self,
+        index: u32,
+        edits: Option<Arc<PageEdits>>,
+        objects: Vec<u32>,
+        quarter_turns: u8,
+    ) -> Result<Option<Clip>> {
+        self.run(move |worker| {
+            worker
+                .doc
+                .clip(index, edits.as_deref(), &objects, quarter_turns)
+        })?
+    }
+
+    /// Agrandissement et déplacement qui placent l'objet d'origine `object`
+    /// dans le cadre `target` (cf. [`Document::resize_object`]).
+    pub fn resize_object(
+        &self,
+        index: u32,
+        edits: Option<Arc<PageEdits>>,
+        object: u32,
+        target: PageRect,
+    ) -> Result<Option<([f32; 2], f32, f32)>> {
+        self.run(move |worker| {
+            worker
+                .doc
+                .resize_object(index, edits.as_deref(), object, &target)
         })?
     }
 

@@ -74,6 +74,10 @@ pub struct ObjectEdit {
     pub dx: f32,
     /// Déplacement vertical, en points, vers le haut.
     pub dy: f32,
+    /// Agrandissement horizontal et vertical (1 : taille d'origine), autour
+    /// du coin inférieur gauche de l'emprise d'origine de l'objet, avant son
+    /// déplacement ; `None` : taille d'origine.
+    pub scale: Option<[f32; 2]>,
     /// Nouveau texte, pour un bloc de texte.
     pub text: Option<TextReplacement>,
     /// Modifications d'un tableau.
@@ -88,10 +92,16 @@ impl ObjectEdit {
         self.dx != 0.0 || self.dy != 0.0
     }
 
+    /// Vrai si l'objet est redimensionné.
+    pub fn is_resized(&self) -> bool {
+        self.scale.is_some_and(|scale| scale != [1.0, 1.0])
+    }
+
     /// Vrai si l'objet est inchangé.
     pub fn is_unchanged(&self) -> bool {
         !self.deleted
             && !self.is_moved()
+            && !self.is_resized()
             && self.text.is_none()
             && self.scan.is_none()
             && self.table.as_ref().is_none_or(TableEdit::is_unchanged)

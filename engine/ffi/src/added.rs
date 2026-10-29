@@ -9,6 +9,7 @@ use edit::{is_added_id, AddedImage, AddedObject, AddedText, FontChoice, PageOrig
 use pdf_core::content::geometry::{Matrix, Point, Rect};
 use pdf_core::AddedInfo;
 
+use crate::clipboard::Upright;
 use crate::content::{PageObjectItem, TextFont};
 use crate::session::EditSession;
 use crate::{EngineError, PageRect, PdfDocument};
@@ -66,7 +67,7 @@ pub enum AddedObjectItem {
 impl AddedTextStyle {
     /// Police (une police standard plutôt que la police « d'origine », qui
     /// n'existe pas pour un texte ajouté), corps et couleur, bornés.
-    fn parts(&self) -> (FontChoice, f32, [f32; 3]) {
+    pub(crate) fn parts(&self) -> (FontChoice, f32, [f32; 3]) {
         let style = self;
         let font = match FontChoice::from(style.font.clone()) {
             FontChoice::Original => FontChoice::Standard {
@@ -82,7 +83,7 @@ impl AddedTextStyle {
     }
 }
 
-fn style_item(font: &FontChoice, size: f32, color: [f32; 3]) -> AddedTextStyle {
+pub(crate) fn style_item(font: &FontChoice, size: f32, color: [f32; 3]) -> AddedTextStyle {
     let [red, green, blue] = color;
     AddedTextStyle {
         font: TextFont::from(font),
@@ -260,32 +261,60 @@ impl EditSession {
         self.object_item(page, object)
     }
 
-    /// Place l'image ajoutée `object` dans le cadre `bounds` de la page
-    /// droite (redimensionnement). Renvoie l'image modifiée.
+    /// Redimensionne l'objet `object` : il occupe le cadre `bounds` de la
+    /// page droite. Une image ajoutée prend ce cadre ; un texte ajouté garde
+    /// ses proportions (son corps suit la hauteur du cadre) ; un objet
+    /// d'origine (bloc de texte, image, tracés, formulaire) est agrandi
+    /// autant qu'il le faut. Un tableau, une cellule et les objets d'un scan
+    /// ne se redimensionnent pas. Renvoie l'objet modifié.
     pub fn set_object_bounds(
         &self,
         page: u64,
         object: u32,
         bounds: PageRect,
     ) -> Result<PageObjectItem, EngineError> {
-        if !is_added_id(object) {
-            return Err(invalid("objet d'origine"));
-        }
-        let (document, index, _) = self.page_source(page)?;
+        let (document, index, edits) = self.page_source(page)?;
         let document = document.ok_or_else(|| invalid("page vierge"))?;
         let rect = page_rect(&document, index, bounds)?;
-        let mut is_image = false;
+        if !is_added_id(object) {
+            if pdf_core::is_scanned_object(object) {
+                return Err(invalid("objet d'un scan"));
+            }
+            let target = pdf_core::PageRect {
+                x: bounds.x,
+                y: bounds.y,
+                width: bounds.width,
+                height: bounds.height,
+            };
+            let (scale, dx, dy) = document
+                .handle
+                .resize_object(index, edits, object, target)?
+                .ok_or_else(|| invalid("objet qui ne se redimensionne pas"))?;
+            self.with_editor(|editor| editor.resize_object(page, object, scale, dx, dy))?;
+            return self.object_item(page, object);
+        }
+        let current = self.object_item(page, object)?;
+        let size = crate::clipboard::page_size(&document, index)?;
+        let to_page = from_display(&document, index)?;
         self.with_editor(|editor| {
-            editor.edit_added(page, object, "le redimensionnement", |added| {
-                if let AddedObject::Image(image) = added {
-                    is_image = true;
-                    image.rect = rect;
+            editor.edit_added(page, object, "le redimensionnement", |added| match added {
+                AddedObject::Image(image) => image.rect = rect,
+                AddedObject::Text(text) => {
+                    // À l'écran, page tournée comme quand le texte a été ajouté.
+                    let upright = Upright::new(size, text.turns);
+                    let old = upright.rect(&current.bounds);
+                    let new = upright.rect(&bounds);
+                    if old.height() > 0.1 {
+                        let ratio = (new.height() / old.height()) as f32;
+                        text.size = (text.size * ratio).clamp(1.0, 500.0);
+                    }
+                    let (x, y) = upright.back(new.x0, new.y0);
+                    let anchor = to_page.apply(Point::new(x, y));
+                    text.x = anchor.x as f32;
+                    text.y = anchor.y as f32;
                 }
             })
         })?;
-        if !is_image {
-            return Err(invalid("pas une image ajoutée"));
-        }
         self.object_item(page, object)
     }
 
@@ -308,7 +337,7 @@ impl EditSession {
 impl EditSession {
     /// Document et indice de la page où ajouter un objet, la nouvelle
     /// origine d'une page vierge et les quarts de tour de la page à l'écran.
-    fn target(
+    pub(crate) fn target(
         &self,
         page: u64,
         blank_source: Option<u32>,
@@ -517,9 +546,6 @@ mod tests {
             .set_object_bounds(page, image.id, rect(110.0, 205.0, 40.0, 20.0))
             .unwrap();
         assert!((resized.bounds.width - 40.0).abs() < 0.01);
-        assert!(session
-            .set_object_bounds(page, text.id, rect(0.0, 0.0, 5.0, 5.0))
-            .is_err());
         let restyled = session
             .set_added_text_style(page, text.id, style(30.0))
             .unwrap();
