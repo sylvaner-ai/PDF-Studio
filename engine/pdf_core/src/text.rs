@@ -10,7 +10,7 @@ use unicode_normalization::char::is_combining_mark;
 use unicode_normalization::UnicodeNormalization;
 
 /// Rectangle sur une page, en points, origine en haut à gauche (rotation `/Rotate` comprise).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct PageRect {
     /// Bord gauche.
     pub x: f32,

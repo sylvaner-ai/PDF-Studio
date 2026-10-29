@@ -80,3 +80,50 @@ struct SearchField: NSViewRepresentable {
         }
     }
 }
+
+/// Panneau de recherche, en haut à droite des pages (⌘F) : champ, compteur
+/// d'occurrences, occurrence précédente ou suivante, fermeture (Échap).
+struct SearchPanel: View {
+    let search: SearchModel
+
+    var body: some View {
+        HStack(spacing: Design.Spacing.small) {
+            SearchField(
+                text: search.query,
+                focusRequest: search.focusRequest,
+                onChange: { search.update(query: $0) },
+                onNext: { search.next() },
+                onPrevious: { search.previous() },
+                onCancel: { search.dismiss() }
+            )
+            .frame(width: 220)
+            if let status = search.status {
+                Text(status)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .fixedSize()
+            }
+            Button { search.previous() } label: {
+                Image(systemName: "chevron.up")
+            }
+            .help(Text("Occurrence précédente (⇧⌘G)"))
+            .disabled(!search.hasHits)
+            Button { search.next() } label: {
+                Image(systemName: "chevron.down")
+            }
+            .help(Text("Occurrence suivante (⌘G)"))
+            .disabled(!search.hasHits)
+            Button { search.dismiss() } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .help(Text("Fermer la recherche (Échap)"))
+            .accessibilityLabel(Text("Fermer la recherche"))
+        }
+        .buttonStyle(.borderless)
+        .padding(.horizontal, Design.Spacing.medium)
+        .padding(.vertical, Design.Spacing.small)
+        .floatingPanel()
+        .padding(Design.Spacing.medium)
+    }
+}

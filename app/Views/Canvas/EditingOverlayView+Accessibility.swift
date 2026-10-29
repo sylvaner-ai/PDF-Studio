@@ -107,6 +107,9 @@ final class PageObjectElement: NSAccessibilityElement {
 extension PageObjectItem {
     /// Nature de l'objet, telle que l'affiche le bandeau du mode Édition.
     var kindName: String {
+        if added {
+            return kind == .image ? String(localized: "Image ajoutée") : String(localized: "Texte ajouté")
+        }
         switch kind {
         case .text: return String(localized: "Bloc de texte")
         case .image: return String(localized: "Image")

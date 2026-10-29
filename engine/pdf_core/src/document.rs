@@ -5,6 +5,7 @@ use std::sync::Arc;
 use edit::{FontChoice, PageEdits, ScanCandidate, ScanStyle, TextLayer};
 use mupdf::pdf::PdfDocument;
 
+use crate::added::{self, AddedResources};
 use crate::content::geometry::{Matrix, Point};
 use crate::editing::{self, EmbeddedFonts, FontProvider, ObjectInfo, PageModel, Scratch};
 use crate::enhanced::{self, ScanPixels};
@@ -56,6 +57,9 @@ struct Editing {
     models: HashMap<u32, Arc<PageModel>>,
     fonts: FontProvider,
     embedded: EmbeddedFonts,
+    /// Polices et images des objets ajoutés, ajoutées au document pour
+    /// l'aperçu.
+    added: AddedResources,
     scratch: Scratch,
     /// Pages scannées : empreinte de la couche de texte et objets.
     scans: HashMap<u32, (u64, Option<Arc<ScanModel>>)>,
@@ -268,7 +272,8 @@ impl Document {
 
     /// Objets de la page, modifications `edits` comprises. Une page scannée
     /// reconnue (couche de texte `layer`) montre les objets de son image :
-    /// lignes de texte, tableaux, éléments graphiques et filets.
+    /// lignes de texte, tableaux, éléments graphiques et filets. Les objets
+    /// ajoutés viennent en dernier, au-dessus des autres.
     pub fn page_objects(
         &mut self,
         index: u32,
@@ -283,6 +288,13 @@ impl Document {
                 .filter(|edits| has_scan_edits(edits))
                 .map(|edits| self.retouched(index, &scan, layer, edits));
             infos.extend(scanned::infos(&scan, edits, retouched.as_deref()));
+        }
+        if let Some(edits) = edits.filter(|edits| !edits.added().is_empty()) {
+            infos.extend(added::infos(
+                edits.added(),
+                &model.display_matrix(),
+                &mut self.editing.fonts,
+            ));
         }
         Ok(infos)
     }
@@ -400,7 +412,7 @@ impl Document {
 
     /// Contenu affichable de la page avec les modifications `edits` ; pour
     /// une page scannée reconnue (couche `layer`), les pixels retouchés sont
-    /// posés par-dessus.
+    /// posés par-dessus, puis les objets ajoutés.
     pub fn edited_page_content(
         &mut self,
         index: u32,
@@ -425,14 +437,37 @@ impl Document {
             }
             _ => None,
         };
-        match scan {
-            Some((scan, retouched)) => {
-                let list =
-                    scanned::compose(content.display_list(), &scan.image.placement, &retouched)?;
-                Ok(PageContent::new(list, size))
+        let composed = match scan {
+            Some((scan, retouched)) => Some(scanned::compose(
+                content.display_list(),
+                &scan.image.placement,
+                &retouched,
+            )?),
+            None => None,
+        };
+        let overlay = if edits.added().is_empty() {
+            None
+        } else {
+            let to_display = self.page_model(index)?.display_matrix();
+            let editing = &mut self.editing;
+            added::overlay(
+                &mut self.inner,
+                index,
+                &to_display,
+                edits.added(),
+                &mut editing.fonts,
+                &mut editing.added,
+                &mut editing.scratch,
+            )?
+        };
+        Ok(match (composed, overlay) {
+            (Some(composed), Some(top)) => PageContent::new(added::stack(&composed, &top)?, size),
+            (None, Some(top)) => {
+                PageContent::new(added::stack(content.display_list(), &top)?, size)
             }
-            None => Ok(content),
-        }
+            (Some(composed), None) => PageContent::new(composed, size),
+            (None, None) => content,
+        })
     }
 
     /// Contenu affichable de la page avec les modifications `edits` de son

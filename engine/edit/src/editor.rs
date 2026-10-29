@@ -13,6 +13,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
+use crate::added::{is_added_id, AddedObject};
 use crate::content::{ObjectEdit, PageEdits, TableEdit, TextReplacement};
 use crate::history::{Command, History};
 use crate::layer::TextLayer;
@@ -390,8 +391,8 @@ impl Editor {
                 replaces: page.replaces,
                 ..self.new_entry(page.origin, page.quarter_turns % 4)
             };
-            if !page.content.is_empty() {
-                let content = self.new_content(page.content.clone());
+            if !page.content.is_empty() || !page.added.is_empty() {
+                let content = self.new_content(page.content.clone(), page.added.clone());
                 state.contents.insert(entry.id, content);
             }
             if let Some(layer) = page.text_layer.as_ref().filter(|layer| !layer.is_empty()) {
@@ -407,32 +408,128 @@ impl Editor {
         Ok(())
     }
 
-    /// Supprime des objets d'une page.
+    /// Supprime des objets d'une page ; un objet ajouté disparaît.
     pub fn delete_objects(&mut self, page: u64, objects: &[u32]) -> Result<()> {
-        self.edit_objects(page, objects, "la suppression", |edit| {
-            edit.deleted = true;
-        })
+        self.edit_objects(
+            page,
+            objects,
+            "la suppression",
+            |edit| edit.deleted = true,
+            |_| false,
+        )
     }
 
     /// Déplace des objets d'une page, en points dans l'espace de la page PDF
     /// (ordonnées vers le haut).
     pub fn move_objects(&mut self, page: u64, objects: &[u32], dx: f32, dy: f32) -> Result<()> {
-        self.edit_objects(page, objects, "le déplacement", |edit| {
-            edit.dx += dx;
-            edit.dy += dy;
-        })
+        self.edit_objects(
+            page,
+            objects,
+            "le déplacement",
+            |edit| {
+                edit.dx += dx;
+                edit.dy += dy;
+            },
+            |added| {
+                added.offset(dx, dy);
+                true
+            },
+        )
     }
 
     /// Remplace le texte d'un bloc ; `None` rend au bloc son texte d'origine.
+    /// Le texte d'un objet ajouté prend le nouveau texte (sa police est
+    /// gardée) ; `None` ou un texte vide le supprime.
     pub fn replace_text(
         &mut self,
         page: u64,
         object: u32,
         text: Option<TextReplacement>,
     ) -> Result<()> {
-        self.edit_objects(page, &[object], "la modification du texte", |edit| {
-            edit.text = text.clone();
-        })
+        let added_text = text
+            .as_ref()
+            .map(|replacement| replacement.text.clone())
+            .filter(|text| !text.trim().is_empty());
+        self.edit_objects(
+            page,
+            &[object],
+            "la modification du texte",
+            |edit| edit.text = text.clone(),
+            |added| match (added, &added_text) {
+                (AddedObject::Text(added), Some(text)) => {
+                    added.text = text.clone();
+                    true
+                }
+                (AddedObject::Image(_), _) => true,
+                (AddedObject::Text(_), None) => false,
+            },
+        )
+    }
+
+    /// Ajoute un objet à une page, au-dessus des autres ; renvoie son numéro.
+    /// `origin`, s'il est donné, devient ce que la page affiche, dans la même
+    /// étape d'annulation : une page vierge reçoit ainsi un vrai document
+    /// d'une page vierge, où dessiner l'objet.
+    pub fn add_object(
+        &mut self,
+        page: u64,
+        object: AddedObject,
+        origin: Option<PageOrigin>,
+    ) -> Result<u32> {
+        let name = match object {
+            AddedObject::Text(_) => "l'ajout du texte",
+            AddedObject::Image(_) => "l'ajout de l'image",
+        };
+        let mut state = self.state.clone();
+        let entry = state
+            .pages
+            .iter_mut()
+            .find(|entry| entry.id == page)
+            .ok_or(EditError::UnknownPage(page))?;
+        if let Some(origin) = origin {
+            entry.origin = origin;
+        }
+        let current = self.state.contents.get(&page);
+        let objects = current.map(|content| content.objects()).unwrap_or_default();
+        let mut added = current
+            .map(|content| content.added().clone())
+            .unwrap_or_default();
+        let id = current.map_or(crate::added::ADDED_ID, |content| content.next_added_id());
+        added.insert(id, object);
+        let content = self.new_content(objects, added);
+        state.contents.insert(page, content);
+        self.commit(name, state);
+        Ok(id)
+    }
+
+    /// Modifie l'objet ajouté `object` d'une page (style d'un texte, cadre
+    /// d'une image) ; `name` nomme l'action à annuler.
+    pub fn edit_added(
+        &mut self,
+        page: u64,
+        object: u32,
+        name: &'static str,
+        change: impl FnOnce(&mut AddedObject),
+    ) -> Result<()> {
+        let exists = self
+            .content(page)
+            .is_some_and(|content| content.added().contains_key(&object));
+        if !exists {
+            return Err(EditError::EmptySelection);
+        }
+        let mut change = Some(change);
+        self.edit_objects(
+            page,
+            &[object],
+            name,
+            |_| {},
+            |added| {
+                if let Some(change) = change.take() {
+                    change(added);
+                }
+                true
+            },
+        )
     }
 
     /// Remplace le texte d'une ligne d'une page scannée ; `None` rend à la
@@ -443,9 +540,13 @@ impl Editor {
         object: u32,
         text: Option<ScanText>,
     ) -> Result<()> {
-        self.edit_objects(page, &[object], "la modification du texte", |edit| {
-            edit.scan = text.clone();
-        })
+        self.edit_objects(
+            page,
+            &[object],
+            "la modification du texte",
+            |edit| edit.scan = text.clone(),
+            |_| true,
+        )
     }
 
     /// Change les réglages du texte retouché d'une ligne scannée.
@@ -457,11 +558,17 @@ impl Editor {
         if !has_text {
             return Err(EditError::EmptySelection);
         }
-        self.edit_objects(page, &[object], "le réglage du texte", |edit| {
-            if let Some(scan) = &mut edit.scan {
-                scan.style = style.clone();
-            }
-        })
+        self.edit_objects(
+            page,
+            &[object],
+            "le réglage du texte",
+            |edit| {
+                if let Some(scan) = &mut edit.scan {
+                    scan.style = style.clone();
+                }
+            },
+            |_| true,
+        )
     }
 
     /// Modifie le tableau `table` d'une page : `change` reçoit ses
@@ -473,11 +580,17 @@ impl Editor {
         name: &'static str,
         change: impl Fn(&mut TableEdit),
     ) -> Result<()> {
-        self.edit_objects(page, &[table], name, |edit| {
-            let mut table = edit.table.clone().unwrap_or_default();
-            change(&mut table);
-            edit.table = (!table.is_unchanged()).then_some(table);
-        })
+        self.edit_objects(
+            page,
+            &[table],
+            name,
+            |edit| {
+                let mut table = edit.table.clone().unwrap_or_default();
+                change(&mut table);
+                edit.table = (!table.is_unchanged()).then_some(table);
+            },
+            |_| true,
+        )
     }
 
     /// Défait la dernière modification ; renvoie `false` s'il n'y en a pas.
@@ -534,19 +647,26 @@ impl Editor {
         }
     }
 
-    fn new_content(&mut self, objects: BTreeMap<u32, ObjectEdit>) -> Arc<PageEdits> {
+    fn new_content(
+        &mut self,
+        objects: BTreeMap<u32, ObjectEdit>,
+        added: BTreeMap<u32, AddedObject>,
+    ) -> Arc<PageEdits> {
         let revision = self.next_content_revision;
         self.next_content_revision += 1;
-        Arc::new(PageEdits::new(objects, revision))
+        Arc::new(PageEdits::with_added(objects, added, revision))
     }
 
-    /// Applique `change` à la modification de chacun des objets désignés.
+    /// Applique `change` à la modification de chacun des objets désignés,
+    /// et `change_added` à chacun des objets ajoutés désignés (qu'il
+    /// supprime en renvoyant `false`).
     fn edit_objects(
         &mut self,
         page: u64,
         objects: &[u32],
         name: &'static str,
-        change: impl Fn(&mut ObjectEdit),
+        mut change: impl FnMut(&mut ObjectEdit),
+        mut change_added: impl FnMut(&mut AddedObject) -> bool,
     ) -> Result<()> {
         if objects.is_empty() {
             return Err(EditError::EmptySelection);
@@ -554,17 +674,24 @@ impl Editor {
         if !self.state.pages.iter().any(|entry| entry.id == page) {
             return Err(EditError::UnknownPage(page));
         }
-        let mut edits = self
-            .state
-            .contents
-            .get(&page)
-            .map(|content| content.objects())
+        let current = self.state.contents.get(&page);
+        let mut edits = current.map(|content| content.objects()).unwrap_or_default();
+        let mut added = current
+            .map(|content| content.added().clone())
             .unwrap_or_default();
         for &object in objects {
-            change(edits.entry(object).or_default());
+            if is_added_id(object) {
+                if let Some(item) = added.get_mut(&object) {
+                    if !change_added(item) {
+                        added.remove(&object);
+                    }
+                }
+            } else {
+                change(edits.entry(object).or_default());
+            }
         }
         let mut state = self.state.clone();
-        let content = self.new_content(edits);
+        let content = self.new_content(edits, added);
         if content.is_empty() {
             state.contents.remove(&page);
         } else {
@@ -611,9 +738,9 @@ fn same_state(a: &State, b: &State) -> bool {
         })
         && a.contents.len() == b.contents.len()
         && a.contents.iter().all(|(id, content)| {
-            b.contents
-                .get(id)
-                .is_some_and(|other| content.objects() == other.objects())
+            b.contents.get(id).is_some_and(|other| {
+                content.objects() == other.objects() && content.added() == other.added()
+            })
         })
 }
 
@@ -627,6 +754,8 @@ pub struct RestoredPage {
     pub quarter_turns: u8,
     /// Modifications du contenu, par numéro d'objet.
     pub content: BTreeMap<u32, ObjectEdit>,
+    /// Objets ajoutés, par numéro.
+    pub added: BTreeMap<u32, AddedObject>,
     /// Couche de texte d'une page reconnue.
     pub text_layer: Option<TextLayer>,
     /// Page d'origine d'une page améliorée.
@@ -783,6 +912,7 @@ mod tests {
                 },
                 quarter_turns: 5,
                 content,
+                added: BTreeMap::new(),
                 text_layer: None,
                 replaces: None,
             },
@@ -790,6 +920,7 @@ mod tests {
                 origin: blank,
                 quarter_turns: 0,
                 content: BTreeMap::new(),
+                added: BTreeMap::new(),
                 text_layer: None,
                 replaces: None,
             },
@@ -925,6 +1056,106 @@ mod tests {
         assert!(editor.content(page).is_none());
         editor.undo();
         assert!(editor.content(page).is_some());
+    }
+
+    fn added_text(text: &str) -> AddedObject {
+        AddedObject::Text(crate::AddedText {
+            text: text.to_owned(),
+            font: crate::FontChoice::Standard {
+                name: "Helvetica".to_owned(),
+            },
+            size: 12.0,
+            color: [0.0; 3],
+            x: 72.0,
+            y: 720.0,
+            turns: 0,
+        })
+    }
+
+    #[test]
+    fn ajoute_deplace_modifie_et_supprime_des_objets() {
+        let mut editor = Editor::new(2);
+        let page = editor.pages()[0].id;
+        let first = editor
+            .add_object(page, added_text("Bonjour"), None)
+            .unwrap();
+        assert_eq!(first, crate::ADDED_ID);
+        assert_eq!(editor.undo_name(), Some("l'ajout du texte"));
+        let image = crate::AddedImage::new(vec![0xFF, 0xD8], [10.0, 10.0, 110.0, 60.0], 0);
+        let second = editor
+            .add_object(page, AddedObject::Image(image), None)
+            .unwrap();
+        assert_eq!(second, first + 1);
+
+        // Un objet d'origine et un objet ajouté se déplacent ensemble.
+        editor.move_objects(page, &[3, first], 5.0, -5.0).unwrap();
+        let content = editor.content(page).unwrap();
+        assert!(content.get(3).unwrap().is_moved());
+        let AddedObject::Text(text) = &content.added()[&first] else {
+            panic!("texte attendu")
+        };
+        assert_eq!((text.x, text.y), (77.0, 715.0));
+
+        let replacement = |text: &str| TextReplacement {
+            text: text.to_owned(),
+            font: crate::FontChoice::Original,
+        };
+        editor
+            .replace_text(page, first, Some(replacement("Bonsoir")))
+            .unwrap();
+        let AddedObject::Text(text) = &editor.content(page).unwrap().added()[&first] else {
+            panic!("texte attendu")
+        };
+        assert_eq!(text.text, "Bonsoir");
+        // Le texte garde sa police.
+        assert!(matches!(text.font, crate::FontChoice::Standard { .. }));
+
+        editor
+            .edit_added(page, second, "le redimensionnement", |object| {
+                if let AddedObject::Image(image) = object {
+                    image.rect = [0.0, 0.0, 50.0, 25.0];
+                }
+            })
+            .unwrap();
+        assert_eq!(editor.undo_name(), Some("le redimensionnement"));
+        assert!(editor.edit_added(page, 7, "rien", |_| {}).is_err());
+
+        // Un texte vidé disparaît, comme un objet ajouté supprimé.
+        editor
+            .replace_text(page, first, Some(replacement(" ")))
+            .unwrap();
+        editor.delete_objects(page, &[second]).unwrap();
+        assert!(editor.content(page).unwrap().added().is_empty());
+        // Un nouvel objet reprend le premier numéro libre au-dessus des autres.
+        let third = editor.add_object(page, added_text("Encore"), None).unwrap();
+        assert_eq!(third, crate::ADDED_ID);
+
+        // Tout s'annule.
+        while editor.undo() {}
+        assert!(editor.content(page).is_none());
+        assert!(!editor.is_modified());
+    }
+
+    #[test]
+    fn un_ajout_sur_une_page_vierge_lui_donne_un_document() {
+        let mut editor = Editor::new(1);
+        let blank = PageOrigin::Blank {
+            width: 100.0,
+            height: 200.0,
+        };
+        let position = editor.insert(1, &[blank]).unwrap()[0];
+        let page = editor.pages()[position].id;
+        let filled = PageOrigin::Source {
+            source: 1,
+            index: 0,
+        };
+        editor
+            .add_object(page, added_text("Note"), Some(filled))
+            .unwrap();
+        assert_eq!(editor.pages()[position].origin, filled);
+        editor.undo();
+        assert_eq!(editor.pages()[position].origin, blank);
+        assert!(editor.content(page).is_none());
     }
 
     fn layer(text: &str) -> TextLayer {
@@ -1113,6 +1344,7 @@ mod tests {
                 },
                 quarter_turns: 0,
                 content: BTreeMap::new(),
+                added: BTreeMap::new(),
                 text_layer: Some(layer("Retrouvé")),
                 replaces: None,
             }])

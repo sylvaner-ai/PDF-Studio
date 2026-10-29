@@ -116,12 +116,17 @@ extension EditingOverlayView {
         return item.displayFontName.flatMap { NSFont(name: $0, size: size) } ?? .systemFont(ofSize: size)
     }
 
-    /// Objet sous le pointeur : le plus petit, à égalité le plus haut placé.
+    /// Objet sous le pointeur : un objet ajouté, posé sur tout le reste (le
+    /// dernier ajouté d'abord), sinon le plus petit, à égalité le plus haut
+    /// placé.
     func object(at point: CGPoint) -> PageObjectItem? {
         let tolerance = 3 * screenPoint
-        return hittableItems.reversed()
+        let touched = hittableItems.reversed()
             .filter { frame(of: $0).insetBy(dx: -tolerance, dy: -tolerance).contains(point) }
-            .min { area(frame(of: $0)) < area(frame(of: $1)) }
+        if let added = touched.first(where: \.added) {
+            return added
+        }
+        return touched.min { area(frame(of: $0)) < area(frame(of: $1)) }
     }
 
     func area(_ rect: CGRect) -> CGFloat { rect.width * rect.height }

@@ -10,6 +10,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::added::{AddedObject, ADDED_ID};
 use crate::scan::ScanText;
 
 /// Police d'un texte remplacé.
@@ -97,7 +98,8 @@ impl ObjectEdit {
     }
 }
 
-/// Modifications du contenu d'une page, par numéro d'objet.
+/// Modifications du contenu d'une page, par numéro d'objet, et objets
+/// ajoutés à la page (textes, images).
 ///
 /// Chaque état est figé : une modification produit un nouvel état, numéroté
 /// ([`PageEdits::revision`]), ce qui permet de garder en cache les images d'une
@@ -105,17 +107,31 @@ impl ObjectEdit {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PageEdits {
     objects: BTreeMap<u32, ObjectEdit>,
+    added: BTreeMap<u32, AddedObject>,
     revision: u64,
 }
 
 impl PageEdits {
     /// Modifications données, numérotées `revision`.
     pub fn new(objects: BTreeMap<u32, ObjectEdit>, revision: u64) -> Self {
+        Self::with_added(objects, BTreeMap::new(), revision)
+    }
+
+    /// Modifications et objets ajoutés donnés, numérotés `revision`.
+    pub fn with_added(
+        objects: BTreeMap<u32, ObjectEdit>,
+        added: BTreeMap<u32, AddedObject>,
+        revision: u64,
+    ) -> Self {
         let objects = objects
             .into_iter()
             .filter(|(_, edit)| !edit.is_unchanged())
             .collect();
-        Self { objects, revision }
+        Self {
+            objects,
+            added,
+            revision,
+        }
     }
 
     /// Numéro de cet état, unique dans la session (0 : aucune modification).
@@ -133,14 +149,27 @@ impl PageEdits {
         self.objects.iter().map(|(&id, edit)| (id, edit))
     }
 
-    /// Vrai si aucun objet n'est modifié.
+    /// Vrai si aucun objet n'est modifié ni ajouté.
     pub fn is_empty(&self) -> bool {
-        self.objects.is_empty()
+        self.objects.is_empty() && self.added.is_empty()
     }
 
     /// Copie des modifications, pour en dériver un nouvel état.
     pub fn objects(&self) -> BTreeMap<u32, ObjectEdit> {
         self.objects.clone()
+    }
+
+    /// Objets ajoutés, par numéro (ordre d'empilement).
+    pub fn added(&self) -> &BTreeMap<u32, AddedObject> {
+        &self.added
+    }
+
+    /// Numéro du prochain objet ajouté : au-dessus de tous les autres.
+    pub fn next_added_id(&self) -> u32 {
+        self.added
+            .keys()
+            .next_back()
+            .map_or(ADDED_ID, |&last| last + 1)
     }
 }
 

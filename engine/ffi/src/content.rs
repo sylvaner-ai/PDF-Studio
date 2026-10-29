@@ -5,11 +5,13 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use edit::{
-    FontChoice, ObjectEdit, PageEdits, ScanStyle, ScanText, TableEdit, TextLayer, TextReplacement,
+    AddedObject, FontChoice, ObjectEdit, PageEdits, ScanStyle, ScanText, TableEdit, TextLayer,
+    TextReplacement,
 };
 use pdf_core::content::objects::ObjectKind;
 use pdf_core::{CellInfo, ObjectInfo, TableInfo};
 
+use crate::added::{added_text_style, AddedObjectItem, AddedTextStyle};
 use crate::PageRect;
 
 /// Nature d'un objet de page.
@@ -79,6 +81,13 @@ pub struct PageObjectItem {
     pub scanned: bool,
     /// Texte retouché d'une ligne scannée : réglages et polices candidates.
     pub scan: Option<ScanTextItem>,
+    /// Objet ajouté à la page (texte ou image) : il se déplace, se modifie
+    /// et se supprime ; une image ajoutée se redimensionne.
+    #[uniffi(default = false)]
+    pub added: bool,
+    /// Style d'un texte ajouté.
+    #[uniffi(default = None)]
+    pub added_text: Option<AddedTextStyle>,
 }
 
 /// Réglages du rendu d'un texte dans un scan (longueurs en points).
@@ -271,6 +280,8 @@ impl From<ObjectInfo> for PageObjectItem {
             grid: info.grid.map(TableGridItem::from),
             scanned: info.scanned,
             scan: info.scan.as_ref().map(ScanTextItem::from),
+            added: info.added.is_some(),
+            added_text: added_text_style(&info.added),
         }
     }
 }
@@ -336,6 +347,10 @@ pub struct ObjectEditItem {
     pub table: Option<TableEditItem>,
     /// Texte retouché d'une ligne scannée, sous forme texte.
     pub scan: Option<String>,
+    /// Objet ajouté à la page, en entier : `object` est alors son numéro,
+    /// et les autres champs sont sans objet.
+    #[uniffi(default = None)]
+    pub added: Option<AddedObjectItem>,
 }
 
 /// Modifications d'un tableau, telles que les conserve la récupération.
@@ -415,6 +430,23 @@ impl ObjectEditItem {
             fingerprint,
             table: edit.table.as_ref().map(TableEditItem::from),
             scan: edit.scan.as_ref().map(ScanText::to_record),
+            added: None,
+        }
+    }
+
+    /// Objet ajouté `object`, à conserver.
+    pub(crate) fn added(object: u32, added: &AddedObject) -> Self {
+        ObjectEditItem {
+            object,
+            deleted: false,
+            dx: 0.0,
+            dy: 0.0,
+            text: None,
+            font: None,
+            fingerprint: "ajout".to_owned(),
+            table: None,
+            scan: None,
+            added: Some(AddedObjectItem::from(added)),
         }
     }
 
@@ -453,10 +485,19 @@ impl ContentEdits {
     }
 }
 
-/// Modifications retrouvées d'une page, par numéro d'objet.
-pub(crate) fn restored_content(items: &[ObjectEditItem]) -> BTreeMap<u32, ObjectEdit> {
-    items
+/// Modifications retrouvées d'une page, par numéro d'objet, et objets
+/// ajoutés.
+pub(crate) fn restored_content(
+    items: &[ObjectEditItem],
+) -> (BTreeMap<u32, ObjectEdit>, BTreeMap<u32, AddedObject>) {
+    let edits = items
         .iter()
+        .filter(|item| item.added.is_none())
         .map(|item| (item.object, item.edit()))
-        .collect()
+        .collect();
+    let added: Vec<(u32, AddedObjectItem)> = items
+        .iter()
+        .filter_map(|item| Some((item.object, item.added.clone()?)))
+        .collect();
+    (edits, crate::added::restored_added(&added))
 }

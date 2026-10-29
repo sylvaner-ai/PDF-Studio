@@ -87,6 +87,8 @@ struct RecoverySnapshot: Sendable {
     /// Format des pages de chaque document source.
     let sizes: [[CGSize]]
     let cache: RecoveryPageCache
+    /// Rangement des images ajoutées aux pages.
+    let store: RecoveryStore
 
     /// Modifications retenues ; `nil` si une page vient d'un document dont la
     /// copie n'est pas encore faite (une écriture suivante le complétera).
@@ -100,7 +102,8 @@ struct RecoverySnapshot: Sendable {
             sources: sources,
             pages: pages.map { page in
                 RecoveryRecord.Page(
-                    page, edits: cache.edits(of: page, in: session), layer: cache.layer(of: page, in: session)
+                    page, edits: cache.edits(of: page, in: session), layer: cache.layer(of: page, in: session),
+                    store: store
                 )
             },
             date: Date()

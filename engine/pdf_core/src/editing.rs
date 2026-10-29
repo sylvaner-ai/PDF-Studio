@@ -85,6 +85,8 @@ pub struct ObjectInfo {
     pub scanned: bool,
     /// Texte retouché d'une ligne scannée, avec ses réglages.
     pub scan: Option<ScanText>,
+    /// Objet ajouté à la page (texte ou image), avec son style.
+    pub added: Option<crate::added::AddedInfo>,
 }
 
 /// Grille d'un tableau, telle que l'affiche l'application.
@@ -744,6 +746,7 @@ impl PageModel {
                 grid: None,
                 scanned: false,
                 scan: None,
+                added: None,
             });
         }
         infos
@@ -851,6 +854,7 @@ impl PageModel {
             grid: Some(grid),
             scanned: false,
             scan: None,
+            added: None,
         })
     }
 
@@ -957,7 +961,7 @@ pub(crate) struct FontProvider {
 }
 
 impl FontProvider {
-    fn load(&mut self, choice: &FontChoice) -> Option<Rc<Font>> {
+    pub(crate) fn load(&mut self, choice: &FontChoice) -> Option<Rc<Font>> {
         if let Some(font) = self.loaded.get(choice) {
             return font.clone();
         }
@@ -1046,7 +1050,7 @@ impl Shaper for GlyphIdShaper<'_> {
     }
 }
 
-fn glyph_advance(font: &Font, c: char) -> Option<f64> {
+pub(crate) fn glyph_advance(font: &Font, c: char) -> Option<f64> {
     let gid = font
         .encode_character(c as i32)
         .ok()
@@ -1054,7 +1058,7 @@ fn glyph_advance(font: &Font, c: char) -> Option<f64> {
     Some(f64::from(font.advance_glyph(gid).ok()?) * 1000.0)
 }
 
-fn win_ansi_code(c: char) -> Option<u8> {
+pub(crate) fn win_ansi_code(c: char) -> Option<u8> {
     (32u8..=255).find(|&code| BaseEncoding::WinAnsi.char(code) == Some(c))
 }
 
@@ -1540,7 +1544,11 @@ fn unique_name(taken: &mut HashSet<Vec<u8>>) -> Vec<u8> {
 }
 
 /// Ajoute au document la police d'un texte remplacé.
-fn add_font(doc: &mut PdfDocument, choice: &FontChoice, font: &Font) -> Result<PdfObject> {
+pub(crate) fn add_font(
+    doc: &mut PdfDocument,
+    choice: &FontChoice,
+    font: &Font,
+) -> Result<PdfObject> {
     match choice {
         FontChoice::Standard { name } => {
             // Police standard non intégrée, comme le permet la norme pour les

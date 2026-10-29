@@ -10,7 +10,9 @@ import AppKit
 /// sélectionne d'un bloc, par-dessus ses textes et ses filets : le clic
 /// désigne aussi sa cellule courante, un double-clic ouvre la saisie de la
 /// cellule, un clic droit le menu de ses lignes et colonnes. Les mots
-/// reconnus douteux d'une page scannée sont surlignés en orange.
+/// reconnus douteux d'une page scannée sont surlignés en orange. L'outil
+/// « Texte » commence un texte au clic ; une image ajoutée se redimensionne
+/// par ses coins (cf. `EditingOverlayView+Adding.swift`).
 @MainActor
 final class EditingOverlayView: NSView {
     weak var editing: PageEditing?
@@ -18,20 +20,28 @@ final class EditingOverlayView: NSView {
     /// Rotation de la page à l'écran.
     private(set) var rotation = DisplayRotation()
     private var hovered: UInt32?
-    private var drag: Drag?
-    private var editor: InlineTextEditor?
-    private var editorObject: UInt32?
+    var drag: Drag?
+    /// Saisie ouverte (cf. `EditingOverlayView+Editor.swift`) et bloc saisi.
+    var editor: InlineTextEditor?
+    var editorObject: UInt32?
     var editorCell: PageEditing.CellTarget?
+    /// Texte à ajouter dont la saisie est ouverte.
+    var editorNewText: PageEditing.NewText?
+    /// Vrai si le pointeur montre l'outil « Texte » ou un coin d'image.
+    var showsToolCursor = false
     /// Éléments d'accessibilité des objets, gardés d'une lecture à l'autre
     /// (cf. `EditingOverlayView+Accessibility.swift`).
     var accessibilityObjects: [UInt32: PageObjectElement] = [:]
 
-    private enum Drag {
+    enum Drag {
         /// Déplacement de la sélection depuis `start` ; il commence au-delà
         /// d'une petite distance, pour qu'un clic ne déplace rien.
         case move(start: CGPoint, offset: CGVector, started: Bool)
         /// Rectangle de sélection ; `base` : sélection à compléter (⇧).
         case marquee(start: CGPoint, current: CGPoint, base: Set<UInt32>)
+        /// Redimensionnement d'une image ajoutée par son coin `corner`, de
+        /// son cadre `frame` au cadre `current` (dans la vue).
+        case resize(object: UInt32, corner: Corner, frame: CGRect, current: CGRect)
     }
 
     override var isFlipped: Bool { true }
@@ -63,6 +73,8 @@ final class EditingOverlayView: NSView {
             if editorObject != target.object, let item = items.first(where: { $0.id == target.object }) {
                 openEditor(for: item)
             }
+        } else if let target = editing.newText, target.page == page.id {
+            openNewTextEditor(target, style: editing.textStyle)
         } else if let target = editing.cellTarget, target.page == page.id {
             if editorCell != target {
                 openCellEditor(for: target)
@@ -92,7 +104,7 @@ final class EditingOverlayView: NSView {
         max(abs(convert(NSSize(width: 1, height: 1), from: nil).width), 0.01)
     }
 
-    private func focusPages() {
+    func focusPages() {
         if let canvas = enclosingScrollView as? PageCanvasView {
             window?.makeFirstResponder(canvas.pagesView)
         }
@@ -103,8 +115,8 @@ final class EditingOverlayView: NSView {
     override func mouseDown(with event: NSEvent) {
         // Valide aussi un texte en cours de saisie.
         focusPages()
-        guard let editing, let page else { return }
         let point = convert(event.locationInWindow, from: nil)
+        guard let editing, let page, !beginAdding(at: point) else { return }
         let extend = event.modifierFlags.contains(.shift)
         guard let hit = object(at: point) else {
             let base = extend && editing.page == page.id ? editing.selected : []
@@ -147,6 +159,9 @@ final class EditingOverlayView: NSView {
             drag = .move(start: start, offset: offset, started: true)
         case let .marquee(start, _, base):
             drag = .marquee(start: start, current: point, base: base)
+        case let .resize(object, corner, frame, _):
+            let current = resized(frame, corner: corner, to: point, free: event.modifierFlags.contains(.shift))
+            drag = .resize(object: object, corner: corner, frame: frame, current: current)
         case nil:
             return
         }
@@ -171,6 +186,8 @@ final class EditingOverlayView: NSView {
             guard area.width >= screenPoint || area.height >= screenPoint else { return }
             let touched = hittableItems.filter { frame(of: $0).intersects(area) }.map(\.id)
             editing.select(base.union(touched), on: page.id)
+        case let .resize(object, _, frame, current) where current != frame:
+            editing.resizeImage(object, on: page.id, to: pageFrame(of: current))
         default:
             break
         }
@@ -187,7 +204,9 @@ final class EditingOverlayView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        let id = object(at: convert(event.locationInWindow, from: nil))?.id
+        let point = convert(event.locationInWindow, from: nil)
+        updateToolCursor(at: point)
+        let id = object(at: point)?.id
         guard id != hovered else { return }
         hovered = id
         needsDisplay = true
@@ -236,6 +255,9 @@ final class EditingOverlayView: NSView {
         if offset == .zero, selected.count == 1, let table = selected.first, let grid = table.grid {
             drawGrid(grid, current: editing.currentCell, unit: unit)
         }
+        if offset == .zero {
+            drawImageHandles(selected, unit: unit)
+        }
 
         if case let .marquee(start, current, _) = drag {
             let area = CGRect(
@@ -254,56 +276,5 @@ final class EditingOverlayView: NSView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         tableMenu(at: convert(event.locationInWindow, from: nil))
-    }
-
-    // MARK: - Saisie du texte
-
-    private func openEditor(for item: PageObjectItem) {
-        openEditor(bounds: frame(of: item), text: item.text ?? "", font: Self.font(for: item))
-        editorObject = item.id
-    }
-
-    func openEditor(bounds: CGRect, text: String, font: NSFont) {
-        removeEditor()
-        // Le texte se saisit à l'horizontale, même sur une page tournée.
-        let size = rotation.swapsAxes ? CGSize(width: bounds.height, height: bounds.width) : bounds.size
-        let frame = CGRect(
-            origin: bounds.origin,
-            size: CGSize(width: max(size.width, 80), height: max(size.height, font.pointSize * 1.3))
-        )
-        let editor = InlineTextEditor(frame: frame)
-        editor.configure(text: text, font: font)
-        editor.onFinish = { [weak self] text in
-            self?.editorDidFinish(text)
-        }
-        addSubview(editor)
-        self.editor = editor
-        window?.makeFirstResponder(editor)
-        editor.selectAll(nil)
-        needsDisplay = true
-    }
-
-    private func editorDidFinish(_ text: String?) {
-        let cell = editorCell != nil
-        removeEditor()
-        if cell {
-            editing?.endCellEditing(text: text)
-        } else {
-            editing?.endTextEditing(text: text)
-        }
-    }
-
-    private func removeEditor() {
-        guard let editor else { return }
-        self.editor = nil
-        editorObject = nil
-        editorCell = nil
-        editor.onFinish = nil
-        let focused = window?.firstResponder === editor
-        editor.removeFromSuperview()
-        if focused {
-            focusPages()
-        }
-        needsDisplay = true
     }
 }

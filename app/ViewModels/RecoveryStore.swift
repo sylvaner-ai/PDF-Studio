@@ -23,7 +23,8 @@ struct FileStamp: Codable, Equatable, Sendable {
 /// reconnu des pages scannées sont retenus :
 /// les pages renvoient au document (ou à une copie de sa version d'ouverture,
 /// s'il a été enregistré depuis) et à des copies des documents dont des pages
-/// ont été insérées.
+/// ont été insérées. Les images ajoutées aux pages sont rangées à part, une
+/// seule fois chacune.
 struct RecoveryRecord: Codable, Equatable, Sendable {
     struct Page: Codable, Equatable, Sendable {
         /// Document source (0 : le document) ; `nil` pour une page vierge.
@@ -72,6 +73,9 @@ struct RecoveryRecord: Codable, Equatable, Sendable {
         /// Texte retouché d'une ligne scannée, au format du moteur (absent des
         /// enregistrements antérieurs à la retouche des scans).
         var scan: String?
+        /// Objet ajouté à la page, en entier (absent des enregistrements
+        /// antérieurs à l'ajout de textes et d'images).
+        var added: Added?
     }
 
     /// Modifications d'un tableau (cf. ``TableEditItem``).
@@ -110,13 +114,16 @@ enum RecoveryTextFont: Codable, Equatable, Sendable {
 }
 
 extension RecoveryRecord.Page {
-    init(_ page: DisplayPage, edits: [ObjectEditItem] = [], layer: [LayerWordItem] = []) {
+    /// Page à retenir ; les images ajoutées sont rangées dans `store`.
+    init(
+        _ page: DisplayPage, edits: [ObjectEditItem] = [], layer: [LayerWordItem] = [], store: RecoveryStore? = nil
+    ) {
         source = page.source?.document
         index = page.source?.index ?? 0
         width = Float(page.baseSize.width)
         height = Float(page.baseSize.height)
         quarterTurns = page.quarterTurns
-        self.edits = edits.isEmpty ? nil : edits.map { RecoveryRecord.ObjectEdit($0) }
+        self.edits = edits.isEmpty ? nil : edits.map { RecoveryRecord.ObjectEdit($0, store: store) }
         self.layer = layer.isEmpty ? nil : layer.map {
             RecoveryRecord.LayerWord(text: $0.text, quad: $0.quad, confidence: $0.confidence, line: $0.line)
         }
@@ -153,7 +160,9 @@ extension RecoveryRecord.Page {
 }
 
 extension RecoveryRecord.ObjectEdit {
-    init(_ item: ObjectEditItem) {
+    /// Modification à retenir ; l'image d'un objet ajouté est rangée dans
+    /// `store`, sinon gardée avec la modification.
+    init(_ item: ObjectEditItem, store: RecoveryStore? = nil) {
         object = item.object
         deleted = item.deleted
         offsetX = item.dx
@@ -173,6 +182,7 @@ extension RecoveryRecord.ObjectEdit {
             )
         }
         scan = item.scan
+        added = item.added.map { RecoveryRecord.Added($0, store: store) }
     }
 
     var item: ObjectEditItem {
@@ -188,26 +198,9 @@ extension RecoveryRecord.ObjectEdit {
                     }
                 )
             },
-            scan: scan
+            scan: scan,
+            added: added?.item
         )
-    }
-}
-
-extension RecoveryTextFont {
-    init(_ font: TextFont) {
-        switch font {
-        case .original: self = .original
-        case let .installed(postscriptName): self = .installed(postscriptName: postscriptName)
-        case let .standard(name): self = .standard(name: name)
-        }
-    }
-
-    var engine: TextFont {
-        switch self {
-        case .original: return .original
-        case let .installed(postscriptName): return .installed(postscriptName: postscriptName)
-        case let .standard(name): return .standard(name: name)
-        }
     }
 }
 
@@ -279,16 +272,42 @@ struct RecoveryStore: Sendable {
         try? FileManager.default.removeItem(at: copy)
     }
 
+    /// Range les octets d'une image ajoutée à une page ; renvoie son chemin.
+    /// Une même image n'est rangée qu'une fois, sous le nom de son empreinte.
+    func keepImage(_ data: Data) throws -> String {
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let image = directory.appendingPathComponent("image-\(digest).bin")
+        if !FileManager.default.fileExists(atPath: image.path) {
+            try data.write(to: image, options: .atomic)
+        }
+        return image.path
+    }
+
     /// Supprime des modifications retenues et leurs copies.
     func discard(_ record: RecoveryRecord) {
         removeRecord(for: record.path)
         removeCopy(record.basePath)
         record.sources.forEach(removeCopy)
+        removeUnusedImages()
+    }
+
+    /// Supprime les images rangées qu'aucune modification retenue n'utilise
+    /// plus. Les images se rangent sur la file de ``RecoveryWriter``, en même
+    /// temps que les modifications qui les utilisent : c'est là qu'il faut
+    /// appeler cette fonction.
+    func removeUnusedImages() {
+        removeUnused { Self.isImage($0) }
     }
 
     /// Supprime les copies qu'aucune modification retenue n'utilise plus (à
     /// appeler au lancement, avant l'ouverture des documents).
     func removeUnusedCopies() {
+        removeUnused { Self.isCopy($0) || Self.isImage($0) }
+    }
+
+    /// Supprime les fichiers retenus par `candidate` qu'aucune modification
+    /// retenue n'utilise.
+    private func removeUnused(where candidate: (URL) -> Bool) {
         let manager = FileManager.default
         guard let files = try? manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
             return
@@ -296,10 +315,10 @@ struct RecoveryStore: Sendable {
         let records = files.filter { $0.pathExtension == "json" }.compactMap { url in
             (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(RecoveryRecord.self, from: $0) }
         }
-        let used = Set(records.flatMap { [$0.basePath].compactMap { $0 } + $0.sources }.map {
+        let used = Set(records.flatMap { [$0.basePath].compactMap { $0 } + $0.sources + $0.imagePaths }.map {
             URL(fileURLWithPath: $0).lastPathComponent
         })
-        for file in files where Self.isCopy(file) && !used.contains(file.lastPathComponent) {
+        for file in files where candidate(file) && !used.contains(file.lastPathComponent) {
             try? manager.removeItem(at: file)
         }
     }
@@ -307,6 +326,10 @@ struct RecoveryStore: Sendable {
     private static func isCopy(_ url: URL) -> Bool {
         let name = url.lastPathComponent
         return url.pathExtension == "pdf" && (name.hasPrefix("base-") || name.hasPrefix("source-"))
+    }
+
+    private static func isImage(_ url: URL) -> Bool {
+        url.pathExtension == "bin" && url.lastPathComponent.hasPrefix("image-")
     }
 
     private func recordURL(for path: String) -> URL {

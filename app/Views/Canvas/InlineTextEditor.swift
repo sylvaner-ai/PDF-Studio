@@ -10,10 +10,12 @@ final class InlineTextEditor: NSTextView, NSTextViewDelegate {
     /// Historique propre à la saisie, distinct de celui du document.
     private lazy var typingUndo = UndoManager()
 
-    func configure(text: String, font: NSFont) {
+    /// `grows` : la saisie s'élargit au fil du texte, sans renvoi à la ligne
+    /// (texte ajouté, dont les lignes ne se coupent qu'aux retours voulus).
+    func configure(text: String, font: NSFont, color: NSColor = .black, grows: Bool = false) {
         string = text
         self.font = font
-        textColor = .black
+        textColor = color
         insertionPointColor = .black
         backgroundColor = .white
         drawsBackground = true
@@ -25,11 +27,15 @@ final class InlineTextEditor: NSTextView, NSTextViewDelegate {
         isAutomaticTextReplacementEnabled = false
         textContainerInset = .zero
         textContainer?.lineFragmentPadding = 0
-        textContainer?.widthTracksTextView = true
-        isHorizontallyResizable = false
+        textContainer?.widthTracksTextView = !grows
+        if grows {
+            let unbounded = CGFloat.greatestFiniteMagnitude
+            textContainer?.containerSize = CGSize(width: unbounded, height: unbounded)
+        }
+        isHorizontallyResizable = grows
         isVerticallyResizable = true
         minSize = frame.size
-        maxSize = CGSize(width: frame.width, height: .greatestFiniteMagnitude)
+        maxSize = CGSize(width: grows ? .greatestFiniteMagnitude : frame.width, height: .greatestFiniteMagnitude)
         delegate = self
         setAccessibilityLabel(String(localized: "Texte du bloc"))
     }

@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 // MARK: - Mode Édition
 
@@ -34,6 +35,13 @@ extension PageCanvasView {
         let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
         guard event.keyCode == 48, flags.subtracting(.shift).isEmpty else { return false }
         return selectAdjacentObject(forward: !flags.contains(.shift), editing: editing)
+    }
+
+    /// Échap abandonne l'outil « Texte » avant le clic sur la page.
+    func handlePlacingKey(_ event: NSEvent, editing: PageEditing) -> Bool {
+        guard event.keyCode == 53, editing.isPlacingText else { return false }
+        editing.cancelPlacingText()
+        return true
     }
 
     /// Touches de la sélection : flèches (1 pt, 10 pt avec ⇧), ⌫ et ⌦,
@@ -103,6 +111,35 @@ extension PageCanvasView {
             current = []
         }
         return false
+    }
+
+    /// Images déposées sur une page, à y ajouter (mode Édition).
+    func droppedImages(_ sender: NSDraggingInfo) -> [URL] {
+        guard editing != nil else { return [] }
+        let objects = sender.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [
+                .urlReadingFileURLsOnly: true,
+                .urlReadingContentsConformToTypes: [UTType.image.identifier]
+            ]
+        )
+        return (objects as? [URL] ?? []).filter { !DocumentOpener.isPDF($0) }
+    }
+
+    /// Ajoute les images déposées à la page sous le pointeur, centrées sur
+    /// lui ; renvoie `false` hors des pages.
+    func addDroppedImages(_ urls: [URL], at location: NSPoint) -> Bool {
+        let point = pagesView.convert(location, from: nil)
+        guard let editing, let view = pageViews.values.first(where: { $0.frame.contains(point) }),
+              let page = pages.first(where: { $0.id == view.pageID }),
+              let rotation = screenRotation(ofPage: page.id)
+        else { return false }
+        let local = CGPoint(x: point.x - view.frame.minX, y: point.y - view.frame.minY)
+        let center = rotation.unapply(to: local, pageSize: page.baseSize)
+        for url in urls {
+            editing.addImage(from: url, on: page.id, at: center)
+        }
+        return true
     }
 
     /// Fait défiler juste assez pour montrer `rect`, dans les coordonnées de la page `index`.

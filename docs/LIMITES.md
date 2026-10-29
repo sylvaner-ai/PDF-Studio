@@ -436,3 +436,19 @@ complété à chaque jalon.
   session ; elles sont gardées à l'enregistrement.
 - **Durée :** le traitement se fait page après page (0,1 à 0,4 s par page
   sur un Mac M3) ; le lot en parallèle arrive au jalon 4.
+
+## Textes et images ajoutés (D67)
+
+- **Recherche et copie :** un texte ajouté n'est trouvé par la recherche, ni
+  sélectionné en mode Lecture, qu'une fois le document enregistré et rouvert.
+- **Pas de renvoi à la ligne :** un texte ajouté garde les lignes saisies ; une
+  longue ligne peut sortir de la page.
+- **Polices du Mac :** une police dont la licence interdit l'intégration est
+  remplacée par la police standard la plus proche (le bandeau le signale) ;
+  les caractères absents de la police sont omis.
+- **Images :** au plus 12 000 pixels de côté (une image plus grande est
+  réduite) ; une image animée n'apporte que sa première image. L'image est
+  intégrée telle quelle, sans compression supplémentaire.
+- **Page tournée ensuite :** un objet ajouté tourne avec sa page si
+  l'organisation la tourne après coup, comme le reste de son contenu.
+
