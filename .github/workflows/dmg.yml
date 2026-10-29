@@ -23,6 +23,7 @@ on:
       - ".github/workflows/dmg.yml"
       - "tools/dmg/**"
       - "Makefile"
+      - "app/project.yml"
 
 permissions:
   contents: read

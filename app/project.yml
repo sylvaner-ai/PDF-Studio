@@ -57,6 +57,10 @@ targets:
       properties:
         CFBundleDisplayName: PDF Studio
         CFBundleName: PDF Studio
+        # Numéros réglés par MARKETING_VERSION / CURRENT_PROJECT_VERSION (étiquette de la
+        # Release dans .github/workflows/dmg.yml) ; sans cela XcodeGen écrit 1.0 et 1.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDevelopmentRegion: fr
         LSApplicationCategoryType: public.app-category.productivity
         LSMinimumSystemVersion: "14.0"
