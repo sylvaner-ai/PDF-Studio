@@ -21,6 +21,7 @@ struct PDFStudioApp: App {
             ViewerCommands()
             PageCommands()
             InsertionCommands()
+            ObjectCommands()
             TableCommands()
         }
     }

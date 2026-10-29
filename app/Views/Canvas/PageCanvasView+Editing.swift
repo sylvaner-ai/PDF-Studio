@@ -129,17 +129,29 @@ extension PageCanvasView {
     /// Ajoute les images déposées à la page sous le pointeur, centrées sur
     /// lui ; renvoie `false` hors des pages.
     func addDroppedImages(_ urls: [URL], at location: NSPoint) -> Bool {
-        let point = pagesView.convert(location, from: nil)
-        guard let editing, let view = pageViews.values.first(where: { $0.frame.contains(point) }),
-              let page = pages.first(where: { $0.id == view.pageID }),
-              let rotation = screenRotation(ofPage: page.id)
-        else { return false }
-        let local = CGPoint(x: point.x - view.frame.minX, y: point.y - view.frame.minY)
-        let center = rotation.unapply(to: local, pageSize: page.baseSize)
+        guard let editing, let page = page(atWindow: location),
+              let center = point(atWindow: location, onPage: page) else { return false }
         for url in urls {
             editing.addImage(from: url, on: page.id, at: center)
         }
         return true
+    }
+
+    /// Page sous le point `location` de la fenêtre.
+    func page(atWindow location: NSPoint) -> DisplayPage? {
+        let point = pagesView.convert(location, from: nil)
+        guard let view = pageViews.values.first(where: { $0.frame.contains(point) }) else { return nil }
+        return pages.first { $0.id == view.pageID }
+    }
+
+    /// Point `location` de la fenêtre, sur la page droite `page` (même hors
+    /// de la page) ; `nil` si la page n'est pas montrée.
+    func point(atWindow location: NSPoint, onPage page: DisplayPage) -> CGPoint? {
+        let point = pagesView.convert(location, from: nil)
+        guard let view = pageViews.values.first(where: { $0.pageID == page.id }),
+              let rotation = screenRotation(ofPage: page.id) else { return nil }
+        let local = CGPoint(x: point.x - view.frame.minX, y: point.y - view.frame.minY)
+        return rotation.unapply(to: local, pageSize: page.baseSize)
     }
 
     /// Fait défiler juste assez pour montrer `rect`, dans les coordonnées de la page `index`.

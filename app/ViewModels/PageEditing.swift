@@ -51,6 +51,9 @@ final class PageEditing {
     var newText: NewText?
     /// Style du prochain texte ajouté ; celui du dernier choisi.
     var textStyle = PageEditing.defaultTextStyle
+    /// Dernière page cliquée, où se colle la copie sans sélection (cf.
+    /// `PageEditing+Objects.swift`).
+    var clickedPage: UInt64?
 
     struct TextTarget: Equatable {
         let page: UInt64

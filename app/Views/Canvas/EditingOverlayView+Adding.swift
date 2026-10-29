@@ -3,7 +3,7 @@ import AppKit
 // MARK: - Textes et images ajoutés
 
 extension EditingOverlayView {
-    /// Coin d'une image ajoutée, qu'on fait glisser pour la redimensionner.
+    /// Coin d'un objet, qu'on fait glisser pour le redimensionner.
     enum Corner: CaseIterable {
         case topLeft, topRight, bottomLeft, bottomRight
 
@@ -16,36 +16,36 @@ extension EditingOverlayView {
         }
     }
 
-    /// Plus petit côté d'une image redimensionnée, en points.
+    /// Plus petit côté d'un objet redimensionné, en points.
     private static let minimumSide: CGFloat = 4
 
     /// Clic qui commence un texte (outil « Texte ») ou le redimensionnement
-    /// d'une image ajoutée ; renvoie `false` s'il ne fait ni l'un ni l'autre.
+    /// d'un objet ; renvoie `false` s'il ne fait ni l'un ni l'autre.
     func beginAdding(at point: CGPoint) -> Bool {
         guard let editing, let page else { return false }
         if editing.isPlacingText {
             editing.beginNewText(page: page.id, at: rotation.unapply(to: point, pageSize: page.baseSize))
             return true
         }
-        guard let handle = imageHandle(at: point) else { return false }
-        let box = frame(of: handle.image)
-        drag = .resize(object: handle.image.id, corner: handle.corner, frame: box, current: box)
+        guard let handle = objectHandle(at: point) else { return false }
+        let box = frame(of: handle.object)
+        drag = .resize(object: handle.object.id, corner: handle.corner, frame: box, current: box)
         return true
     }
 
-    /// Image ajoutée sélectionnée seule sur cette page, et le coin sous le
-    /// pointeur.
-    private func imageHandle(at point: CGPoint) -> (image: PageObjectItem, corner: Corner)? {
-        guard let editing, let page, let image = editing.selectedAddedImage, editing.page == page.id else {
+    /// Objet redimensionnable sélectionné seul sur cette page, et le coin
+    /// sous le pointeur.
+    private func objectHandle(at point: CGPoint) -> (object: PageObjectItem, corner: Corner)? {
+        guard let editing, let page, let object = editing.selectedResizable, editing.page == page.id else {
             return nil
         }
-        let box = frame(of: image)
+        let box = frame(of: object)
         let reach = 6 * screenPoint
         let corner = Corner.allCases.first { corner in
             let handle = corner.point(of: box)
             return abs(handle.x - point.x) <= reach && abs(handle.y - point.y) <= reach
         }
-        return corner.map { (image: image, corner: $0) }
+        return corner.map { (object: object, corner: $0) }
     }
 
     /// Cadre `frame` redimensionné en tirant son coin `corner` jusqu'à
@@ -94,12 +94,12 @@ extension EditingOverlayView {
         )
     }
 
-    /// Poignées de l'image ajoutée sélectionnée, et son nouveau cadre pendant
-    /// qu'on la redimensionne.
-    func drawImageHandles(_ selected: [PageObjectItem], unit: CGFloat) {
-        guard selected.count == 1, let image = selected.first, image.added, image.kind == .image else { return }
-        var box = frame(of: image)
-        if case let .resize(object, _, _, current) = drag, object == image.id {
+    /// Poignées de l'objet redimensionnable sélectionné, et son nouveau cadre
+    /// pendant qu'on le redimensionne.
+    func drawResizeHandles(_ selected: [PageObjectItem], unit: CGFloat) {
+        guard selected.count == 1, let item = selected.first, item.resizable, item.movable else { return }
+        var box = frame(of: item)
+        if case let .resize(object, _, _, current) = drag, object == item.id {
             stroke(current, .controlAccentColor, width: unit, dashed: true)
             box = current
         }
@@ -113,12 +113,12 @@ extension EditingOverlayView {
         }
     }
 
-    /// Pointeur de l'outil « Texte », ou d'un coin d'image ajoutée.
+    /// Pointeur de l'outil « Texte », ou d'un coin d'objet.
     func updateToolCursor(at point: CGPoint) {
         let cursor: NSCursor?
         if editing?.isPlacingText == true {
             cursor = .iBeam
-        } else if imageHandle(at: point) != nil {
+        } else if objectHandle(at: point) != nil {
             cursor = .crosshair
         } else {
             cursor = nil

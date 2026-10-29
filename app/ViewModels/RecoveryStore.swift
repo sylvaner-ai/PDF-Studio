@@ -76,6 +76,11 @@ struct RecoveryRecord: Codable, Equatable, Sendable {
         /// Objet ajouté à la page, en entier (absent des enregistrements
         /// antérieurs à l'ajout de textes et d'images).
         var added: Added?
+        /// Agrandissement d'un objet d'origine redimensionné (absent des
+        /// enregistrements antérieurs au redimensionnement, et sans
+        /// agrandissement).
+        var scaleX: Float?
+        var scaleY: Float?
     }
 
     /// Modifications d'un tableau (cf. ``TableEditItem``).
@@ -183,6 +188,10 @@ extension RecoveryRecord.ObjectEdit {
         }
         scan = item.scan
         added = item.added.map { RecoveryRecord.Added($0, store: store) }
+        if item.scaleX != 1 || item.scaleY != 1 {
+            scaleX = item.scaleX
+            scaleY = item.scaleY
+        }
     }
 
     var item: ObjectEditItem {
@@ -199,7 +208,9 @@ extension RecoveryRecord.ObjectEdit {
                 )
             },
             scan: scan,
-            added: added?.item
+            added: added?.item,
+            scaleX: scaleX ?? 1,
+            scaleY: scaleY ?? 1
         )
     }
 }
