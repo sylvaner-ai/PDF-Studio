@@ -403,3 +403,63 @@ fn supprime_une_ligne_d_un_tableau_a_filets() {
         .unwrap();
     assert_eq!(size(table), (3, 3));
 }
+
+#[test]
+fn modifie_chaque_texte_d_une_cellule_aux_styles_mixtes() {
+    // Devis : la cellule « Audit initial » réunit un titre en gras (corps 10)
+    // et une description (corps 7), deux blocs de texte distincts.
+    let bytes = fixture("tableau_styles.pdf");
+    let all = objects(&bytes, None);
+    let table = tables(&all)[0];
+    let grid = table.grid.as_ref().unwrap();
+    let mixed: Vec<_> = grid.cells.iter().filter(|c| c.objects.len() > 1).collect();
+    assert_eq!(mixed.len(), 2);
+    assert!(grid
+        .cells
+        .iter()
+        .filter(|c| c.objects.len() <= 1)
+        .all(|c| c.objects.iter().all(|&id| all[id as usize].editable)));
+
+    let cell = mixed[0];
+    let blocks: Vec<&ObjectInfo> = cell.objects.iter().map(|&id| &all[id as usize]).collect();
+    assert_eq!(blocks.len(), 2);
+    assert!(blocks
+        .iter()
+        .all(|b| b.editable && b.table == Some(table.id)));
+    assert_eq!(blocks[0].text.as_deref(), Some("Audit initial"));
+    assert_eq!(blocks[0].font_name.as_deref(), Some("Helvetica-Bold"));
+    assert!((blocks[0].font_size - 10.0).abs() < 0.01);
+    assert_eq!(blocks[1].font_name.as_deref(), Some("Helvetica"));
+    assert!((blocks[1].font_size - 7.0).abs() < 0.01);
+
+    // Chaque bloc se remplace seul, avec son propre style.
+    let replace = |text: &str| ObjectEdit {
+        text: Some(TextReplacement {
+            text: text.to_owned(),
+            font: FontChoice::Original,
+        }),
+        ..ObjectEdit::default()
+    };
+    let written = write(
+        &bytes,
+        edits(vec![
+            (blocks[0].id, replace("Audit approfondi")),
+            (blocks[1].id, replace("Nouvelle description.")),
+        ]),
+    );
+    let after = objects(&written, None);
+    let grid = tables(&after)[0].grid.as_ref().unwrap();
+    let rewritten = grid.cells.iter().find(|c| c.objects.len() == 2).unwrap();
+    let title = &after[rewritten.objects[0] as usize];
+    let detail = &after[rewritten.objects[1] as usize];
+    assert_eq!(title.text.as_deref(), Some("Audit approfondi"));
+    assert_eq!(title.font_name.as_deref(), Some("Helvetica-Bold"));
+    assert!((title.font_size - 10.0).abs() < 0.01);
+    assert_eq!(detail.text.as_deref(), Some("Nouvelle description."));
+    assert_eq!(detail.font_name.as_deref(), Some("Helvetica"));
+    assert!((detail.font_size - 7.0).abs() < 0.01);
+    let saved = text(&written);
+    assert!(!saved.contains("Audit initial") && !saved.contains("Analyse de l'existant"));
+    // L'autre cellule à styles mixtes est intacte.
+    assert!(saved.contains("Mise en place") && saved.contains("Installation, paramétrage"));
+}

@@ -471,3 +471,14 @@ complété à chaque jalon.
 - **Scans dans un formulaire :** une couche de texte invisible ou l'image d'un
   scan logées dans un formulaire ne sont toujours pas reconnues comme un scan
   à relire (D58).
+
+## Cellules à plusieurs blocs (D70)
+
+- **Un bloc à la fois :** dans une cellule qui mêle des textes de corps ou de
+  graisse différents, on modifie un bloc par saisie ; il n'y a pas de saisie
+  unique de toute la cellule. Entre deux blocs voisins de même style, la
+  séparation suit D25 (écart de style, d'interligne ou d'alignement).
+- **Mots de style différent dans une même ligne :** un mot en gras au fil d'une
+  phrase reste dans son bloc, et la modification lui donne le style du début du
+  bloc (limite du jalon 4).
+

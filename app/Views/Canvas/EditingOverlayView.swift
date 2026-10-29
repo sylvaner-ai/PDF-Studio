@@ -131,11 +131,12 @@ final class EditingOverlayView: NSView {
             return
         }
         if hit.kind == .table, !extend, let cell = cell(at: point, in: hit) {
+            let block = textBlock(at: point, in: cell, of: hit)
             if event.clickCount == 2 {
-                editing.beginCellEditing(cell)
+                editing.beginCellEditing(cell, block: block)
                 return
             }
-            editing.selectCell(cell)
+            editing.selectCell(cell, block: block)
             drag = .move(start: point, offset: .zero, started: false)
             return
         }
