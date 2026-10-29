@@ -157,6 +157,36 @@ jalon 2 sur 6 (redressement des pages, ⌘4) ; voir [docs/AMELIORATION.md](docs/
 | Aucun original modifié sans confirmation, aucune connexion réseau | vérifié par des tests (`CrashRecoveryTests`, `PrivacyTests`) et par le bac à sable |
 | Documentation à jour | README, ARCHITECTURE, DECISIONS, LIMITES, DEPENDANCES |
 
+## Installer l'application
+
+Une image disque (.dmg) est publiée dans les
+[Releases](https://github.com/sylvaner-ai/pdf-studio/releases) du dépôt, pour
+Mac Apple Silicon sous macOS 14 ou plus récent.
+
+1. Téléchargez `PDF-Studio-<version>-arm64.dmg`, ouvrez-le, puis glissez PDF Studio
+   dans Applications.
+2. **Premier lancement :** l'application n'est pas signée par un compte Apple
+   Developer, et macOS la bloque (« Apple n'a pas pu vérifier… »). Une seule fois :
+   - macOS 15 et suivants : ouvrez l'application, fermez l'avertissement, puis
+     Réglages Système > Confidentialité et sécurité, tout en bas, « Ouvrir quand
+     même » ;
+   - macOS 14 : clic droit sur l'application, « Ouvrir », puis « Ouvrir » ;
+   - ou, dans le Terminal, sous toutes les versions :
+     `xattr -dr com.apple.quarantine "/Applications/PDF Studio.app"`.
+3. Pour vérifier le téléchargement : `shasum -a 256 PDF-Studio-<version>-arm64.dmg`
+   doit donner la somme affichée dans la Release.
+
+**Publier une version** (par le dépôt) : `git tag v0.2.0 && git push origin v0.2.0`.
+Le workflow [Installateur .dmg](.github/workflows/dmg.yml) compile l'application
+sur un Mac Apple Silicon de GitHub (une vingtaine de minutes, davantage la
+première fois), construit l'image, la vérifie et crée la Release. Il se lance
+aussi à la main (onglet Actions, « Run workflow ») : avec une étiquette, il publie ;
+sans étiquette, l'image est seulement jointe à l'exécution (Artifacts, 30 jours).
+Le numéro de version de l'application est celui de l'étiquette.
+
+**Construire l'image sur son Mac :** `make dmg` produit
+`build/PDF-Studio-<version>-arm64.dmg`.
+
 ## Prérequis
 
 - macOS 14 ou plus récent sur Apple Silicon, Xcode 16 ou plus récent ;
@@ -167,6 +197,7 @@ jalon 2 sur 6 (redressement des pages, ⌘4) ; voir [docs/AMELIORATION.md](docs/
 
 ```sh
 make build      # produit build/PDF Studio.app
+make dmg        # build, puis l'image d'installation build/PDF-Studio-<version>-arm64.dmg
 make test       # tests du moteur (cargo) et de l'application (XCTest)
 make lint       # clippy, rustfmt, SwiftLint
 make bench      # banc d'essai MuPDF / PDFium (télécharge PDFium pour la mesure)

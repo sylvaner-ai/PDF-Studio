@@ -1,0 +1,33 @@
+PDF Studio — installation
+=========================
+
+1. Glissez « PDF Studio » sur le dossier « Applications ».
+2. Éjectez l'image disque.
+
+Premier lancement
+-----------------
+
+PDF Studio n'est pas signé par un compte Apple Developer : macOS le bloque
+au premier lancement (« Apple n'a pas pu vérifier que "PDF Studio" ne contient
+pas de logiciels malveillants »). C'est attendu. Pour l'autoriser, une fois :
+
+Sous macOS 15 (Sequoia) et suivants :
+  1. Ouvrez PDF Studio ; macOS affiche l'avertissement, fermez-le.
+  2. Ouvrez Réglages Système > Confidentialité et sécurité.
+  3. Tout en bas de la page Sécurité, cliquez sur « Ouvrir quand même » à
+     côté de PDF Studio, puis confirmez avec votre mot de passe.
+
+Sous macOS 14 (Sonoma) :
+  Clic droit (ou ⌃-clic) sur PDF Studio dans Applications, « Ouvrir », puis
+  « Ouvrir » dans la fenêtre qui s'affiche.
+
+Autre méthode, dans le Terminal, valable sous toutes les versions :
+
+  xattr -dr com.apple.quarantine "/Applications/PDF Studio.app"
+
+Ensuite, l'application s'ouvre normalement.
+
+PDF Studio ne se connecte à aucun réseau (bac à sable sans autorisation
+réseau) : il ne contient ni compte, ni télémétrie, ni mise à jour automatique.
+Pour mettre à jour, remplacez l'application par celle d'une version plus
+récente.

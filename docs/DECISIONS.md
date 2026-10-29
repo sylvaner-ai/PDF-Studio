@@ -1209,3 +1209,29 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
 - **Raisons :** un texte ou une image ajouté fait partie de la page, comme le
   reste de son contenu, et se voit partout ; les polices standard évitent
   d'intégrer une police pour quelques mots.
+
+## D68 — Installateur .dmg construit et publié par GitHub Actions
+
+- **Décision :** le workflow `.github/workflows/dmg.yml` compile l'application
+  (`make dmg`) sur un Mac Apple Silicon de GitHub (`macos-latest`, dernier Xcode
+  non bêta), vérifie l'image (somme SHA-256, signature, architecture arm64,
+  version, raccourci Applications) et la publie dans une Release à chaque
+  étiquette `vX.Y.Z`, ou à la main. Le numéro de version de l'application est
+  celui de l'étiquette (`MARKETING_VERSION`), le numéro de compilation celui de
+  l'exécution. Les modifications du workflow, du Makefile et de `tools/dmg`
+  le lancent aussi, sans publication.
+- **Signature :** l'application reste signée localement (`CODE_SIGN_IDENTITY: -`),
+  faute de compte Apple Developer ; elle n'est ni signée avec une identité
+  reconnue, ni notariée. macOS la bloque au premier lancement : la notice
+  (README, et `Premier lancement.txt` dans l'image) explique comment l'autoriser.
+- **Image :** un `.dmg` compressé (UDZO) avec l'application, un raccourci vers
+  Applications et la notice. Pas de fenêtre mise en page : cela demande un
+  Finder piloté par script, absent d'une construction automatique (et le
+  pilotage d'interface par script a été refusé par Sylvain).
+- **Alternatives :** un `.pkg` (installe sans glisser-déposer, mais demande une
+  signature d'installateur et laisse des traces à désinstaller) ; Homebrew Cask
+  (demande un dépôt de formules) ; signer et notarier (compte Apple Developer
+  payant, à envisager si l'application est partagée).
+- **Raisons :** le `.dmg` est l'installation habituelle d'une application Mac ;
+  construire sur GitHub évite de dépendre du Mac de Sylvain et rend la Release
+  reproductible depuis une étiquette.
