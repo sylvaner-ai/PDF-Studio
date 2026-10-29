@@ -61,6 +61,7 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
 │             textlayer : couche de texte invisible des pages reconnues ;      │
 │             scanned/ : objets d'une page scannée, retouche, rustines ;       │
 │             added : textes et images ajoutés (emprise, aperçu, écriture) ;   │
+│             clip : extrait PDF des objets copiés, redimensionnement ;        │
 │             enhanced : pixels d'un scan, PDF des pages améliorées            │
 │ (MuPDF)     analyse, rendu, extraction du texte, écriture                    │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -297,6 +298,31 @@ l'interprétation du flux de contenu et sur MuPDF.
   images ; `AddingPalette` et `AddedTextPanel` (`AddingViews.swift`) et le menu
   Insertion (`InsertionCommands`) les commandent. La récupération range chaque
   image à part, une seule fois (`RecoveryStore.keepImage`).
+
+## Objets redimensionnés, copiés et déplacés (D71, D72)
+
+- **Redimensionnement.** `ObjectEdit.scale` agrandit un objet d'origine autour
+  du coin inférieur gauche de son emprise d'origine, avant son déplacement ;
+  `editing::object_transform` en fait une matrice de l'espace de la page, que
+  la réécriture (`content::rewrite`, `Change.transform`) applique devant les
+  opérateurs de l'objet et que les emprises et le corps affichés suivent.
+  `clip::resize` calcule l'agrandissement et le déplacement qui amènent
+  l'objet dans le cadre voulu ; `set_object_bounds` le retient.
+- **Copie.** `clip::clip` écrit l'extrait PDF d'une page : emprise des objets
+  copiés, autres objets supprimés par `edit_page`, ressources réduites aux
+  noms employés, rotation de la page à l'écran, objets ajoutés dessinés par
+  `added::append`. Collé, l'extrait est une `AddedImage` dont les octets sont
+  un PDF (`added::is_pdf`) : `added::draw` en fait un formulaire (`pdf_form`,
+  ressources recopiées par une table de greffe) au lieu d'une image.
+- **Interface.** `ffi::clipboard` (`copy_objects`, `cut_objects`,
+  `paste_objects`, `duplicate_objects`, `transfer_objects`,
+  `clipboard_from_file`) place les morceaux de la copie dans l'espace de la page
+  droite à l'écran (`Upright`) ; `Editor::add_objects` ajoute à une page et
+  retire de l'autre en une étape d'annulation. `PageEditing+Objects` garde la
+  copie de l'application (avec le `changeCount` du presse-papiers) et y écrit
+  un PDF et du texte ; `PagesDocumentView` reçoit Couper, Copier, Coller et
+  Supprimer, `ObjectCommands` ⌘D, `EditingOverlayView+Objects` le clic droit et
+  le glisser vers une autre page.
 
 ## Reconnaissance du texte (OCR)
 

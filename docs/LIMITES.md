@@ -482,3 +482,29 @@ complété à chaque jalon.
   phrase reste dans son bloc, et la modification lui donne le style du début du
   bloc (limite du jalon 4).
 
+
+## Objets redimensionnés, copiés, collés et déplacés (D71 à D73)
+
+- **Scans :** les objets d'une page scannée ne se redimensionnent ni ne se
+  copient (ils se déplacent et se suppriment sur leur page) ; un tableau
+  scanné ne supprime pas ses lignes ni ses colonnes.
+- **Tableaux :** un tableau se copie, se duplique et passe d'une page à
+  l'autre en entier, mais ne se redimensionne pas ; ses rangées se règlent par
+  le menu Tableau.
+- **Copie d'objets d'origine :** elle devient un extrait PDF posé comme un
+  objet ajouté. Son texte ne se modifie qu'une fois le document enregistré et
+  rouvert (dépliage, D69) ; jusque-là il se déplace, se redimensionne et se
+  supprime d'un bloc. L'extrait garde 1 pt de marge autour des objets.
+- **Seulement la sélection :** un fond, un filet ou un texte voisin qui
+  chevauche les objets sélectionnés sans en faire partie n'est pas copié ; il
+  faut le sélectionner aussi (⇧-clic ou rectangle).
+- **Glisser vers une autre page :** pendant le glisser, le contour pointillé
+  reste dans la page de départ ; la copie apparaît à son arrivée. La page
+  d'arrivée doit être affichée (en mode page par page, utiliser Couper et
+  Coller).
+- **Presse-papiers :** depuis une autre application, seule la première page
+  d'un PDF copié est collée ; un texte copié seul ne se colle pas en objet
+  (utiliser l'outil « Texte »). Vers une autre application, la copie est un PDF
+  et son texte (de haut en bas).
+- **Texte agrandi :** un texte d'origine redimensionné sans garder les
+  proportions (⇧) est étiré ; son corps affiché est celui de la hauteur.

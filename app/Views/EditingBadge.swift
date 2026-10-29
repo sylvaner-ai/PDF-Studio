@@ -94,6 +94,9 @@ struct EditingBadge: View {
         } else {
             parts.append(String(localized: "Flèches pour déplacer (⇧ : 10 pt), ⌫ pour supprimer"))
         }
+        if item.resizable {
+            parts.append(String(localized: "un coin pour redimensionner"))
+        }
         return parts.joined(separator: " · ")
     }
 

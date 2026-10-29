@@ -75,7 +75,16 @@ jalon 2 sur 6 (redressement des pages, ⌘4) ; voir [docs/AMELIORATION.md](docs/
   tracé ; ⇧-clic en ajoute ; un rectangle tracé sur la page en sélectionne
   plusieurs.
 - **Déplacer** en glissant, ou avec les flèches (1 pt, 10 pt avec ⇧) ; **supprimer**
-  avec ⌫.
+  avec ⌫. Une sélection glissée sur une autre page y passe ; avec ⌥, elle y est
+  copiée (aussi sur la même page).
+- **Redimensionner** un bloc de texte, une image ou un tracé sélectionné seul en
+  tirant un de ses coins (⇧ : sans garder les proportions) ; un texte s'agrandit
+  avec son corps.
+- **Couper, copier, coller, dupliquer** (⌘X, ⌘C, ⌘V, ⌘D, ou le clic droit) : la
+  copie se colle à la même place sur une autre page, ou décalée sur sa page, et
+  passe d'un document à l'autre. Elle arrive aussi dans les autres applications
+  (en PDF et en texte) ; un PDF ou une image copiés ailleurs se collent au centre
+  de la page. Le clic droit « Coller » pose la copie au point cliqué.
 - **Modifier un texte** par double-clic ou Retour : Retour valide, ⇧Retour passe à
   la ligne, Échap annule. Le texte garde sa police si elle contient tous les
   caractères ; sinon la même police installée sur le Mac est intégrée, ou une
@@ -85,7 +94,9 @@ jalon 2 sur 6 (redressement des pages, ⌘4) ; voir [docs/AMELIORATION.md](docs/
   se supprime comme un objet. Double-clic ou Retour modifie le texte de la
   cellule (une cellule vide prend le style de ses voisines) ; le **menu Tableau**
   et le clic droit suppriment, montent ou descendent la ligne, suppriment ou
-  déplacent la colonne. Le tableau se resserre, ses filets et ses fonds suivent.
+  déplacent la colonne. ⇧-clic sur une autre cellule choisit une plage, dont
+  toutes les lignes (ou colonnes) se suppriment d'un coup. Le tableau se
+  resserre, ses filets et ses fonds suivent.
 - **Pages scannées :** une fois la page reconnue (à l'entrée en Édition, y compris
   un scan qui portait déjà le texte d'un autre logiciel), ses lignes, ses tableaux,
   ses logos et signatures se sélectionnent comme des objets ; les déplacer ou les supprimer retouche l'image (le fond est

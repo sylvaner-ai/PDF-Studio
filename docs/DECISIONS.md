@@ -1292,3 +1292,85 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
 - **Raisons :** c'est le geste déjà employé pour les cellules à un seul bloc, et
   il conserve la mise en forme de chaque texte.
 
+
+## D71 — Redimensionner tout objet par une transformation de ses opérateurs
+
+- **Demande :** redimensionner les objets des pages, et non plus seulement les
+  images ajoutées (Sylvain, 29 octobre 2026).
+- **Retenu :** un objet d'origine (bloc de texte, image, tracé) garde ses
+  opérateurs ; la modification retient un agrandissement (`ObjectEdit.scale`,
+  horizontal et vertical) autour du coin inférieur gauche de son emprise
+  d'origine, suivi du déplacement. La réécriture ciblée (D19) applique cette
+  transformation générale là où elle n'appliquait qu'une translation
+  (`ctm · T · ctm⁻¹` devant l'objet) ; le texte s'agrandit avec son corps,
+  l'aperçu, l'enregistrement et la récupération suivent. Un texte ajouté
+  change de corps (dans le rapport des hauteurs, de 1 à 500 pt), une image
+  ajoutée de cadre. Les coins de l'objet sélectionné seul le règlent (⇧ :
+  sans garder les proportions, sauf pour un texte ajouté).
+- **Exclus :** un tableau (ses lignes et colonnes se règlent par le menu
+  Tableau), le membre d'un tableau, un objet d'un scan (ses pixels devraient
+  être rééchantillonnés) ; `PageObjectItem.resizable` le dit à l'application.
+- **Alternatives :** redessiner l'objet agrandi dans un flux à part (son texte
+  ne serait plus modifiable en place) ; changer le corps des seuls textes et
+  le cadre des seules images (rien pour les tracés).
+- **Raisons :** la même opération vaut pour toutes les sortes d'objets, ne
+  touche que les opérateurs de l'objet, et un texte agrandi reste modifiable.
+
+## D72 — Copier, coller, dupliquer et déplacer d'une page à l'autre par un extrait PDF
+
+- **Demande :** supprimer, déplacer, dupliquer et copier-coller des objets,
+  dans une même page ou d'une page à une autre (Sylvain, 29 octobre 2026).
+- **Retenu :**
+  - Les objets d'origine copiés deviennent un **extrait PDF** d'une page
+    (`pdf_core::clip`) : la page source, réduite à l'emprise des objets (plus
+    1 pt de marge), où tout le reste est supprimé, ses ressources réduites à
+    celles qu'emploie le contenu, tournée comme la page à l'écran. Il se colle
+    comme une image ajoutée (D67) dont les octets sont un PDF, dessinée en
+    formulaire (Form XObject) recopié dans le document : pas de rendu en
+    pixels, le texte reste du texte. Une fois le document enregistré et
+    rouvert, le dépliage des formulaires (D69) rend ce texte modifiable.
+  - Les objets ajoutés copiés restent ce qu'ils sont (texte avec son style,
+    image), sauf s'ils se montrent tournés (posés avant un quart de tour de la
+    page) : ils passent alors dans l'extrait, qui garde leur aspect.
+  - **Coller** (⌘V) pose la copie à la place des originaux sur une autre page,
+    décalée de 12 pt sur la page de l'original et à chaque nouveau collage ; le
+    clic droit « Coller » la centre sur le point cliqué. **Couper** (⌘X)
+    copie puis supprime ; recoller sur la page remet à la même place.
+    **Dupliquer** (⌘D en Édition avec une sélection, pris au menu Pages tant
+    qu'elle existe) colle sur place avec le décalage. Une sélection **glissée
+    sur une autre page** y passe, son groupe centré là où on l'amène ; ⌥ en
+    fait une copie, aussi sur la même page. Chaque action est une seule étape
+    d'annulation (`Editor::add_objects`, qui ajoute à une page et retire de
+    l'autre en un seul état).
+  - La copie de l'application est gardée en mémoire, entière, tant que le
+    presse-papiers du Mac n'a pas changé (`changeCount`) ; elle passe ainsi
+    d'une fenêtre à l'autre. Le presse-papiers reçoit en plus un PDF de tous
+    les objets et leur texte, pour les autres applications. À l'inverse, un PDF
+    (sa première page), une image ou un fichier image copiés ailleurs se collent
+    au centre de la page, réduits à la moitié de la page au plus.
+- **Alternatives :** copier les objets comme des modifications à rejouer sur
+  la page cible (impossible d'un document à l'autre, et les ressources de la
+  page source manquent) ; rendre la copie en image (texte perdu, flou au
+  zoom) ; insérer les opérateurs copiés dans le flux de la page cible (conflits
+  de noms de ressources, et le flux d'origine changerait de structure).
+- **Raisons :** l'extrait PDF garde l'aspect exact (polices, vecteurs) sans
+  toucher au contenu d'origine de la page cible, réutilise tout le chemin des
+  objets ajoutés (aperçu, enregistrement, récupération, page vierge) et sert
+  tel quel aux autres applications.
+
+## D73 — Supprimer plusieurs lignes ou colonnes d'un tableau d'un coup
+
+- **Demande :** supprimer des lignes ou des colonnes des tableaux (Sylvain,
+  29 octobre 2026). La suppression d'une ligne ou d'une colonne à la fois
+  existait depuis le jalon 6.
+- **Retenu :** ⇧-clic dans le tableau sélectionné étend une plage de cellules
+  depuis la cellule courante (surlignée) ; une cellule fusionnée à cheval sur
+  son bord l'agrandit. Le menu Tableau et le clic droit proposent alors
+  « Supprimer les N lignes » ou « Supprimer les N colonnes », en une seule
+  action (`delete_table_bands` acceptait déjà plusieurs rangées). Une plage ne
+  se monte ni ne se descend ; un clic simple revient à une seule cellule.
+- **Alternatives :** cases à cocher en marge des lignes et des colonnes (plus
+  d'éléments à l'écran pour un geste rare) ; supprimer plusieurs fois (autant
+  d'étapes d'annulation).
+- **Raisons :** ⇧-clic est le geste habituel des plages (tableurs, Finder), et
+  il ne change rien au clic simple.

@@ -57,7 +57,7 @@ extension PagesDocumentView: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
         case #selector(copy(_:)):
-            return editing.map(\.canCopy) ?? text.hasSelection
+            return editing.map { $0.canCopy } ?? text.hasSelection
         case #selector(cut(_:)):
             return editing?.canCopy == true
         case #selector(paste(_:)):

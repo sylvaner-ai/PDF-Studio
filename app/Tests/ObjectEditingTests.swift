@@ -73,7 +73,7 @@ final class ObjectEditingTests: XCTestCase {
         let items = try await objects(model, page: 0)
         let image = try XCTUnwrap(items.first { $0.kind == .image && !$0.added })
         XCTAssertTrue(image.resizable)
-        XCTAssertFalse(try XCTUnwrap(items.first { $0.kind == .table }).resizable)
+        XCTAssertTrue(try XCTUnwrap(items.first { $0.kind == .path }).resizable)
 
         model.editing.select([image.id], on: page.id)
         XCTAssertEqual(model.editing.selectedResizable?.id, image.id)
