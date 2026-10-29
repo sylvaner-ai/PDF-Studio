@@ -1235,3 +1235,38 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
 - **Raisons :** le `.dmg` est l'installation habituelle d'une application Mac ;
   construire sur GitHub évite de dépendre du Mac de Sylvain et rend la Release
   reproductible depuis une étiquette.
+
+## D69 — Formulaires à texte dépliés en mode Édition
+
+- **Constat :** un PDF exporté ou imprimé par macOS (Quartz) loge tout le
+  contenu de chaque page dans un formulaire PDF (objet externe `/Form`, dessiné
+  par `Do`). Le mode Lecture en voyait le texte (MuPDF), mais le mode Édition
+  traitait le formulaire comme un seul objet, déplacé d'un bloc (limite du
+  jalon 4) : aucun texte n'était détecté ni modifiable (signalé par Sylvain le
+  29 octobre 2026).
+- **Retenu :** à la construction des objets d'une page (`PageModel::load`), un
+  formulaire qui contient du texte, lui-même ou par un formulaire imbriqué,
+  est déplié (`pdf_core::content::unfold`) : l'opération `Do` est remplacée
+  par `q <Matrix> cm <BBox> re W n <contenu du formulaire> Q`, ce que la norme
+  prescrit pour son affichage. Ses ressources rejoignent celles de la page
+  sous leur nom, ou sous un nom libre (`G1_1`) quand la page emploie déjà ce
+  nom pour un autre objet ; les opérations qui les citent sont réécrites. Le
+  contenu déplié sert à tout le reste comme le contenu d'origine : blocs,
+  tableaux, aperçu et enregistrement (D19). Une page modifiée est écrite
+  avec son contenu déplié et les ressources réunies ; une page non modifiée
+  reste identique octet pour octet.
+- **Formulaires laissés entiers :** ceux sans texte (logo, tampon), qui se
+  déplacent toujours d'un bloc ; ceux dont l'affichage pourrait changer une
+  fois dépliés : groupe de transparence à élimination (knockout), ou combiné
+  à un mode de fusion, une opacité ou un masque ; `Q` qui referme un `q`
+  d'avant le formulaire ; image en ligne dont l'espace de couleur serait
+  renommé ; au-delà de 8 niveaux d'imbrication ou de 32 Mo de contenu déplié.
+- **Alternatives :** interpréter les formulaires sans les déplier, puis
+  réécrire leur propre flux (un formulaire partagé par plusieurs pages
+  devrait être copié pour chacune, et la réécriture ciblée de D19 porterait
+  sur plusieurs flux) ; déplier tous les formulaires, avec ou sans texte (un
+  logo deviendrait une poussière de tracés).
+- **Raisons :** le dépliage ne change pas l'affichage (vérifié pixel à pixel
+  sur `formulaire.pdf`) et laisse intacts l'interpréteur, la réécriture et
+  l'écriture : tout ce qui marche sur une page ordinaire marche sur une page
+  exportée par macOS.

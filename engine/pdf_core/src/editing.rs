@@ -29,6 +29,7 @@ use crate::content::resources::PageResources;
 use crate::content::rewrite::{
     rewrite, without_text, Change, Insertion, NewText, Reshape, ReshapeStep,
 };
+use crate::content::unfold::{self, Alias, Unfolded};
 use crate::error::Result;
 use crate::text::PageRect;
 
@@ -37,7 +38,10 @@ const MAX_FONT_FILE: u64 = 16 * 1024 * 1024;
 
 /// Objets d'une page, établis à partir de son contenu d'origine.
 pub struct PageModel {
+    /// Contenu de la page, formulaires à texte dépliés.
     source: Vec<u8>,
+    /// Ressources des formulaires dépliés (cf. [`unfold`]).
+    aliases: Vec<Alias>,
     ops: Vec<Operation>,
     run: Interpretation,
     objects: Vec<PageObject>,
@@ -222,12 +226,15 @@ struct Derived<'a> {
 }
 
 impl PageModel {
-    /// Lit et interprète le contenu de la page `page`.
+    /// Lit et interprète le contenu de la page `page`, formulaires à texte
+    /// dépliés (cf. [`unfold`]).
     pub fn load(page: &PdfObject) -> Result<Self> {
-        let source = page_contents(page)?;
+        let page_resources = page.get_dict_inheritable("Resources")?;
+        let Unfolded { source, aliases } =
+            unfold::unfold(page_contents(page)?, page_resources.as_ref());
         let ops = lexer::parse(&source);
         let page_box = page_box(page)?;
-        let mut resources = PageResources::new(page.get_dict_inheritable("Resources")?);
+        let mut resources = PageResources::with_aliases(page_resources, &aliases);
         let run = interpret(&ops, &mut resources, page_box);
         let objects = objects::build(&ops, &run, page_box);
         let ctm = page.page_ctm()?;
@@ -241,6 +248,7 @@ impl PageModel {
         );
         Ok(Self {
             source,
+            aliases,
             ops,
             run,
             objects,
@@ -263,6 +271,49 @@ impl PageModel {
     /// texte d'un OCR (cf. [`only_invisible_text`]).
     pub fn has_only_invisible_text(&self) -> bool {
         only_invisible_text(&self.ops, &self.run)
+    }
+
+    /// Ressources qui accompagnent le contenu du modèle : celles de la page
+    /// `page`, augmentées de celles des formulaires dépliés ; `None` si aucun
+    /// formulaire n'a été déplié (les ressources de la page suffisent).
+    pub(crate) fn resources(
+        &self,
+        doc: &mut PdfDocument,
+        page: &PdfObject,
+    ) -> Result<Option<PdfObject>> {
+        if self.aliases.is_empty() {
+            return Ok(None);
+        }
+        let base = page.get_dict_inheritable("Resources")?;
+        let mut merged = match &base {
+            Some(resources) if resources.is_dict()? => crate::writer::detached_copy(resources)?,
+            _ => doc.new_dict()?,
+        };
+        let mut categories: Vec<&'static str> = Vec::new();
+        for alias in &self.aliases {
+            if !categories.contains(&alias.category) {
+                categories.push(alias.category);
+            }
+        }
+        for category in categories {
+            let mut dict = match merged.get_dict(category)? {
+                Some(dict) if dict.is_dict()? => crate::writer::detached_copy(&dict)?,
+                _ => doc.new_dict()?,
+            };
+            for alias in self.aliases.iter().filter(|a| a.category == category) {
+                let Some(object) = unfold::resolve(base.as_ref(), alias) else {
+                    continue;
+                };
+                let object = if object.is_indirect()? {
+                    object
+                } else {
+                    object.try_clone()?
+                };
+                dict.dict_put(String::from_utf8_lossy(&alias.name).into_owned(), object)?;
+            }
+            merged.dict_put(category, dict)?;
+        }
+        Ok(Some(merged))
     }
 
     /// Contenu de la page sans son texte (cf. [`without_text`]).
@@ -1261,7 +1312,18 @@ pub(crate) fn choose_font(
         .map(|&c| metrics.encode(c).map(|(code, len)| code_bytes(code, len)))
         .collect();
     if let (true, Some(codes)) = (in_font, codes) {
-        if codes.is_empty() || probe(doc, page_index, font_name, &codes, scratch)? {
+        let page = doc.find_page(page_index as i32)?;
+        let resources = model.resources(doc, &page)?;
+        if codes.is_empty()
+            || probe(
+                doc,
+                page_index,
+                font_name,
+                &codes,
+                resources.as_ref(),
+                scratch,
+            )?
+        {
             return Ok(FontChoice::Original);
         }
     }
@@ -1283,13 +1345,14 @@ pub(crate) fn choose_font(
     })
 }
 
-/// Vrai si la police `font_name` de la page dessine un glyphe pour chacun
-/// des `codes`.
+/// Vrai si la police `font_name` de la page (ressources `resources`, sinon
+/// celles de la page) dessine un glyphe pour chacun des `codes`.
 fn probe(
     doc: &mut PdfDocument,
     page_index: u32,
     font_name: &[u8],
     codes: &[Vec<u8>],
+    resources: Option<&PdfObject>,
     scratch: &mut Scratch,
 ) -> Result<bool> {
     let mut content = Vec::new();
@@ -1306,7 +1369,7 @@ fn probe(
     let device = Device::from_native(Probe {
         glyphs: Arc::clone(&glyphs),
     })?;
-    with_page_content(doc, page_index, &content, None, scratch, |doc| {
+    with_page_content(doc, page_index, &content, resources, scratch, |doc| {
         let page = doc.load_page(page_index as i32)?;
         page.run_contents(&device, &mupdf::Matrix::IDENTITY)?;
         Ok(())
@@ -1378,7 +1441,8 @@ pub(crate) type EmbeddedFonts = HashMap<FontChoice, PdfObject>;
 pub(crate) struct EditedPage {
     /// Nouveau flux de contenu.
     pub content: Vec<u8>,
-    /// Nouvelles ressources (polices ajoutées), si elles changent.
+    /// Nouvelles ressources (polices ajoutées, ressources des formulaires
+    /// dépliés), si elles changent.
     pub resources: Option<PdfObject>,
 }
 
@@ -1391,7 +1455,12 @@ pub(crate) fn edit_page(
     fonts: &mut FontProvider,
     embedded: &mut EmbeddedFonts,
 ) -> Result<EditedPage> {
-    let resources = page.get_dict_inheritable("Resources")?;
+    let merged = model.resources(doc, page)?;
+    let unfolded = merged.is_some();
+    let resources = match merged {
+        Some(merged) => Some(merged),
+        None => page.get_dict_inheritable("Resources")?,
+    };
     let font_dict = match &resources {
         Some(resources) => resources.get_dict("Font")?,
         None => None,
@@ -1466,7 +1535,7 @@ pub(crate) fn edit_page(
     );
     let added = names.added;
 
-    let resources = if added.is_empty() {
+    let resources = if added.is_empty() && !unfolded {
         None
     } else {
         let mut copy = match &resources {
@@ -1578,6 +1647,74 @@ pub(crate) fn add_font(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn formulaire() -> PdfDocument {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/formulaire.pdf");
+        PdfDocument::from_bytes(&std::fs::read(path).unwrap()).unwrap()
+    }
+
+    fn rendu(doc: &PdfDocument) -> Vec<u8> {
+        let page = doc.load_page(0).unwrap();
+        let matrix = mupdf::Matrix::new_scale(2.0, 2.0);
+        let pixmap = page
+            .to_pixmap(&matrix, &Colorspace::device_rgb(), false, false)
+            .unwrap();
+        pixmap.samples().to_vec()
+    }
+
+    #[test]
+    fn deplier_un_formulaire_ne_change_pas_l_affichage() {
+        let mut doc = formulaire();
+        let page = doc.find_page(0).unwrap();
+        let model = PageModel::load(&page).unwrap();
+        assert!(model.objects.iter().all(|o| o.kind != ObjectKind::Form));
+        // Les trois polices G1 (page, formulaire, formulaire imbriqué)
+        // gardent chacune leur nom ou en reçoivent un nouveau.
+        let fonts: Vec<&[u8]> = model
+            .aliases
+            .iter()
+            .filter(|a| a.category == "Font")
+            .map(|a| a.name.as_slice())
+            .collect();
+        assert_eq!(fonts, [&b"G1_1"[..], b"G2", b"G1_2"]);
+        let resources = model.resources(&mut doc, &page).unwrap().unwrap();
+        let before = rendu(&doc);
+        let after = with_page_content(
+            &mut doc,
+            0,
+            &model.source,
+            Some(&resources),
+            &mut Scratch::default(),
+            |doc| Ok(rendu(doc)),
+        )
+        .unwrap();
+        assert!(before == after, "le contenu déplié s'affiche autrement");
+    }
+
+    #[test]
+    fn formulaire_a_elimination_reste_entier() {
+        let doc = formulaire();
+        let page = doc.find_page(0).unwrap();
+        let mut group = page
+            .get_dict("Resources")
+            .unwrap()
+            .unwrap()
+            .get_dict("XObject")
+            .unwrap()
+            .unwrap()
+            .get_dict("Fm1")
+            .unwrap()
+            .unwrap()
+            .get_dict("Group")
+            .unwrap()
+            .unwrap();
+        group.dict_put("K", PdfObject::new_bool(true)).unwrap();
+        let model = PageModel::load(&page).unwrap();
+        assert!(model.aliases.is_empty());
+        let kinds: Vec<ObjectKind> = model.objects.iter().map(|o| o.kind).collect();
+        assert_eq!(kinds, [ObjectKind::Form, ObjectKind::Text]);
+    }
 
     #[test]
     fn police_standard_la_plus_proche() {

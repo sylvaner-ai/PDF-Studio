@@ -15,4 +15,5 @@ pub mod lexer;
 pub mod objects;
 pub mod resources;
 pub mod rewrite;
+pub mod unfold;
 pub mod writer;

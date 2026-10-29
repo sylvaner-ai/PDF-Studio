@@ -190,7 +190,9 @@ l'interprétation du flux de contenu et sur MuPDF.
 - **Objets.** `pdf_core::content` analyse le flux de contenu d'une page
   (`lexer`), l'interprète en suivant l'état graphique et les polices (`interp`,
   `resources`, `font`, `cmap`, `encodings`) et en tire les objets de la page
-  (`objects`) : blocs de texte, images, tracés, formulaires, dégradés. `editing`
+  (`objects`) : blocs de texte, images, tracés, formulaires, dégradés. Les
+  formulaires qui contiennent du texte sont d'abord dépliés dans le flux de la
+  page (`unfold`, D69). `editing`
   les présente à l'application (`PageObjectItem`, emprise sur la page droite).
 - **Modifications.** Supprimer, déplacer ou remplacer le texte d'un objet passe
   par l'`EditSession`, qui les range dans l'état du crate `edit`, avec les pages
