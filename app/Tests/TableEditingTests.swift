@@ -211,7 +211,8 @@ final class CellRangeTests: XCTestCase {
         let table = try XCTUnwrap(
             try session.pageObjects(page: page).first { $0.kind == .table && ($0.grid?.columns ?? 0) >= 4 }
         ).id
-        XCTAssertEqual(try await grid(model, table: table).rows, 6)
+        let initial = try await grid(model, table: table)
+        XCTAssertEqual(initial.rows, 6)
         let editing = model.editing
         let cell = { (row: UInt32, column: UInt32) in
             PageEditing.CellTarget(page: page, table: table, row: row, column: column)
@@ -229,7 +230,8 @@ final class CellRangeTests: XCTestCase {
         editing.perform(.deleteRow)
         XCTAssertEqual(session.undoName(), "la suppression des lignes")
         XCTAssertNil(editing.cellExtent)
-        XCTAssertEqual(try await grid(model, table: table).rows, 3)
+        let fewerRows = try await grid(model, table: table)
+        XCTAssertEqual(fewerRows.rows, 3)
 
         // Une cellule fusionnée à cheval agrandit la plage : « Ventes »
         // couvre les colonnes 1 et 2.
@@ -242,7 +244,8 @@ final class CellRangeTests: XCTestCase {
         XCTAssertEqual(editing.selectedBands?.columns, 1...2)
         editing.perform(.deleteColumn)
         XCTAssertEqual(session.undoName(), "la suppression des colonnes")
-        XCTAssertEqual(try await grid(model, table: table).columns, 3)
+        let fewerColumns = try await grid(model, table: table)
+        XCTAssertEqual(fewerColumns.columns, 3)
 
         // Une seule action à annuler pour chaque suppression.
         XCTAssertTrue(session.undo())
