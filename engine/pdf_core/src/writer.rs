@@ -178,6 +178,9 @@ fn remove_replaced_text(doc: &mut PdfDocument, layers: &[Option<Arc<TextLayer>>]
         }
         let stream = doc.add_stream(&Buffer::from_bytes(&model.without_text())?, None, false)?;
         page.dict_put("Contents", stream)?;
+        if let Some(resources) = model.resources(doc, &page)? {
+            page.dict_put("Resources", resources)?;
+        }
     }
     Ok(())
 }

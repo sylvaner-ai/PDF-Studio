@@ -13,11 +13,14 @@ use super::font::{FontKind, FontMetrics};
 use super::fontprog::{self, ProgramFormat};
 use super::geometry::{Matrix, Rect};
 use super::interp::{Resources, XObject};
+use super::unfold::{self, Alias};
 use crate::error::Result;
 
 /// Ressources d'une page (`/Resources`), lues à la demande et gardées.
 pub struct PageResources {
     dict: Option<PdfObject>,
+    /// Ressources des formulaires dépliés, par catégorie et nom dans la page.
+    aliases: HashMap<(&'static str, Vec<u8>), PdfObject>,
     fonts: HashMap<Vec<u8>, Option<Arc<FontMetrics>>>,
     xobjects: HashMap<Vec<u8>, XObject>,
 }
@@ -27,9 +30,24 @@ impl PageResources {
     pub fn new(dict: Option<PdfObject>) -> Self {
         Self {
             dict,
+            aliases: HashMap::new(),
             fonts: HashMap::new(),
             xobjects: HashMap::new(),
         }
+    }
+
+    /// Ressources du dictionnaire `dict`, augmentées de celles des
+    /// formulaires dépliés (cf. [`unfold`](super::unfold)).
+    pub fn with_aliases(dict: Option<PdfObject>, aliases: &[Alias]) -> Self {
+        let mut resources = Self::new(dict);
+        for alias in aliases {
+            if let Some(object) = unfold::resolve(resources.dict.as_ref(), alias) {
+                resources
+                    .aliases
+                    .insert((alias.category, alias.name.clone()), object);
+            }
+        }
+        resources
     }
 
     /// Polices lues, par nom de ressource.
@@ -39,7 +57,10 @@ impl PageResources {
             .filter_map(|(name, font)| font.as_ref().map(|font| (name.as_slice(), font)))
     }
 
-    fn entry(&self, category: &str, name: &[u8]) -> Option<PdfObject> {
+    fn entry(&self, category: &'static str, name: &[u8]) -> Option<PdfObject> {
+        if let Some(object) = self.aliases.get(&(category, name.to_vec())) {
+            return object.try_clone().ok();
+        }
         let dict = self.dict.as_ref()?;
         let category = dict.get_dict(category).ok()??;
         category

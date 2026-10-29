@@ -570,6 +570,81 @@ def encadre() -> None:
     save(pdf, "encadre.pdf")
 
 
+def formulaire() -> None:
+    """Contenu logé dans des formulaires PDF (objets externes /Form), comme
+    dans les PDF exportés ou imprimés par macOS : page 1, tout le texte dans
+    un formulaire à groupe de transparence, dont un bloc dans un formulaire
+    imbriqué ; les deux formulaires et la page nomment G1 trois polices
+    différentes ; un pied de page reste hors formulaire. Page 2 : un
+    formulaire sans texte (logo), qui doit rester entier."""
+    pdf = pikepdf.new()
+
+    def font(base: str) -> pikepdf.Object:
+        return pdf.make_indirect(pikepdf.Dictionary(
+            Type=pikepdf.Name.Font, Subtype=pikepdf.Name.Type1,
+            BaseFont=pikepdf.Name("/" + base), Encoding=pikepdf.Name.WinAnsiEncoding,
+        ))
+
+    def show(text: str) -> bytes:
+        escaped = text.encode("cp1252").replace(b"\\", b"\\\\")
+        return b"(" + escaped.replace(b"(", b"\\(").replace(b")", b"\\)") + b") Tj "
+
+    def form(content: bytes, bbox, resources: pikepdf.Dictionary, **extra) -> pikepdf.Object:
+        stream = pdf.make_stream(content)
+        stream.Type = pikepdf.Name.XObject
+        stream.Subtype = pikepdf.Name.Form
+        stream.BBox = pikepdf.Array(bbox)
+        stream.Resources = resources
+        for key, value in extra.items():
+            stream[pikepdf.Name("/" + key)] = value
+        return stream
+
+    nested = form(
+        b"BT /G1 10 Tf 1 0 0 1 4 16 Tm " + show("Bloc dans un formulaire imbriqué") + b"ET\n",
+        [0, 0, 300, 40],
+        pikepdf.Dictionary(Font=pikepdf.Dictionary(G1=font("Courier"))),
+    )
+    main = form(
+        b"q 0 g BT /G2 18 Tf 1 0 0 1 56 760 Tm " + show("Devis fictif n° 0042") + b"ET Q\n"
+        + b"0.2 0.2 0.2 rg 56 748 483 0.6 re f\n"
+        + b"0 g BT /G1 11 Tf 14 TL 1 0 0 1 56 720 Tm "
+        + show("Ce paragraphe est logé dans un formulaire, comme le fait macOS")
+        + b"T* " + show("quand il enregistre un document au format PDF : chaque page")
+        + b"T* " + show("n'est alors qu'un objet externe dessiné par l'opérateur Do.")
+        + b"ET\n"
+        + b"q 1 0 0 1 56 600 cm /Fm2 Do Q\n",
+        [30, 30, 565, 812],
+        pikepdf.Dictionary(
+            Font=pikepdf.Dictionary(G1=font("Helvetica"), G2=font("Helvetica-Bold")),
+            XObject=pikepdf.Dictionary(Fm2=nested),
+        ),
+        Group=pikepdf.Dictionary(S=pikepdf.Name.Transparency, I=True, K=False),
+    )
+    logo = form(b"0.1 0.3 0.6 rg 0 0 100 60 re f\n", [0, 0, 100, 60], pikepdf.Dictionary())
+
+    pdf.add_blank_page(page_size=(595, 842))
+    first = pdf.pages[0]
+    first.obj.Resources = pikepdf.Dictionary(
+        Font=pikepdf.Dictionary(G1=font("Times-Roman")),
+        XObject=pikepdf.Dictionary(Fm1=main),
+    )
+    first.obj.Contents = pdf.make_stream(
+        b"q Q q 0 0 595 842 re W n /Fm1 Do Q\n"
+        + b"BT /G1 8 Tf 1 0 0 1 56 40 Tm " + show("Pied de page hors formulaire") + b"ET\n"
+    )
+    pdf.add_blank_page(page_size=(595, 842))
+    second = pdf.pages[1]
+    second.obj.Resources = pikepdf.Dictionary(
+        Font=pikepdf.Dictionary(F1=font("Helvetica")),
+        XObject=pikepdf.Dictionary(Logo=logo),
+    )
+    second.obj.Contents = pdf.make_stream(
+        b"BT /F1 12 Tf 1 0 0 1 56 760 Tm " + show("Page avec un logo") + b"ET\n"
+        + b"q 1 0 0 1 400 700 cm /Logo Do Q\n"
+    )
+    save(pdf, "formulaire.pdf")
+
+
 def save(pdf: pikepdf.Pdf, name: str, **kwargs) -> None:
     pdf.save(OUT / name, static_id=True, deterministic_id=False, **kwargs)
 
@@ -1805,6 +1880,7 @@ def main() -> None:
     edition()
     police_cff()
     encadre()
+    formulaire()
     signature_factice()
     corrompu()
     pas_un_pdf()

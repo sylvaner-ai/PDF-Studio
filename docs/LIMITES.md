@@ -108,7 +108,9 @@ complété à chaque jalon.
   ne sait pas mesurer (codages CJK prédéfinis, par exemple) et le texte qui sert de
   détourage ne peuvent être ni déplacés ni modifiés ; le bandeau l'indique. Un
   formulaire PDF (contenu réutilisable) se déplace ou se supprime d'un bloc, sans
-  accès à ses éléments.
+  accès à ses éléments. *Levé par D69 pour les formulaires qui contiennent du
+  texte, dépliés en objets ordinaires ; un formulaire sans texte reste d'un
+  bloc.*
 - **Texte modifié :** il reprend la police, le corps, la couleur et l'alignement du
   début du bloc ; les mélanges de styles dans un même bloc (un mot en gras, un
   lien coloré) sont perdus, de même que le crénage d'origine. Un texte plus long
@@ -452,3 +454,20 @@ complété à chaque jalon.
 - **Page tournée ensuite :** un objet ajouté tourne avec sa page si
   l'organisation la tourne après coup, comme le reste de son contenu.
 
+## Formulaires dépliés (D69)
+
+- **Formulaires laissés entiers :** un formulaire sans texte reste un seul
+  objet ; un formulaire à texte n'est pas déplié quand son affichage pourrait
+  changer (groupe de transparence à élimination, ou combiné à une opacité, un
+  masque ou un mode de fusion ; pile `q`/`Q` déséquilibrée ; image en ligne
+  dont l'espace de couleur serait renommé) : son texte reste alors
+  inaccessible en Édition, comme avant.
+- **Contenu écrit déplié :** une page modifiée en Édition est enregistrée avec
+  le contenu de ses formulaires recopié dans son propre flux. L'affichage est
+  le même, mais un formulaire partagé par plusieurs pages ne l'est plus pour
+  cette page, et le fichier grossit d'autant.
+- **Texte qui dépasse :** le cadre (`/BBox`) du formulaire reste un détourage ;
+  un texte modifié qui en sortirait serait coupé à sa limite.
+- **Scans dans un formulaire :** une couche de texte invisible ou l'image d'un
+  scan logées dans un formulaire ne sont toujours pas reconnues comme un scan
+  à relire (D58).
