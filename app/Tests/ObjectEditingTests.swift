@@ -112,7 +112,8 @@ final class ObjectEditingTests: XCTestCase {
         let editing = model.editing
         let first = try XCTUnwrap(model.pages.first)
         let second = try XCTUnwrap(model.pages[safe: 1])
-        let line = try XCTUnwrap(try await objects(model, page: 0).first { $0.text?.contains(Self.line) == true })
+        let firstItems = try await objects(model, page: 0)
+        let line = try XCTUnwrap(firstItems.first { $0.text?.contains(Self.line) == true })
 
         // Copier : le presse-papiers reçoit un PDF et le texte.
         editing.select([line.id], on: first.id)

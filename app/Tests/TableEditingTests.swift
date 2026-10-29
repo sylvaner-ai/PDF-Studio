@@ -191,7 +191,8 @@ final class CellRangeTests: XCTestCase {
         throw CancellationError()
     }
 
-    func testSupprimeLesLignesEtLesColonnesDUnePlage() async throws {
+    /// Copie du document de test, ouverte en mode Édition.
+    private func openEditing() async throws -> DocumentViewModel {
         let source = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "tableaux", withExtension: "pdf"))
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("plage-\(UUID())")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -200,12 +201,17 @@ final class CellRangeTests: XCTestCase {
         try FileManager.default.copyItem(at: source, to: url)
         let model = DocumentViewModel(reference: try DocumentReference(url: url, securityScoped: false))
         await model.open()
+        model.workspace = .editing
+        return model
+    }
+
+    func testSupprimeLesLignesEtLesColonnesDUnePlage() async throws {
+        let model = try await openEditing()
         defer {
             model.discardChanges()
             model.close()
             RecoveryWriter.shared.flush()
         }
-        model.workspace = .editing
         let page = try XCTUnwrap(model.pages.first).id
         let session = try XCTUnwrap(model.session)
         let table = try XCTUnwrap(
