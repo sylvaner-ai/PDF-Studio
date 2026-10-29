@@ -39,6 +39,15 @@ extension EditingOverlayView {
         return true
     }
 
+    /// Bloc de texte d'une cellule de tableau sous le point (le plus petit) : il
+    /// se déplace seul, sans le tableau.
+    func cellBlock(at point: CGPoint) -> PageObjectItem? {
+        let tolerance = 2 * screenPoint
+        return items.filter { $0.table != nil && $0.kind == .text && $0.movable && !$0.scanned }
+            .filter { frame(of: $0).insetBy(dx: -tolerance, dy: -tolerance).contains(point) }
+            .min { area(frame(of: $0)) < area(frame(of: $1)) }
+    }
+
     /// Distance d'un point à un rectangle (0 s'il est dedans).
     private func distance(from point: CGPoint, to rect: CGRect) -> CGFloat {
         hypot(max(rect.minX - point.x, 0, point.x - rect.maxX), max(rect.minY - point.y, 0, point.y - rect.maxY))

@@ -94,6 +94,9 @@ struct EditingBadge: View {
         } else {
             parts.append(String(localized: "Flèches pour déplacer (⇧ : 10 pt), ⌫ pour supprimer"))
         }
+        if item.table != nil {
+            parts.append(String(localized: "texte d'une cellule : il se déplace dans sa cellule"))
+        }
         if item.resizable {
             parts.append(String(localized: "une poignée pour redimensionner"))
         }
@@ -124,6 +127,7 @@ struct EditingBadge: View {
             parts.append(
                 String(localized: """
                     double-clic pour modifier une cellule, ⇧-clic pour choisir plusieurs cellules, \
+                    ⌥-clic sur un texte pour le déplacer dans sa cellule, \
                     menu Tableau pour leurs lignes et colonnes
                     """)
             )

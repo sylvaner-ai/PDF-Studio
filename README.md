@@ -96,7 +96,9 @@ jalon 2 sur 6 (redressement des pages, ⌘4) ; voir [docs/AMELIORATION.md](docs/
   cellule (une cellule vide prend le style de ses voisines) ; le **menu Tableau**
   et le clic droit suppriment, montent ou descendent la ligne, suppriment ou
   déplacent la colonne. ⇧-clic sur une autre cellule choisit une plage, dont
-  toutes les lignes (ou colonnes) se suppriment d'un coup. Le tableau se
+  toutes les lignes (ou colonnes) se suppriment d'un coup. ⌥-clic sur le texte
+  d'une cellule le sélectionne seul : flèches ou glisser le déplacent dans sa
+  cellule. Le tableau se
   resserre, ses filets et ses fonds suivent.
 - **Pages scannées :** une fois la page reconnue (à l'entrée en Édition, y compris
   un scan qui portait déjà le texte d'un autre logiciel), ses lignes, ses tableaux,

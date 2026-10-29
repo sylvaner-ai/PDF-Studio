@@ -125,6 +125,12 @@ final class EditingOverlayView: NSView {
         editing.clickedPage = page.id
         guard !beginAdding(at: point) else { return }
         let extend = event.modifierFlags.contains(.shift)
+        // ⌥-clic sur le texte d'une cellule : ce bloc seul, déplaçable dans sa cellule.
+        if event.modifierFlags.contains(.option), !extend, let block = cellBlock(at: point) {
+            editing.select([block.id], on: page.id)
+            drag = .move(start: point, offset: .zero, started: false)
+            return
+        }
         guard let hit = object(at: point) else {
             let base = extend && editing.page == page.id ? editing.selected : []
             if !extend {

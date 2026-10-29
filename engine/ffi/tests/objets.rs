@@ -438,3 +438,32 @@ fn colle_depuis_une_autre_application() {
         "{same:?} {b:?}"
     );
 }
+
+#[test]
+fn deplace_le_texte_d_une_cellule() {
+    let session = EditSession::new(open("tableaux.pdf"));
+    let page = session.pages()[0].id;
+    let items = session.page_objects(page).unwrap();
+    let table = items
+        .iter()
+        .find(|item| item.kind == PageObjectKind::Table && item.grid.as_ref().is_some_and(|g| g.columns >= 4))
+        .unwrap()
+        .clone();
+    let block = items
+        .iter()
+        .find(|item| item.table == Some(table.id) && item.text.as_deref() == Some("France"))
+        .unwrap()
+        .clone();
+    assert!(block.movable);
+    session.move_objects(page, vec![block.id], 6.0, 0.0).unwrap();
+    let moved = object(&session, page, block.id);
+    assert!(near(moved.bounds.x, block.bounds.x + 6.0));
+    // Le tableau reste en place.
+    let after = object(&session, page, table.id);
+    assert!(near(after.bounds.x, table.bounds.x) && near(after.bounds.width, table.bounds.width));
+    // Le texte déplacé s'enregistre et s'annule.
+    let exported = session.export_pdf().unwrap();
+    assert!(PdfDocument::from_data(exported.bytes, None).is_ok());
+    assert!(session.undo());
+    assert!(near(object(&session, page, block.id).bounds.x, block.bounds.x));
+}
