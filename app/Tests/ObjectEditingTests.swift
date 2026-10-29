@@ -135,12 +135,9 @@ final class ObjectEditingTests: XCTestCase {
         editing.paste(on: first)
         let shifted = try XCTUnwrap(try session.pageObjects(page: first.id).first { editing.selected.contains($0.id) })
         XCTAssertEqual(shifted.bounds.x, line.bounds.x + PageEditing.pasteOffset, accuracy: 3)
-        // Le texte copié reste un texte ajouté, modifiable.
-        XCTAssertNotNil(shifted.addedText)
-        XCTAssertEqual(shifted.text, line.text)
+        XCTAssertTrue(shifted.addedText != nil && shifted.text == line.text)  // texte ajouté, modifiable
 
-        // Dupliquer, puis passer la copie sur l'autre page : une action chacun
-        // (la sélection se lit dans les objets rechargés de la page).
+        // Dupliquer, puis passer la copie sur l'autre page : une action chacun.
         _ = try await objects(model, page: 0)
         editing.duplicateSelection()
         XCTAssertEqual(session.undoName(), "la duplication")
