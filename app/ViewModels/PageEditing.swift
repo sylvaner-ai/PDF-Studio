@@ -37,6 +37,10 @@ final class PageEditing {
     /// Bloc de texte de la cellule courante visé par le dernier clic, quand la
     /// cellule en compte plusieurs (modifié par `PageEditing+Tables.swift`).
     var cellBlock: UInt32?
+    /// Autre coin de la plage de cellules choisie par ⇧-clic depuis la
+    /// cellule courante (modifié par `PageEditing+Tables.swift`) : ses lignes
+    /// ou ses colonnes se suppriment d'un coup.
+    var cellExtent: CellTarget?
     /// Cellule vide dont le texte est en cours de saisie (ouverte par
     /// `PageEditing+Tables.swift`).
     var cellTarget: CellTarget?
@@ -61,7 +65,8 @@ final class PageEditing {
         let column: UInt32
     }
 
-    /// Modification de la ligne ou de la colonne de la cellule courante.
+    /// Modification de la ligne ou de la colonne de la cellule courante (des
+    /// lignes ou des colonnes de la plage choisie, pour une suppression).
     enum TableAction: CaseIterable {
         case deleteRow, deleteColumn, moveRowUp, moveRowDown, moveColumnLeft, moveColumnRight
     }
@@ -85,6 +90,7 @@ final class PageEditing {
         selected = []
         textTarget = nil
         cell = nil
+        cellExtent = nil
         cellTarget = nil
         notice = nil
         isPlacingText = false
@@ -99,6 +105,7 @@ final class PageEditing {
         selected = []
         textTarget = nil
         cell = nil
+        cellExtent = nil
         cellTarget = nil
         notice = nil
         isPlacingText = false
@@ -247,6 +254,7 @@ final class PageEditing {
     func selectCell(_ cell: CellTarget, block: UInt32? = nil) {
         select([cell.table], on: cell.page)
         self.cell = cell
+        cellExtent = nil
         cellBlock = block
         onChange?(cell.page)
     }

@@ -130,14 +130,7 @@ final class EditingOverlayView: NSView {
             editing.beginTextEditing(page: page.id, object: hit.id)
             return
         }
-        if hit.kind == .table, !extend, let cell = cell(at: point, in: hit) {
-            let block = textBlock(at: point, in: cell, of: hit)
-            if event.clickCount == 2 {
-                editing.beginCellEditing(cell, block: block)
-                return
-            }
-            editing.selectCell(cell, block: block)
-            drag = .move(start: point, offset: .zero, started: false)
+        if hit.kind == .table, clickTable(hit, at: point, count: event.clickCount, extend: extend) {
             return
         }
         let isSelected = editing.page == page.id && editing.selected.contains(hit.id)
@@ -254,7 +247,7 @@ final class EditingOverlayView: NSView {
         }
 
         if offset == .zero, selected.count == 1, let table = selected.first, let grid = table.grid {
-            drawGrid(grid, current: editing.currentCell, unit: unit)
+            drawGrid(grid, current: editing.currentCell, range: editing.selectedCells, unit: unit)
         }
         if offset == .zero {
             drawImageHandles(selected, unit: unit)

@@ -70,7 +70,8 @@ struct PageCommands: Commands {
 }
 
 /// Menu Tableau, en mode Édition : ligne et colonne de la cellule courante du
-/// tableau sélectionné, et le tableau entier. Chaque action s'annule par ⌘Z.
+/// tableau sélectionné (lignes et colonnes de la plage choisie par ⇧-clic),
+/// et le tableau entier. Chaque action s'annule par ⌘Z.
 struct TableCommands: Commands {
     @FocusedValue(\.documentModel) private var model
 
@@ -80,7 +81,7 @@ struct TableCommands: Commands {
                 if action == .moveRowUp || action == .moveColumnLeft {
                     Divider()
                 }
-                Button(action.title) { editing?.perform(action) }
+                Button(editing?.title(for: action) ?? action.title) { editing?.perform(action) }
                     .disabled(editing?.canPerform(action) != true)
             }
             Divider()

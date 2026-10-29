@@ -1,7 +1,7 @@
 import Foundation
 
-/// Tableaux en mode Édition : cellule courante, lignes et colonnes
-/// supprimées ou déplacées, saisie d'une cellule.
+/// Tableaux en mode Édition : cellule courante et plage de cellules, lignes
+/// et colonnes supprimées ou déplacées, saisie d'une cellule.
 extension PageEditing {
     /// Tableau sélectionné seul.
     var selectedTable: PageObjectItem? {
@@ -14,6 +14,70 @@ extension PageEditing {
     var currentCell: TableCellItem? {
         guard let table = selectedTable, let cell, cell.table == table.id else { return nil }
         return table.grid?.cells.first { $0.row == cell.row && $0.column == cell.column }
+    }
+
+    /// Étend la plage de cellules du tableau sélectionné, de sa cellule
+    /// courante jusqu'à `cell` (⇧-clic) ; sans cellule courante dans ce
+    /// tableau, `cell` le devient.
+    func extendCells(to cell: CellTarget) {
+        guard let current = self.cell, current.table == cell.table, current.page == cell.page,
+              selectedTable?.id == cell.table else {
+            selectCell(cell)
+            return
+        }
+        cellExtent = cell == current ? nil : cell
+        onChange?(cell.page)
+    }
+
+    /// Lignes et colonnes couvertes par la plage de cellules choisie (la
+    /// cellule courante seule, sans ⇧-clic), fusions comprises.
+    var selectedBands: (rows: ClosedRange<UInt32>, columns: ClosedRange<UInt32>)? {
+        guard let table = selectedTable, let grid = table.grid, let first = currentCell else { return nil }
+        let other = cellExtent.flatMap { extent in
+            extent.table == table.id ? grid.cells.first { $0.row == extent.row && $0.column == extent.column } : nil
+        } ?? first
+        var rows = min(first.row, other.row)...max(first.row + first.rowSpan, other.row + other.rowSpan) - 1
+        var columns = min(first.column, other.column)...max(first.column + first.columnSpan,
+                                                             other.column + other.columnSpan) - 1
+        // Une cellule fusionnée à cheval sur le bord agrandit la plage.
+        var grown = true
+        while grown {
+            grown = false
+            for cell in grid.cells where cell.rowSpan > 0 && cell.columnSpan > 0 {
+                let cellRows = cell.row...cell.row + cell.rowSpan - 1
+                let cellColumns = cell.column...cell.column + cell.columnSpan - 1
+                guard rows.overlaps(cellRows), columns.overlaps(cellColumns) else { continue }
+                let newRows = min(rows.lowerBound, cellRows.lowerBound)...max(rows.upperBound, cellRows.upperBound)
+                let newColumns = min(columns.lowerBound, cellColumns.lowerBound)...max(
+                    columns.upperBound, cellColumns.upperBound
+                )
+                if newRows != rows || newColumns != columns {
+                    (rows, columns) = (newRows, newColumns)
+                    grown = true
+                }
+            }
+        }
+        return (rows, columns)
+    }
+
+    /// Cellules de la plage choisie, à mettre en évidence (vide sans ⇧-clic).
+    var selectedCells: [TableCellItem] {
+        guard cellExtent != nil, let bands = selectedBands, let grid = selectedTable?.grid else { return [] }
+        return grid.cells.filter { bands.rows.contains($0.row) && bands.columns.contains($0.column) }
+    }
+
+    /// Intitulé de l'action, au pluriel quand la plage compte plusieurs
+    /// lignes (ou colonnes) à supprimer.
+    func title(for action: TableAction) -> String {
+        guard let bands = selectedBands else { return action.title }
+        switch action {
+        case .deleteRow where bands.rows.count > 1:
+            return String(localized: "Supprimer les \(bands.rows.count) lignes")
+        case .deleteColumn where bands.columns.count > 1:
+            return String(localized: "Supprimer les \(bands.columns.count) colonnes")
+        default:
+            return action.title
+        }
     }
 
     /// Cellule `cell` parmi les objets `items` d'une page.
@@ -30,6 +94,8 @@ extension PageEditing {
         }
         switch action {
         case .deleteRow, .deleteColumn: return true
+        // Une plage se supprime, mais ne se déplace pas.
+        case _ where cellExtent != nil && cellExtent != self.cell: return false
         case .moveRowUp: return cell.row > 0
         case .moveRowDown: return cell.row + cell.rowSpan < grid.rows
         case .moveColumnLeft: return cell.column > 0
@@ -37,14 +103,16 @@ extension PageEditing {
         }
     }
 
-    /// Supprime ou déplace la ligne ou la colonne de la cellule courante ; une
-    /// cellule fusionnée emporte toutes ses lignes (ou colonnes) à la
-    /// suppression.
+    /// Supprime ou déplace la ligne ou la colonne de la cellule courante, ou
+    /// supprime toutes celles de la plage choisie par ⇧-clic, en une seule
+    /// action ; une cellule fusionnée emporte toutes ses lignes (ou colonnes)
+    /// à la suppression.
     func perform(_ action: TableAction) {
-        guard canPerform(action), let model, let target = cell, let item = currentCell else { return }
+        guard canPerform(action), let model, let target = cell, let item = currentCell,
+              let bands = selectedBands else { return }
         let (page, table) = (target.page, target.table)
-        let rows = Array(item.row..<item.row + item.rowSpan)
-        let columns = Array(item.column..<item.column + item.columnSpan)
+        let rows = Array(bands.rows)
+        let columns = Array(bands.columns)
         var next: CellTarget?
         let done: Bool
         switch action {
@@ -75,6 +143,7 @@ extension PageEditing {
         }
         guard done else { return }
         cell = next
+        cellExtent = nil
         onChange?(page)
     }
 
