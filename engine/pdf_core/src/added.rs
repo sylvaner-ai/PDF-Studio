@@ -437,6 +437,7 @@ pub(crate) fn infos(
             bounds: PageRect::default(),
             movable: true,
             resizable: true,
+            text_color: None,
             editable: false,
             background: false,
             text: None,

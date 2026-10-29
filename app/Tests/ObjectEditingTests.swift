@@ -134,7 +134,10 @@ final class ObjectEditingTests: XCTestCase {
         // Coller sur la page de l'original : décalé.
         editing.paste(on: first)
         let shifted = try XCTUnwrap(try session.pageObjects(page: first.id).first { editing.selected.contains($0.id) })
-        XCTAssertEqual(shifted.bounds.x, line.bounds.x - 1 + PageEditing.pasteOffset, accuracy: 0.6)
+        XCTAssertEqual(shifted.bounds.x, line.bounds.x + PageEditing.pasteOffset, accuracy: 3)
+        // Le texte copié reste un texte ajouté, modifiable.
+        XCTAssertNotNil(shifted.addedText)
+        XCTAssertEqual(shifted.text, line.text)
 
         // Dupliquer, puis passer la copie sur l'autre page : une action chacun
         // (la sélection se lit dans les objets rechargés de la page).
@@ -156,7 +159,7 @@ final class ObjectEditingTests: XCTestCase {
         XCTAssertNil(try session.pageObjects(page: first.id).first { $0.id == line.id })
         editing.paste(on: first)
         let back = try XCTUnwrap(try session.pageObjects(page: first.id).first { editing.selected.contains($0.id) })
-        XCTAssertEqual(back.bounds.x, line.bounds.x - 1, accuracy: 0.6)
+        XCTAssertEqual(back.bounds.x, line.bounds.x, accuracy: 3)
 
         // Un presse-papiers changé ailleurs n'est plus la copie de l'application.
         PageEditing.pasteboard.clearContents()

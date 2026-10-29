@@ -78,8 +78,9 @@ jalon 2 sur 6 (redressement des pages, ⌘4) ; voir [docs/AMELIORATION.md](docs/
   avec ⌫. Une sélection glissée sur une autre page y passe ; avec ⌥, elle y est
   copiée (aussi sur la même page).
 - **Redimensionner** un bloc de texte, une image ou un tracé sélectionné seul en
-  tirant un de ses coins (⇧ : sans garder les proportions) ; un texte s'agrandit
-  avec son corps.
+  tirant un de ses coins (proportions gardées, ⇧ pour les libérer) ou le milieu
+  d'un côté (largeur ou hauteur seule) ; un texte ajouté change de corps. Un
+  texte copié reste un texte, modifiable.
 - **Couper, copier, coller, dupliquer** (⌘X, ⌘C, ⌘V, ⌘D, ou le clic droit) : la
   copie se colle à la même place sur une autre page, ou décalée sur sa page, et
   passe d'un document à l'autre. Elle arrive aussi dans les autres applications

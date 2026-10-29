@@ -491,10 +491,16 @@ complété à chaque jalon.
 - **Tableaux :** un tableau se copie, se duplique et passe d'une page à
   l'autre en entier, mais ne se redimensionne pas ; ses rangées se règlent par
   le menu Tableau.
-- **Copie d'objets d'origine :** elle devient un extrait PDF posé comme un
-  objet ajouté. Son texte ne se modifie qu'une fois le document enregistré et
-  rouvert (dépliage, D69) ; jusque-là il se déplace, se redimensionne et se
-  supprime d'un bloc. L'extrait garde 1 pt de marge autour des objets.
+- **Texte copié :** un bloc de texte d'origine devient un texte ajouté
+  (modifiable) : il garde son texte, sa police (ou la plus proche), son corps et
+  sa couleur ; son alignement, son interlettrage, sa justification et un style
+  différent d'un mot à l'autre ne sont pas repris, et ses lignes sont espacées à
+  1,2 fois le corps. Sur une page tournée à l'écran, il passe en extrait PDF.
+- **Autres objets d'origine :** images, tracés et tableaux copiés deviennent un
+  extrait PDF posé comme un objet ajouté. Le texte d'un tableau copié ne se
+  modifie qu'une fois le document enregistré et rouvert (dépliage, D69) ;
+  jusque-là il se déplace, se redimensionne et se supprime d'un bloc. L'extrait
+  garde 1 pt de marge autour des objets.
 - **Seulement la sélection :** un fond, un filet ou un texte voisin qui
   chevauche les objets sélectionnés sans en faire partie n'est pas copié ; il
   faut le sélectionner aussi (⇧-clic ou rectangle).

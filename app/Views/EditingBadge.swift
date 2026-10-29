@@ -75,7 +75,7 @@ struct EditingBadge: View {
         }
         if item.added, item.kind == .image {
             return String(localized: """
-                faites glisser un coin pour redimensionner (⇧ : sans garder les proportions) · \
+                faites glisser une poignée pour redimensionner (⇧ : sans garder les proportions) · \
                 flèches pour déplacer, ⌫ pour supprimer
                 """)
         }
@@ -95,7 +95,7 @@ struct EditingBadge: View {
             parts.append(String(localized: "Flèches pour déplacer (⇧ : 10 pt), ⌫ pour supprimer"))
         }
         if item.resizable {
-            parts.append(String(localized: "un coin pour redimensionner"))
+            parts.append(String(localized: "une poignée pour redimensionner"))
         }
         return parts.joined(separator: " · ")
     }

@@ -94,6 +94,9 @@ pub struct ObjectInfo {
     pub scan: Option<ScanText>,
     /// Objet ajouté à la page (texte ou image), avec son style.
     pub added: Option<crate::added::AddedInfo>,
+    /// Couleur du texte d'origine (rouge, vert, bleu), quand l'opération qui
+    /// la fixe est un gris, un RVB ou un CMJN.
+    pub text_color: Option<[f32; 3]>,
 }
 
 /// Grille d'un tableau, telle que l'affiche l'application.
@@ -792,6 +795,7 @@ impl PageModel {
                 bounds: self.display_rect(bbox),
                 movable: object.movable,
                 resizable: object.movable && object.table.is_none(),
+                text_color: state.and_then(fill_rgb),
                 editable: object.editable,
                 background: object.background,
                 text,
@@ -901,6 +905,7 @@ impl PageModel {
             bounds: self.display_rect(Rect::from(table.bbox()).offset(dx, dy)),
             movable: object.movable,
             resizable: false,
+            text_color: None,
             editable: false,
             background: false,
             text: None,
@@ -1677,6 +1682,25 @@ pub(crate) fn add_font(
             Ok(doc.add_object(&dict)?)
         }
         _ => Ok(doc.add_font(font)?),
+    }
+}
+
+/// Couleur de remplissage de l'état `state`, si elle se lit dans une
+/// opération `g`, `rg` ou `k`.
+fn fill_rgb(state: &GraphicsState) -> Option<[f32; 3]> {
+    let operation = String::from_utf8_lossy(state.fill.color.as_deref()?).into_owned();
+    let mut words: Vec<&str> = operation.split_whitespace().collect();
+    let name = words.pop()?;
+    let numbers: Vec<f32> = words.iter().filter_map(|word| word.parse().ok()).collect();
+    let unit = |value: f32| value.clamp(0.0, 1.0);
+    match (name, numbers.as_slice()) {
+        ("g", [gray]) => Some([unit(*gray); 3]),
+        ("rg", [r, g, b]) => Some([unit(*r), unit(*g), unit(*b)]),
+        ("k", [c, m, y, k]) => {
+            let key = 1.0 - unit(*k);
+            Some([c, m, y].map(|ink| (1.0 - unit(*ink)) * key))
+        }
+        _ => None,
     }
 }
 

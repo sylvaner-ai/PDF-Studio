@@ -65,6 +65,7 @@ pub(crate) fn infos(
             bounds: page_rect(&placement, &zone),
             movable: true,
             resizable: false,
+            text_color: None,
             editable: true,
             background: false,
             text: Some(
@@ -94,6 +95,7 @@ pub(crate) fn infos(
             bounds: page_rect(&placement, &zone),
             movable: true,
             resizable: false,
+            text_color: None,
             editable: false,
             background: false,
             text: None,
@@ -156,6 +158,7 @@ pub(crate) fn infos(
             bounds: page_rect(&placement, &zone),
             movable: true,
             resizable: false,
+            text_color: None,
             editable: false,
             background: false,
             text: None,

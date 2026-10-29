@@ -92,6 +92,9 @@ pub struct PageObjectItem {
     /// scan).
     #[uniffi(default = false)]
     pub resizable: bool,
+    /// Couleur du texte d'origine (rouge, vert, bleu), vide si inconnue.
+    #[uniffi(default = [])]
+    pub text_color: Vec<f32>,
 }
 
 /// Réglages du rendu d'un texte dans un scan (longueurs en points).
@@ -287,6 +290,10 @@ impl From<ObjectInfo> for PageObjectItem {
             added: info.added.is_some(),
             added_text: added_text_style(&info.added),
             resizable: info.resizable,
+            text_color: info
+                .text_color
+                .map(|color| color.to_vec())
+                .unwrap_or_default(),
         }
     }
 }

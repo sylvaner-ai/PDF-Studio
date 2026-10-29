@@ -1306,7 +1306,9 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   l'aperçu, l'enregistrement et la récupération suivent. Un texte ajouté
   change de corps (dans le rapport des hauteurs, de 1 à 500 pt), une image
   ajoutée de cadre. Les coins de l'objet sélectionné seul le règlent (⇧ :
-  sans garder les proportions, sauf pour un texte ajouté).
+  sans garder les proportions, sauf pour un texte ajouté). Les poignées du milieu
+  des côtés règlent la largeur ou la hauteur seule (étirement) ; un texte
+  ajouté n'a que ses coins, car il change de corps.
 - **Exclus :** un tableau (ses lignes et colonnes se règlent par le menu
   Tableau), le membre d'un tableau, un objet d'un scan (ses pixels devraient
   être rééchantillonnés) ; `PageObjectItem.resizable` le dit à l'application.
@@ -1321,7 +1323,13 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
 - **Demande :** supprimer, déplacer, dupliquer et copier-coller des objets,
   dans une même page ou d'une page à une autre (Sylvain, 29 octobre 2026).
 - **Retenu :**
-  - Les objets d'origine copiés deviennent un **extrait PDF** d'une page
+  - Un **bloc de texte d'origine** copié reste un **texte ajouté**, donc modifiable
+    aussitôt (signalé par Sylvain après essai) : même texte, police retrouvée
+    (sa version installée sur le Mac, sinon la police standard la plus proche),
+    corps affiché et couleur de remplissage (gris, RVB ou CMJN ; noir sinon).
+    Le moteur fournit la couleur (`ObjectInfo.text_color`).
+  - Les autres objets d'origine copiés (images, tracés, tableaux, texte qui ne
+    se réécrit pas, page tournée à l'écran) deviennent un **extrait PDF** d'une page
     (`pdf_core::clip`) : la page source, réduite à l'emprise des objets (plus
     1 pt de marge), où tout le reste est supprimé, ses ressources réduites à
     celles qu'emploie le contenu, tournée comme la page à l'écran. Il se colle

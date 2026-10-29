@@ -177,10 +177,16 @@ fn copie_et_colle_sur_une_autre_page() {
         .unwrap();
     // Rien ne change dans le document.
     assert!(session.undo_name().is_none());
-    assert_eq!(clipboard.pieces.len(), 1);
-    assert!(
-        matches!(&clipboard.pieces[0].content, ClipContent::Image { data } if data.starts_with(b"%PDF"))
-    );
+    // Le texte reste un texte, dans son style ; l'image part dans un extrait PDF.
+    assert_eq!(clipboard.pieces.len(), 2);
+    assert!(clipboard.pieces.iter().any(|piece| matches!(
+        &piece.content,
+        ClipContent::Image { data } if data.starts_with(b"%PDF")
+    )));
+    assert!(clipboard.pieces.iter().any(|piece| matches!(
+        &piece.content,
+        ClipContent::Text { text, style } if text.contains(LIGNE) && (style.size - line.font_size).abs() < 0.05
+    )));
     assert!(clipboard.text.contains(LIGNE));
     assert!(!clipboard.pdf.is_empty());
     // La copie couvre les deux objets, à leur place.
@@ -200,11 +206,17 @@ fn copie_et_colle_sur_une_autre_page() {
         )
         .unwrap();
     assert_eq!(session.undo_name().as_deref(), Some("le collage"));
-    assert_eq!(pasted.len(), 1);
-    let piece = &pasted[0];
-    assert!(piece.added && piece.resizable && piece.kind == PageObjectKind::Image);
-    assert!(near(piece.bounds.width, clipboard.width), "{piece:?}");
-    assert!(near(piece.bounds.x, clipboard.x) && near(piece.bounds.y, clipboard.y));
+    assert_eq!(pasted.len(), 2);
+    let piece = pasted
+        .iter()
+        .find(|item| item.kind == PageObjectKind::Image)
+        .unwrap();
+    assert!(piece.added && piece.resizable);
+    let typed = pasted
+        .iter()
+        .find(|item| item.kind == PageObjectKind::Text)
+        .unwrap();
+    assert!(typed.added && typed.added_text.is_some() && typed.text.as_deref() == Some(LIGNE));
     assert!(inked(&document, &session, second, 1) > 0);
 
     // Enregistré, le texte copié se lit sur la seconde page, et redevient un
@@ -222,10 +234,10 @@ fn copie_et_colle_sur_une_autre_page() {
 
     // Récupération : la copie collée revient telle quelle.
     let record = session.content_record(second).unwrap();
-    assert!(matches!(
-        record.iter().find_map(|item| item.added.clone()),
+    assert!(record.iter().any(|item| matches!(
+        &item.added,
         Some(AddedObjectItem::Image { data, .. }) if data.starts_with(b"%PDF")
-    ));
+    )));
     let restored = EditSession::new(open("edition.pdf"));
     let contents = session
         .pages()
@@ -239,7 +251,7 @@ fn copie_et_colle_sur_une_autre_page() {
         .page_objects(restored.pages()[1].id)
         .unwrap()
         .into_iter()
-        .find(|item| item.added)
+        .find(|item| item.added && item.kind == PageObjectKind::Image)
         .unwrap();
     assert!(near(back.bounds.width, piece.bounds.width));
 

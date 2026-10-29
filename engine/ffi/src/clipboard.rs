@@ -16,7 +16,7 @@ use edit::{AddedImage, AddedObject, AddedText};
 use pdf_core::content::geometry::{Point, Rect};
 
 use crate::added::AddedTextStyle;
-use crate::content::PageObjectItem;
+use crate::content::{PageObjectItem, PageObjectKind, TextFont};
 use crate::session::EditSession;
 use crate::{EngineError, PageRect, PageSize, PdfDocument};
 
@@ -244,9 +244,12 @@ impl EditSession {
         let native = |item: &PageObjectItem| {
             item.added && added(item.id).is_some_and(|object| object.turns() & 3 == turns)
         };
+        // Un bloc de texte d'origine copié reste un texte, modifiable, dans le
+        // style retrouvé (police, corps, couleur) ; le reste passe dans l'extrait.
+        let retyped = |item: &PageObjectItem| original_text_style(item, turns);
         let originals: Vec<u32> = items
             .iter()
-            .filter(|item| !native(item))
+            .filter(|item| !native(item) && retyped(item).is_none())
             .map(|item| item.id)
             .collect();
         let mut pieces: Vec<(ClipContent, Rect)> = Vec::new();
@@ -281,6 +284,14 @@ impl EditSession {
                 },
             };
             pieces.push((content, upright.rect(&item.bounds)));
+        }
+        for item in items.iter().filter(|item| !native(item)) {
+            if let (Some(style), Some(text)) = (retyped(item), item.text.clone()) {
+                pieces.push((
+                    ClipContent::Text { text, style },
+                    upright.rect(&item.bounds),
+                ));
+            }
         }
         if pieces.is_empty() {
             return Err(invalid("rien à copier"));
@@ -526,6 +537,38 @@ impl EditSession {
             .find(|item| item.id == page)
             .map_or(0, |item| item.quarter_turns & 3)
     }
+}
+
+/// Style d'un bloc de texte d'origine copié comme un texte : police retrouvée
+/// (sans le préfixe des polices réduites), corps affiché et couleur ; `None`
+/// pour un autre objet, un texte qui ne se réécrit pas, ou une page dont
+/// l'affichage est tourné (le texte copié est droit, l'extrait garde l'aspect).
+fn original_text_style(item: &PageObjectItem, turns: u8) -> Option<AddedTextStyle> {
+    if item.added || !item.editable || item.scanned || item.table.is_some() || turns != 0 {
+        return None;
+    }
+    if item.kind != PageObjectKind::Text || item.text.as_deref().is_none_or(|t| t.trim().is_empty())
+    {
+        return None;
+    }
+    let name = item.font_name.as_deref()?;
+    let name = match name.split_once('+') {
+        Some((prefix, rest)) if prefix.len() == 6 => rest,
+        _ => name,
+    };
+    let [red, green, blue] = match item.text_color.as_slice() {
+        [r, g, b] => [*r, *g, *b],
+        _ => [0.0; 3],
+    };
+    Some(AddedTextStyle {
+        font: TextFont::Installed {
+            postscript_name: name.to_owned(),
+        },
+        size: item.font_size.max(1.0),
+        red,
+        green,
+        blue,
+    })
 }
 
 /// Taille de la page droite `index` du document.

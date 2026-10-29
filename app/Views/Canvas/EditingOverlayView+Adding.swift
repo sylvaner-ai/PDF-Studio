@@ -3,16 +3,37 @@ import AppKit
 // MARK: - Textes et images ajoutés
 
 extension EditingOverlayView {
-    /// Coin d'un objet, qu'on fait glisser pour le redimensionner.
+    /// Poignée d'un objet, qu'on fait glisser pour le redimensionner : un
+    /// coin (les deux côtés, proportions gardées) ou le milieu d'un côté
+    /// (largeur ou hauteur seule).
     enum Corner: CaseIterable {
-        case topLeft, topRight, bottomLeft, bottomRight
+        case topLeft, top, topRight, left, right, bottomLeft, bottom, bottomRight
 
-        var isLeft: Bool { self == .topLeft || self == .bottomLeft }
-        var isTop: Bool { self == .topLeft || self == .topRight }
+        /// -1 si la poignée tire le bord gauche, 1 le bord droit, 0 aucun.
+        var horizontal: Int {
+            switch self {
+            case .topLeft, .left, .bottomLeft: return -1
+            case .topRight, .right, .bottomRight: return 1
+            case .top, .bottom: return 0
+            }
+        }
 
-        /// Position du coin sur le cadre `frame`.
+        /// -1 si la poignée tire le bord haut, 1 le bord bas, 0 aucun.
+        var vertical: Int {
+            switch self {
+            case .topLeft, .top, .topRight: return -1
+            case .bottomLeft, .bottom, .bottomRight: return 1
+            case .left, .right: return 0
+            }
+        }
+
+        var isCorner: Bool { horizontal != 0 && vertical != 0 }
+
+        /// Position de la poignée sur le cadre `frame`.
         func point(of frame: CGRect) -> CGPoint {
-            CGPoint(x: isLeft ? frame.minX : frame.maxX, y: isTop ? frame.minY : frame.maxY)
+            let x = horizontal < 0 ? frame.minX : (horizontal > 0 ? frame.maxX : frame.midX)
+            let y = vertical < 0 ? frame.minY : (vertical > 0 ? frame.maxY : frame.midY)
+            return CGPoint(x: x, y: y)
         }
     }
 
@@ -41,33 +62,42 @@ extension EditingOverlayView {
         }
         let box = frame(of: object)
         let reach = 6 * screenPoint
-        let corner = Corner.allCases.first { corner in
+        let corner = Self.handles(for: object).first { corner in
             let handle = corner.point(of: box)
             return abs(handle.x - point.x) <= reach && abs(handle.y - point.y) <= reach
         }
         return corner.map { (object: object, corner: $0) }
     }
 
+    /// Poignées de l'objet : les coins, et le milieu des côtés sauf pour un
+    /// texte ajouté (il change de corps, proportions gardées).
+    static func handles(for item: PageObjectItem) -> [Corner] {
+        item.addedText == nil ? Corner.allCases : Corner.allCases.filter(\.isCorner)
+    }
+
     /// Cadre `frame` redimensionné en tirant son coin `corner` jusqu'à
     /// `point` : le coin opposé reste en place, les proportions aussi, sauf
     /// si `free` (⇧).
     func resized(_ frame: CGRect, corner: Corner, to point: CGPoint, free: Bool) -> CGRect {
-        let anchor = CGPoint(x: corner.isLeft ? frame.maxX : frame.minX, y: corner.isTop ? frame.maxY : frame.minY)
-        var width = max(corner.isLeft ? anchor.x - point.x : point.x - anchor.x, 0)
-        var height = max(corner.isTop ? anchor.y - point.y : point.y - anchor.y, 0)
-        if !free, frame.width > 0, frame.height > 0 {
+        let (sideX, sideY) = (corner.horizontal, corner.vertical)
+        let minimum = Self.minimumSide
+        var width = frame.width
+        var height = frame.height
+        if sideX != 0 {
+            width = max(sideX < 0 ? frame.maxX - point.x : point.x - frame.minX, 0)
+        }
+        if sideY != 0 {
+            height = max(sideY < 0 ? frame.maxY - point.y : point.y - frame.minY, 0)
+        }
+        if corner.isCorner, !free, frame.width > 0, frame.height > 0 {
             let scale = max(width / frame.width, height / frame.height)
             width = frame.width * scale
             height = frame.height * scale
         }
-        let minimum = Self.minimumSide
-        let ratio = frame.width / max(frame.height, 0.01)
-        if width < minimum || height < minimum {
-            // Trop petite : ramenée au plus petit côté permis.
-            if free {
-                width = max(width, minimum)
-                height = max(height, minimum)
-            } else if ratio >= 1 {
+        if corner.isCorner, !free, width < minimum || height < minimum {
+            // Trop petite : ramenée au plus petit côté permis, proportions gardées.
+            let ratio = frame.width / max(frame.height, 0.01)
+            if ratio >= 1 {
                 height = minimum
                 width = minimum * ratio
             } else {
@@ -75,9 +105,11 @@ extension EditingOverlayView {
                 height = minimum / ratio
             }
         }
+        width = max(width, minimum)
+        height = max(height, minimum)
         return CGRect(
-            x: corner.isLeft ? anchor.x - width : anchor.x,
-            y: corner.isTop ? anchor.y - height : anchor.y,
+            x: sideX < 0 ? frame.maxX - width : frame.minX,
+            y: sideY < 0 ? frame.maxY - height : frame.minY,
             width: width,
             height: height
         )
@@ -104,7 +136,7 @@ extension EditingOverlayView {
             box = current
         }
         let side = 7 * unit
-        for corner in Corner.allCases {
+        for corner in Self.handles(for: item) {
             let center = corner.point(of: box)
             let handle = CGRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side)
             NSColor.white.setFill()
