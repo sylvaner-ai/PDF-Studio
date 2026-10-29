@@ -34,6 +34,9 @@ final class PageEditing {
     /// Cellule courante du tableau sélectionné (modifiée aussi par
     /// `PageEditing+Tables.swift`).
     var cell: CellTarget?
+    /// Bloc de texte de la cellule courante visé par le dernier clic, quand la
+    /// cellule en compte plusieurs (modifié par `PageEditing+Tables.swift`).
+    var cellBlock: UInt32?
     /// Cellule vide dont le texte est en cours de saisie (ouverte par
     /// `PageEditing+Tables.swift`).
     var cellTarget: CellTarget?
@@ -239,10 +242,12 @@ final class PageEditing {
 
     var hasSelection: Bool { page != nil && !selected.isEmpty }
 
-    /// Sélectionne un tableau et fait de `cell` sa cellule courante.
-    func selectCell(_ cell: CellTarget) {
+    /// Sélectionne un tableau et fait de `cell` sa cellule courante ; `block`
+    /// est le bloc de texte de la cellule que visait le clic.
+    func selectCell(_ cell: CellTarget, block: UInt32? = nil) {
         select([cell.table], on: cell.page)
         self.cell = cell
+        cellBlock = block
         onChange?(cell.page)
     }
 

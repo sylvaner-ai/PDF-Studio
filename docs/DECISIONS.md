@@ -1270,3 +1270,25 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   sur `formulaire.pdf`) et laisse intacts l'interpréteur, la réécriture et
   l'écriture : tout ce qui marche sur une page ordinaire marche sur une page
   exportée par macOS.
+
+## D70 — Cellule à plusieurs blocs : la saisie porte sur le bloc visé
+
+- **Constat :** une cellule de tableau qui mêle des textes de corps ou de graisse
+  différents (titre en gras et description en petits caractères, comme dans un
+  devis détaillé) compte plusieurs blocs de texte (D25 : un bloc est homogène).
+  Le moteur les détecte et les remplace chacun avec son style, mais l'application
+  n'ouvrait la saisie d'une cellule que si elle n'avait qu'un seul bloc : le
+  double-clic et la touche Retour ne faisaient rien sur les autres (signalé par
+  Sylvain le 29 octobre 2026).
+- **Retenu :** le double-clic ouvre la saisie du bloc modifiable de la cellule
+  le plus proche du pointeur ; un clic simple retient ce bloc pour la touche
+  Retour (`PageEditing.cellBlock`) ; sans indication (cellule choisie autrement),
+  la saisie porte sur le premier bloc modifiable. Chaque bloc garde son style
+  d'origine (police, corps, graisse, couleur).
+- **Alternatives :** réunir les blocs de la cellule en un seul texte (tous
+  prendraient le style du premier : le titre en gras et la description au même
+  corps) ; ouvrir un éditeur par bloc à la fois, ou une fenêtre listant les blocs
+  (plus lourd pour une modification d'un mot).
+- **Raisons :** c'est le geste déjà employé pour les cellules à un seul bloc, et
+  il conserve la mise en forme de chaque texte.
+

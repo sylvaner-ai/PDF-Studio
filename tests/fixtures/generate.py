@@ -24,7 +24,7 @@ import pikepdf
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, A5, landscape, letter
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.pdfgen import canvas
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
@@ -230,6 +230,36 @@ def tableaux() -> None:
         Spacer(1, cm),
         Paragraph("Source : données fictives pour les tests.", styles["Normal"]),
     ])
+
+
+def tableau_styles() -> None:
+    """Tableau à filets dont certaines cellules mêlent des textes de corps et
+    de graisse différents (titre en gras, description et référence en corps
+    plus petit, comme un devis détaillé) : chacun forme un bloc de texte."""
+    doc = SimpleDocTemplate(str(OUT / "tableau_styles.pdf"), pagesize=A4, title="Devis détaillé",
+                            author="PDF Studio — jeu de test", invariant=1)
+    styles = getSampleStyleSheet()
+    title = ParagraphStyle("titre", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=10, leading=12)
+    small = ParagraphStyle("detail", parent=styles["Normal"], fontName="Helvetica", fontSize=7, leading=9)
+    rows = [["Désignation", "Quantité", "Total"]]
+    for i, (name, detail) in enumerate([
+        ("Audit initial", "Analyse de l'existant et rapport de synthèse remis sous huit jours."),
+        ("Mise en place", "Installation, paramétrage et recette avec le client sur site."),
+    ], start=1):
+        rows.append([
+            [Paragraph(name, title), Paragraph(detail, small), Paragraph(f"Réf. DV-{i:03d}", small)],
+            str(i),
+            f"{i * 450:.2f} €",
+        ])
+    rows.append(["Option seule", "1", "90,00 €"])
+    table = Table(rows, colWidths=[8 * cm, 3 * cm, 3 * cm])
+    table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+    ]))
+    doc.build([Paragraph("Devis détaillé", styles["Title"]), Spacer(1, cm), table])
 
 
 def scan_simule() -> None:
@@ -1872,6 +1902,7 @@ def main() -> None:
     vectoriel()
     tableau()
     tableaux()
+    tableau_styles()
     scan_simule()
     scan_retouche()
     chiffre()

@@ -80,12 +80,23 @@ extension PageEditing {
 
     /// Ouvre la saisie d'une cellule : celle de son bloc de texte, ou celle
     /// d'une cellule vide à l'origine (texte dans le style des autres
-    /// cellules).
-    func beginCellEditing(_ target: CellTarget) {
+    /// cellules). Une cellule qui mêle des textes de corps ou de graisse
+    /// différents compte plusieurs blocs : la saisie porte sur `block` (le
+    /// bloc visé par le clic), à défaut sur celui du dernier clic dans la
+    /// cellule, sinon sur le premier bloc modifiable.
+    func beginCellEditing(_ target: CellTarget, block: UInt32? = nil) {
         guard let items = knownItems(on: target.page), let item = cellItem(target, in: items) else { return }
         let blocks = item.objects.compactMap { id in items.first { $0.id == id } }
-        if blocks.count == 1, let block = blocks.first, block.editable {
-            beginTextEditing(page: target.page, object: block.id)
+        let editable = blocks.filter(\.editable)
+        let wanted = block ?? cellBlock
+        let chosen: PageObjectItem?
+        if blocks.count == 1 {
+            chosen = editable.first
+        } else {
+            chosen = editable.first { $0.id == wanted } ?? editable.first
+        }
+        if let chosen {
+            beginTextEditing(page: target.page, object: chosen.id)
         } else if item.fillable {
             selectCell(target)
             cellTarget = target

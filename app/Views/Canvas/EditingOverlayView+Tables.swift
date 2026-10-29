@@ -13,11 +13,26 @@ extension EditingOverlayView {
     /// filet ou sur le bord).
     func cell(at point: CGPoint, in table: PageObjectItem) -> PageEditing.CellTarget? {
         guard let page, let grid = table.grid else { return nil }
-        let distance = { (rect: CGRect) -> CGFloat in
-            hypot(max(rect.minX - point.x, 0, point.x - rect.maxX), max(rect.minY - point.y, 0, point.y - rect.maxY))
-        }
-        guard let cell = grid.cells.min(by: { distance(frame(of: $0)) < distance(frame(of: $1)) }) else { return nil }
+        guard let cell = grid.cells.min(by: {
+            distance(from: point, to: frame(of: $0)) < distance(from: point, to: frame(of: $1))
+        }) else { return nil }
         return PageEditing.CellTarget(page: page.id, table: table.id, row: cell.row, column: cell.column)
+    }
+
+    /// Distance d'un point à un rectangle (0 s'il est dedans).
+    private func distance(from point: CGPoint, to rect: CGRect) -> CGFloat {
+        hypot(max(rect.minX - point.x, 0, point.x - rect.maxX), max(rect.minY - point.y, 0, point.y - rect.maxY))
+    }
+
+    /// Bloc de texte modifiable de la cellule `target` le plus proche du point :
+    /// une cellule qui mêle des textes de corps ou de graisse différents en
+    /// compte plusieurs, et le clic désigne celui que l'on veut modifier.
+    func textBlock(at point: CGPoint, in target: PageEditing.CellTarget, of table: PageObjectItem) -> UInt32? {
+        guard let cell = table.grid?.cells.first(where: { $0.row == target.row && $0.column == target.column }) else {
+            return nil
+        }
+        let blocks = cell.objects.compactMap { id in items.first { $0.id == id && $0.editable } }
+        return blocks.min { distance(from: point, to: frame(of: $0)) < distance(from: point, to: frame(of: $1)) }?.id
     }
 
     /// Cellules du tableau sélectionné, et sa cellule courante.
