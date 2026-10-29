@@ -34,6 +34,13 @@ personnel, sans distribution ni service en ligne, elle n'impose aucune obligatio
 Une distribution future de PDF Studio exigerait soit de publier son code sous AGPL,
 soit une licence commerciale d'Artifex, soit le passage à PDFium (BSD).
 
+**Image d'installation publiée sur GitHub (D68) :** une Release du dépôt public
+met un `.dmg` à la disposition de quiconque le télécharge ; c'est une
+distribution au sens de l'AGPL-3.0. Le code source correspondant est celui de
+l'étiquette de la Release, dans le même dépôt. Le dépôt ne contient pas encore
+de fichier de licence pour le code de PDF Studio : le choix est à faire par son
+auteur, il n'a pas été fait ici.
+
 **Aucune bibliothèque réseau** (jalon 9, D55) : l'arbre des dépendances du
 moteur intégré à l'application (`cargo tree -p pdfstudio_ffi`) ne contient ni
 client HTTP, ni environnement asynchrone, ni bibliothèque TLS ; `tokio`, présent

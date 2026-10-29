@@ -1,6 +1,7 @@
 # PDF Studio — commandes de build.
 #
 #   make build     application complète : build/PDF Studio.app
+#   make dmg       build, puis l'image d'installation build/PDF-Studio-<version>-arm64.dmg
 #   make test      tests du moteur (cargo) puis de l'application (XCTest)
 #   make lint      clippy, rustfmt et SwiftLint
 #   make bench     banc d'essai des moteurs de rendu (cf. docs/RENDER_BENCHMARK.md)
@@ -35,15 +36,22 @@ APP_NAME      := PDF Studio.app
 PDFIUM_URL    := https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz
 PDFIUM_DIR    := .tools/pdfium
 
-.PHONY: build engine bindings project test test-engine test-app lint bench ocr-bench fixtures icon snapshots perf clean
+.PHONY: build dmg engine bindings project test test-engine test-app lint bench ocr-bench fixtures icon snapshots perf clean
 
 build: project
 	xcodebuild -project "$(XCODE_PROJECT)" -scheme PDFStudio -configuration Release \
-		-derivedDataPath "$(DERIVED_DATA)" -destination 'platform=macOS,arch=arm64' build
+		-derivedDataPath "$(DERIVED_DATA)" -destination 'platform=macOS,arch=arm64' $(XCODEBUILD_FLAGS) build
 	mkdir -p build
 	rm -rf "build/$(APP_NAME)"
 	ditto "$(DERIVED_DATA)/Build/Products/Release/$(APP_NAME)" "build/$(APP_NAME)"
 	@echo "Application prête : build/$(APP_NAME)"
+
+# Image disque d'installation (cf. .github/workflows/dmg.yml, qui l'appelle).
+# XCODEBUILD_FLAGS ajoute des réglages à `xcodebuild`, par exemple
+# MARKETING_VERSION=0.2.0 pour numéroter l'application.
+dmg: build
+	@version=$$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "build/$(APP_NAME)/Contents/Info.plist") && \
+		tools/dmg/make_dmg.sh "build/$(APP_NAME)" "build/PDF-Studio-$$version-arm64.dmg"
 
 # Bibliothèque statique du moteur (MuPDF compris), pour Apple Silicon.
 engine:

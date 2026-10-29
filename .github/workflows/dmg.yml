@@ -1,0 +1,163 @@
+name: Installateur .dmg
+
+# Construit l'application et son image disque (.dmg) sur un Mac Apple Silicon
+# de GitHub, puis la publie dans une Release :
+# - en poussant une étiquette de version (git tag v0.2.0 && git push origin v0.2.0) ;
+# - ou à la main (Actions > Installateur .dmg > Run workflow), en indiquant
+#   l'étiquette à créer ; sans étiquette, le .dmg est seulement joint à
+#   l'exécution (onglet Actions, section Artifacts).
+# Les modifications de ce fichier, du Makefile et de tools/dmg le construisent
+# aussi, sans le publier, pour vérifier qu'il fonctionne.
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Étiquette à publier, par exemple v0.1.0 (vide : pas de Release)"
+        required: false
+        type: string
+  pull_request:
+    paths:
+      - ".github/workflows/dmg.yml"
+      - "tools/dmg/**"
+      - "Makefile"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dmg-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Construire le .dmg
+    runs-on: macos-latest # Apple Silicon (arm64)
+    timeout-minutes: 90
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          PUSHED_TAG: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag=""
+          if [ "$EVENT" = "push" ]; then tag="$PUSHED_TAG"; fi
+          if [ "$EVENT" = "workflow_dispatch" ]; then tag="$INPUT_TAG"; fi
+          if [ -n "$tag" ]; then
+            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Étiquette « $tag » invalide : attendu vX.Y.Z"; exit 1; }
+            version="${tag#v}"
+          else
+            version="$(sed -n 's/^ *MARKETING_VERSION: *"\(.*\)"/\1/p' app/project.yml | head -1)"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Version : $version (étiquette : ${tag:-aucune})"
+
+      # Dernier Xcode non bêta de l'image du Mac.
+      - name: Xcode
+        run: |
+          xcode="$(ls -d /Applications/Xcode_[0-9]*.app | grep -vi -e beta -e '_rc' | sort -V | tail -1)"
+          echo "Xcode choisi : $xcode"
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+          swift --version
+
+      - name: Outils
+        run: |
+          rustup target add aarch64-apple-darwin
+          rustc --version
+          cargo --version
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Cache de la compilation du moteur
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/PDFStudio/target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: moteur-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('engine/Cargo.lock') }}
+          restore-keys: |
+            moteur-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Application et .dmg
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: make dmg XCODEBUILD_FLAGS="MARKETING_VERSION=$VERSION CURRENT_PROJECT_VERSION=$BUILD_NUMBER"
+
+      - name: Vérifier l'image
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          dmg="build/PDF-Studio-$VERSION-arm64.dmg"
+          ls -l build
+          (cd build && shasum -a 256 -c "PDF-Studio-$VERSION-arm64.dmg.sha256")
+          mount="$(mktemp -d)"
+          hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mount" >/dev/null
+          trap 'hdiutil detach "$mount" >/dev/null' EXIT
+          app="$mount/PDF Studio.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          lipo -archs "$app/Contents/MacOS/PDF Studio" | grep -qx arm64
+          found="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
+          [ "$found" = "$VERSION" ] || { echo "::error::Version de l'application : $found au lieu de $VERSION"; exit 1; }
+          test -L "$mount/Applications"
+          test -f "$mount/Premier lancement.txt"
+          echo "Image conforme : application $found, arm64, signature valide."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PDF-Studio-${{ steps.version.outputs.version }}-arm64
+          path: |
+            build/PDF-Studio-*.dmg
+            build/PDF-Studio-*.dmg.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publier la Release
+    needs: build
+    if: needs.build.outputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Release GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.build.outputs.tag }}
+          VERSION: ${{ needs.build.outputs.version }}
+          TARGET: ${{ github.sha }}
+        run: |
+          ls -l dist
+          sha="$(cut -d' ' -f1 "dist/PDF-Studio-$VERSION-arm64.dmg.sha256")"
+          cat > notes.md <<EOF
+          Application macOS **non signée** (pas de compte Apple Developer), pour Apple Silicon, macOS 14 ou plus récent.
+
+          1. Téléchargez \`PDF-Studio-$VERSION-arm64.dmg\`, ouvrez-le et glissez PDF Studio dans Applications.
+          2. Au premier lancement, macOS bloque l'application : voir [« Premier lancement »](https://github.com/$GH_REPO#installer-lapplication) (Réglages Système > Confidentialité et sécurité > « Ouvrir quand même », ou \`xattr -dr com.apple.quarantine "/Applications/PDF Studio.app"\`).
+
+          SHA-256 : \`$sha\`
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --target "$TARGET" \
+              --title "PDF Studio $VERSION" --notes-file notes.md
+          fi
