@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use pdfstudio_ffi::{
     clipboard_from_file, pdf_clip_size, AddedObjectItem, AddedTextStyle, ClipContent, EditSession,
-    PageObjectItem, PageObjectKind, PageRect, PastePlacement, PdfDocument, TextFont,
+    PageObjectItem, PageObjectKind, PageRect, PastePlacement, PdfDocument, TableAxis, TextFont,
 };
 
 const LIGNE: &str = "Texte en Helvetica, police standard.";
@@ -446,7 +446,9 @@ fn deplace_le_texte_d_une_cellule() {
     let items = session.page_objects(page).unwrap();
     let table = items
         .iter()
-        .find(|item| item.kind == PageObjectKind::Table && item.grid.as_ref().is_some_and(|g| g.columns >= 4))
+        .find(|item| {
+            item.kind == PageObjectKind::Table && item.grid.as_ref().is_some_and(|g| g.columns >= 4)
+        })
         .unwrap()
         .clone();
     let block = items
@@ -455,7 +457,9 @@ fn deplace_le_texte_d_une_cellule() {
         .unwrap()
         .clone();
     assert!(block.movable);
-    session.move_objects(page, vec![block.id], 6.0, 0.0).unwrap();
+    session
+        .move_objects(page, vec![block.id], 6.0, 0.0)
+        .unwrap();
     let moved = object(&session, page, block.id);
     assert!(near(moved.bounds.x, block.bounds.x + 6.0));
     // Le tableau reste en place.
@@ -465,5 +469,128 @@ fn deplace_le_texte_d_une_cellule() {
     let exported = session.export_pdf().unwrap();
     assert!(PdfDocument::from_data(exported.bytes, None).is_ok());
     assert!(session.undo());
-    assert!(near(object(&session, page, block.id).bounds.x, block.bounds.x));
+    assert!(near(
+        object(&session, page, block.id).bounds.x,
+        block.bounds.x
+    ));
+}
+
+#[test]
+fn le_tableau_colle_reste_un_tableau() {
+    let document = open("tableaux.pdf");
+    let session = EditSession::new(Arc::clone(&document));
+    let page = session.pages()[0].id;
+    let items = session.page_objects(page).unwrap();
+    let table = items
+        .iter()
+        .find(|item| {
+            item.kind == PageObjectKind::Table && item.grid.as_ref().is_some_and(|g| g.columns >= 4)
+        })
+        .unwrap()
+        .clone();
+    let columns = table.grid.as_ref().unwrap().columns;
+    let before = items.len();
+
+    // Copié puis collé plus bas : il reste un tableau, avec ses cellules.
+    let clipboard = session.copy_objects(page, vec![table.id]).unwrap();
+    let pasted = session
+        .paste_objects(
+            page,
+            clipboard,
+            PastePlacement::InPlace { dx: 0.0, dy: 40.0 },
+            None,
+        )
+        .unwrap();
+    assert!(!pasted.is_empty());
+    let copy = pasted
+        .iter()
+        .find(|item| item.kind == PageObjectKind::Table)
+        .unwrap()
+        .clone();
+    assert_eq!(copy.grid.as_ref().unwrap().columns, columns);
+    assert!(near(copy.bounds.width, table.bounds.width));
+    assert!(session.page_objects(page).unwrap().len() > before);
+    assert_eq!(session.undo_name().as_deref(), Some("le collage"));
+
+    // Le texte d'une cellule de la copie se déplace sans bouger le tableau.
+    let block = pasted
+        .iter()
+        .find(|item| item.table == Some(copy.id) && item.text.as_deref() == Some("France"))
+        .unwrap()
+        .clone();
+    session
+        .move_objects(page, vec![block.id], 5.0, 0.0)
+        .unwrap();
+    assert!(near(
+        object(&session, page, block.id).bounds.x,
+        block.bounds.x + 5.0
+    ));
+    assert!(near(
+        object(&session, page, copy.id).bounds.x,
+        copy.bounds.x
+    ));
+    assert_eq!(session.undo_name().as_deref(), Some("le déplacement"));
+
+    // Le texte se modifie, une colonne se supprime.
+    let item = session
+        .replace_text(page, block.id, "Belgique".to_owned())
+        .unwrap();
+    assert_eq!(item.text.as_deref(), Some("Belgique"));
+    session
+        .delete_table_bands(page, copy.id, TableAxis::Columns, vec![1])
+        .unwrap();
+    assert_eq!(
+        object(&session, page, copy.id).grid.unwrap().columns,
+        columns - 1
+    );
+    // Le tableau d'origine n'a pas changé.
+    assert_eq!(
+        object(&session, page, table.id).grid.unwrap().columns,
+        columns
+    );
+
+    // Tout le tableau se déplace avec son image, sans rien rogner.
+    let whole = session.page_objects(page).unwrap();
+    let copy_now = whole.iter().find(|i| i.id == copy.id).unwrap().clone();
+    session
+        .move_objects(page, vec![copy.id], 0.0, 30.0)
+        .unwrap();
+    assert!(near(
+        object(&session, page, copy.id).bounds.y,
+        copy_now.bounds.y + 30.0
+    ));
+    assert!(near(
+        object(&session, page, copy.id).bounds.width,
+        copy_now.bounds.width
+    ));
+
+    // Enregistré, rouvert : les deux tableaux sont des tableaux.
+    let exported = session.export_pdf().unwrap();
+    let reopened = PdfDocument::from_data(exported.bytes, None).unwrap();
+    let again = EditSession::new(reopened);
+    let tables = again
+        .page_objects(again.pages()[0].id)
+        .unwrap()
+        .into_iter()
+        .filter(|item| item.kind == PageObjectKind::Table)
+        .count();
+    assert!(tables >= 2, "{tables}");
+
+    // Tout s'annule, étape par étape.
+    while session.undo() {}
+    assert_eq!(session.page_objects(page).unwrap().len(), before);
+
+    // Supprimé tout entier : l'image disparaît.
+    let clipboard = session.copy_objects(page, vec![table.id]).unwrap();
+    let pasted = session
+        .paste_objects(
+            page,
+            clipboard,
+            PastePlacement::InPlace { dx: 0.0, dy: 40.0 },
+            None,
+        )
+        .unwrap();
+    let ids: Vec<u32> = pasted.iter().map(|i| i.id).collect();
+    session.delete_objects(page, ids).unwrap();
+    assert_eq!(session.page_objects(page).unwrap().len(), before);
 }

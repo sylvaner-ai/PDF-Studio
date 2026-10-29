@@ -150,6 +150,8 @@ struct State {
 #[derive(uniffi::Object)]
 pub struct EditSession {
     state: Mutex<State>,
+    /// Tableaux collés lus, par empreinte des octets de leur extrait.
+    pub(crate) clips: Mutex<HashMap<u64, Option<Arc<crate::clipobjects::ClipInner>>>>,
 }
 
 #[uniffi::export]
@@ -167,6 +169,7 @@ impl EditSession {
                     document,
                 }],
             }),
+            clips: Mutex::new(HashMap::new()),
         })
     }
 
@@ -359,24 +362,16 @@ impl EditSession {
     }
 
     /// Objets de la page `page` (identifiant), modifications comprises ; vide
-    /// pour une page vierge.
+    /// pour une page vierge. Un tableau collé se montre par ses objets.
     pub fn page_objects(&self, page: u64) -> Result<Vec<PageObjectItem>, EngineError> {
-        let (document, index, edits) = self.page_source(page)?;
-        let Some(document) = document else {
-            return Ok(Vec::new());
-        };
-        let layer = self.text_layer(page);
-        Ok(document
-            .handle
-            .page_objects(index, edits, layer)?
-            .into_iter()
-            .map(PageObjectItem::from)
-            .collect())
+        let items = self.page_objects_raw(page)?;
+        Ok(self.expand_clips(page, items))
     }
 
     /// Supprime des objets de la page `page`.
     pub fn delete_objects(&self, page: u64, objects: Vec<u32>) -> Result<(), EngineError> {
-        Ok(self.lock().editor.delete_objects(page, &objects)?)
+        let routed = self.route(page, &objects)?;
+        self.remove_routed(page, routed, "la suppression")
     }
 
     /// Déplace des objets de la page `page` ; le déplacement est exprimé en
@@ -389,10 +384,24 @@ impl EditSession {
         dx: f32,
         dy: f32,
     ) -> Result<(), EngineError> {
+        let routed = self.route(page, &objects)?;
+        for (view, inner) in &routed.clips {
+            let (sx, sy) = view.scales();
+            self.on_clip(page, view, |session, inner_page| {
+                let ids = crate::clipobjects::inner_ids(session, inner_page, inner);
+                session.move_objects(inner_page, ids, dx / sx, dy / sy)
+            })?;
+        }
+        if routed.page_ids.is_empty() && !routed.clips.is_empty() {
+            return Ok(());
+        }
         let (document, index, _) = self.page_source(page)?;
         let document = document.ok_or_else(|| invalid("page vierge"))?;
         let (dx, dy) = document.handle.page_offset(index, dx, dy)?;
-        Ok(self.lock().editor.move_objects(page, &objects, dx, dy)?)
+        Ok(self
+            .lock()
+            .editor
+            .move_objects(page, &routed.page_ids, dx, dy)?)
     }
 
     /// Remplace le texte d'un bloc de la page `page`. La police d'origine est
@@ -405,6 +414,12 @@ impl EditSession {
         object: u32,
         text: String,
     ) -> Result<PageObjectItem, EngineError> {
+        if crate::clipobjects::is_clip_id(object) {
+            self.on_clip_object(page, object, |session, inner_page, inner| {
+                session.replace_text(inner_page, inner, text).map(|_| ())
+            })?;
+            return self.object_item(page, object);
+        }
         if edit::is_added_id(object) {
             // Texte ajouté : il garde sa police ; un texte vide se supprime
             // avec l'objet (`delete_objects`).
@@ -520,6 +535,11 @@ impl EditSession {
         axis: TableAxis,
         bands: Vec<u32>,
     ) -> Result<(), EngineError> {
+        if crate::clipobjects::is_clip_id(table) {
+            return self.on_clip_object(page, table, |session, inner_page, inner| {
+                session.delete_table_bands(inner_page, inner, axis, bands)
+            });
+        }
         let grid = self.table_grid(page, table)?;
         let (order, count) = band_order(&grid, axis);
         let kept: Vec<u32> = order
@@ -562,6 +582,11 @@ impl EditSession {
         from: u32,
         to: u32,
     ) -> Result<(), EngineError> {
+        if crate::clipobjects::is_clip_id(table) {
+            return self.on_clip_object(page, table, |session, inner_page, inner| {
+                session.move_table_band(inner_page, inner, axis, from, to)
+            });
+        }
         let grid = self.table_grid(page, table)?;
         let (order, count) = band_order(&grid, axis);
         let (from, to) = (from as usize, to as usize);
@@ -612,6 +637,14 @@ impl EditSession {
         column: u32,
         text: String,
     ) -> Result<PageObjectItem, EngineError> {
+        if crate::clipobjects::is_clip_id(table) {
+            self.on_clip_object(page, table, |session, inner_page, inner| {
+                session
+                    .set_cell_text(inner_page, inner, row, column, text)
+                    .map(|_| ())
+            })?;
+            return self.object_item(page, table);
+        }
         let grid = self.table_grid(page, table)?;
         let cell = grid
             .cells
@@ -919,13 +952,29 @@ impl EditSession {
 }
 
 impl EditSession {
+    /// Objets de la page `page` tels que le moteur les trouve : un extrait
+    /// collé y reste une image ajoutée.
+    pub(crate) fn page_objects_raw(&self, page: u64) -> Result<Vec<PageObjectItem>, EngineError> {
+        let (document, index, edits) = self.page_source(page)?;
+        let Some(document) = document else {
+            return Ok(Vec::new());
+        };
+        let layer = self.text_layer(page);
+        Ok(document
+            .handle
+            .page_objects(index, edits, layer)?
+            .into_iter()
+            .map(PageObjectItem::from)
+            .collect())
+    }
+
     /// Couche de texte d'origine de la page `page`, si elle a été reconnue.
     fn text_layer(&self, page: u64) -> Option<Arc<TextLayer>> {
         self.lock().editor.text_layer(page).cloned()
     }
 
     /// Modifications du contenu de la page `page`.
-    fn content(&self, page: u64) -> Option<Arc<PageEdits>> {
+    pub(crate) fn content(&self, page: u64) -> Option<Arc<PageEdits>> {
         self.lock().editor.content(page).cloned()
     }
 

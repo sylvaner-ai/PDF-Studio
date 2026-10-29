@@ -228,13 +228,30 @@ impl EditSession {
         page: u64,
         objects: Vec<u32>,
     ) -> Result<ObjectClipboard, EngineError> {
+        let routed = self.movable_routed(page, &objects)?;
+        if routed.page_ids.is_empty() && routed.clips.len() == 1 {
+            // Une partie d'un tableau collé : copiée depuis son extrait.
+            let (view, ids) = routed
+                .clips
+                .into_iter()
+                .next()
+                .ok_or_else(|| invalid("rien à copier"))?;
+            return self.copy_from_clip(&view, ids);
+        }
+        if !routed.clips.is_empty() {
+            return Err(EngineError::Failed {
+                message: "Copiez séparément ce qui est dans un tableau collé et le reste."
+                    .to_owned(),
+                detail: "copie mixte".to_owned(),
+            });
+        }
         let (document, index, edits) = self.page_source(page)?;
         let document = document.ok_or_else(|| invalid("page vierge"))?;
         let upright = Upright::new(page_size(&document, index)?, self.page_turns(page));
         let items: Vec<PageObjectItem> = self
-            .page_objects(page)?
+            .page_objects_raw(page)?
             .into_iter()
-            .filter(|item| objects.contains(&item.id) && item.movable && !item.scanned)
+            .filter(|item| routed.page_ids.contains(&item.id) && item.movable && !item.scanned)
             .collect();
         if items.is_empty() {
             return Err(EngineError::Failed {
@@ -365,13 +382,8 @@ impl EditSession {
         objects: Vec<u32>,
     ) -> Result<ObjectClipboard, EngineError> {
         let clipboard = self.copy_objects(page, objects.clone())?;
-        let movable: Vec<u32> = self
-            .page_objects(page)?
-            .into_iter()
-            .filter(|item| objects.contains(&item.id) && item.movable && !item.scanned)
-            .map(|item| item.id)
-            .collect();
-        self.with_editor(|editor| editor.remove_objects(page, &movable, "la coupe"))?;
+        let routed = self.movable_routed(page, &objects)?;
+        self.remove_routed(page, routed, "la coupe")?;
         Ok(clipboard)
     }
 
@@ -425,12 +437,16 @@ impl EditSession {
         blank_source: Option<u32>,
     ) -> Result<Vec<PageObjectItem>, EngineError> {
         let clipboard = self.copy_objects(from, objects.clone())?;
-        let moved: Vec<u32> = self
-            .page_objects(from)?
-            .into_iter()
-            .filter(|item| objects.contains(&item.id) && item.movable && !item.scanned)
-            .map(|item| item.id)
-            .collect();
+        let routed = self.movable_routed(from, &objects)?;
+        if !keep && !routed.clips.is_empty() {
+            return Err(EngineError::Failed {
+                message:
+                    "Pour passer un tableau collé sur une autre page, sélectionnez-le tout entier."
+                        .to_owned(),
+                detail: "déplacement partiel".to_owned(),
+            });
+        }
+        let moved = routed.page_ids;
         let removed = (!keep).then_some((from, moved.as_slice()));
         let name = if keep { "la copie" } else { "le déplacement" };
         self.place(
@@ -543,11 +559,7 @@ impl EditSession {
         }
         let ids =
             self.with_editor(|editor| editor.add_objects(page, objects, origin, removed, name))?;
-        let items = self.page_objects(page)?;
-        Ok(items
-            .into_iter()
-            .filter(|item| ids.contains(&item.id))
-            .collect())
+        self.pasted(page, &ids)
     }
 
     /// Quarts de tour que l'organisation donne à la page `page`.

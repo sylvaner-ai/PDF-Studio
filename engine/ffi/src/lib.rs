@@ -14,6 +14,7 @@ use render::{Region, Rotation};
 
 mod added;
 mod clipboard;
+mod clipobjects;
 mod content;
 mod enhancement;
 mod qos;
@@ -36,7 +37,7 @@ pub use recognition::{
     default_recognition_settings, LayerWordItem, OcrImage, PageRecognition, RecognitionSettings,
     RecognizedText, RecognizedWordItem, TextRecognizer,
 };
-pub use session::{EditSession, PageItem, PageKind, ReplacedPageItem};
+pub use session::{EditSession, PageItem, PageKind, ReplacedPageItem, TableAxis};
 
 uniffi::setup_scaffolding!();
 

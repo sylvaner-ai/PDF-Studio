@@ -493,17 +493,23 @@ complété à chaque jalon.
   scanné ne supprime pas ses lignes ni ses colonnes.
 - **Tableaux :** un tableau se copie, se duplique et passe d'une page à
   l'autre en entier, mais ne se redimensionne pas ; ses rangées se règlent par
-  le menu Tableau.
+  le menu Tableau. Collé, il reste un tableau modifiable (D75).
 - **Texte copié :** un bloc de texte d'origine devient un texte ajouté
   (modifiable) : il garde son texte, sa police (ou la plus proche), son corps et
   sa couleur ; son alignement, son interlettrage, sa justification et un style
   différent d'un mot à l'autre ne sont pas repris, et ses lignes sont espacées à
   1,2 fois le corps. Sur une page tournée à l'écran, il passe en extrait PDF.
 - **Autres objets d'origine :** images, tracés et tableaux copiés deviennent un
-  extrait PDF posé comme un objet ajouté. Le texte d'un tableau copié ne se
-  modifie qu'une fois le document enregistré et rouvert (dépliage, D69) ;
-  jusque-là il se déplace, se redimensionne et se supprime d'un bloc. L'extrait
-  garde 1 pt de marge autour des objets.
+  extrait PDF posé comme un objet ajouté. L'extrait garde 1 pt de marge autour
+  des objets.
+- **Tableau collé (D75) :** il se montre par ses objets (cellules, texte, lignes
+  et colonnes) tant que la page n'est pas tournée par l'organisation ; sur une
+  page tournée, il reste une image. Un objet déplacé hors du cadre de l'extrait
+  est rogné par ce cadre. Ses objets ne se redimensionnent pas (comme ceux d'un
+  tableau d'origine), et une partie d'un tableau collé ne passe pas seule sur
+  une autre page (la copier suffit). Au-delà de 4 096 images ajoutées sur une même
+  page, des tableaux collés peuvent se confondre. Copier à la
+  fois une partie d'un tableau collé et d'autres objets est refusé.
 - **Seulement la sélection :** un fond, un filet ou un texte voisin qui
   chevauche les objets sélectionnés sans en faire partie n'est pas copié ; il
   faut le sélectionner aussi (⇧-clic ou rectangle).

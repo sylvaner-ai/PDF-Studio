@@ -1404,3 +1404,30 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   styles mot à mot (plus lourd : le texte réécrit est mis en forme d'une police).
 - **Raisons :** le critère reste prudent (police et corps changent ensemble, comme
   un mot-logo ou une étiquette), et chaque bloc garde un style homogène (D25).
+
+
+## D75 — Un tableau collé reste un tableau modifiable
+
+- **Contexte :** coller un tableau d'origine le posait comme une image (un extrait
+  PDF dessiné en formulaire) : plus de cellules à modifier avant d'enregistrer et
+  de rouvrir le document (Sylvain, 2026-10-29).
+- **Décision :** quand l'extrait d'une image ajoutée contient un tableau
+  (`ffi/src/clipobjects.rs`), la page le montre par les objets de l'extrait, lus
+  comme un document d'une page : identifiants `0x1000_0000 | rang de l'image <<
+  16 | identifiant dans l'extrait` (les tableaux, qui suivent tous les autres
+  objets, par leur rang à partir de `0xF000`, pour que leur numéro ne bouge pas
+  quand une modification change le nombre d'objets), emprise, corps et ligne de
+  base mis à l'échelle de l'image. Chaque modification (déplacement, suppression,
+  texte, lignes et colonnes, saisie d'une cellule) se fait sur l'extrait rouvert
+  dans une session à part ; l'extrait modifié remplace alors celui de l'image
+  (`Editor::edit_added`) en une seule étape d'annulation, ce qui laisse la
+  récupération inchangée. Les objets qui représentent tout l'extrait (tous, ou un
+  tableau qui l'occupe à 85 %) déplacent ou suppriment l'image elle-même, pour
+  que le cadre de l'extrait ne rogne rien. Une copie d'une partie du tableau
+  repart de l'extrait.
+- **Alternatives :** réinsérer le contenu dans le flux de la page (les numéros
+  des tableaux, ajoutés après les objets, changeraient) ; refondre la page en un
+  nouveau document source (récupération et historique à réécrire).
+- **Raisons :** aucune modification des autres modules du moteur ; la sauvegarde
+  garde le même extrait ; le tableau se comporte comme un tableau d'origine.
+

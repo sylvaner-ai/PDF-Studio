@@ -322,7 +322,9 @@ l'interprétation du flux de contenu et sur MuPDF.
   copie de l'application (avec le `changeCount` du presse-papiers) et y écrit
   un PDF et du texte ; `PagesDocumentView` reçoit Couper, Copier, Coller et
   Supprimer, `ObjectCommands` ⌘D, `EditingOverlayView+Objects` le clic droit et
-  le glisser vers une autre page.
+  le glisser vers une autre page. `ffi::clipobjects` (D75) montre un tableau
+  collé par les objets de son extrait et route chaque modification vers
+  l'extrait rouvert (`on_clip`), qui remplace celui de l'image.
 
 ## Reconnaissance du texte (OCR)
 
