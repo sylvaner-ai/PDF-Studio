@@ -60,6 +60,7 @@ des appels typés. Aucune logique PDF n'est écrite en Swift.
 │             editing : polices, aperçu et application des modifications ;     │
 │             textlayer : couche de texte invisible des pages reconnues ;      │
 │             scanned/ : objets d'une page scannée, retouche, rustines ;       │
+│             added : textes et images ajoutés (emprise, aperçu, écriture) ;   │
 │             enhanced : pixels d'un scan, PDF des pages améliorées            │
 │ (MuPDF)     analyse, rendu, extraction du texte, écriture                    │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -262,6 +263,38 @@ l'interprétation du flux de contenu et sur MuPDF.
   `DocumentViewModel+Comparing` montre les pages d'origine (D42).
   `BundledFonts` désigne au moteur les polices fournies (`set_font_directories`)
   et les rend disponibles à la saisie.
+
+## Textes et images ajoutés (D67)
+
+- **Modèle.** Un objet ajouté (`edit::AddedObject` : texte avec police, corps
+  et couleur, ou image avec ses octets et son cadre) est rangé en entier dans
+  les modifications de la page (`PageEdits::added`), numéroté à partir de
+  `ADDED_ID` (`0x2000_0000`), à part des objets d'origine et de ceux d'un
+  scan. Il se déplace, se réécrit et se supprime par les mêmes commandes que
+  les autres objets (`Editor::edit_objects`) ; `add_object` et `edit_added`
+  (style, cadre) passent par le même historique d'annulation. Sa position est
+  dans l'espace de la page PDF ; il retient les quarts de tour de la page à
+  l'écran quand il a été ajouté, pour se lire droit sur la page redressée.
+- **Aperçu et enregistrement.** `pdf_core::added` met le texte en page (une
+  ligne par retour voulu, interligne de 1,2 corps), choisit sa police (police
+  standard non intégrée si WinAnsi suffit, sinon son clone URW ; police du Mac
+  intégrée si sa licence le permet, sinon la police standard la plus proche)
+  et écrit le dessin des objets dans un flux de contenu de plus, après tout le
+  contenu de la page entouré de `q … Q`. L'aperçu rend ce flux à part et pose
+  sa liste d'affichage sur celle de la page (rustines d'un scan comprises) ;
+  l'enregistrement l'ajoute à la page écrite (`/PSAFn`, `/PSAIn`).
+- **Page vierge.** Une page vierge n'a pas de document : le premier objet
+  ajouté lui en donne un (`blank_page_document`, une page vierge de son format,
+  ajoutée aux sources comme un document inséré), dans la même étape
+  d'annulation.
+- **Interface.** L'`EditSession` ajoute (`add_text`, `add_image`), restyle
+  (`set_added_text_style`) et redimensionne (`set_object_bounds`).
+  `PageEditing+Adding` porte l'outil « Texte », le style et l'ajout des images
+  (`AddedImageFile` lit le fichier, `AddedTextFont` les polices) ;
+  `EditingOverlayView+Adding` pose le texte au clic et dessine les poignées des
+  images ; `AddingPalette` et `AddedTextPanel` (`AddingViews.swift`) et le menu
+  Insertion (`InsertionCommands`) les commandent. La récupération range chaque
+  image à part, une seule fois (`RecoveryStore.keepImage`).
 
 ## Reconnaissance du texte (OCR)
 

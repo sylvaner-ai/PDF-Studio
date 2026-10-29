@@ -81,12 +81,17 @@ final class PageCanvasView: NSScrollView {
 
     // MARK: - Événements AppKit
 
-    /// Les PDF déposés sur les pages s'ouvrent en onglets de la fenêtre (D66).
+    /// Les PDF déposés sur les pages s'ouvrent en onglets de la fenêtre (D66) ;
+    /// en mode Édition, les images s'ajoutent à la page où elles sont lâchées.
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        DocumentOpener.pdfs(on: sender.draggingPasteboard).isEmpty ? [] : .copy
+        DocumentOpener.pdfs(on: sender.draggingPasteboard).isEmpty && droppedImages(sender).isEmpty ? [] : .copy
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let images = droppedImages(sender)
+        if !images.isEmpty {
+            return addDroppedImages(images, at: sender.draggingLocation)
+        }
         let pdfs = DocumentOpener.pdfs(on: sender.draggingPasteboard)
         DocumentOpener.shared.open(pdfs, besides: window)
         return !pdfs.isEmpty

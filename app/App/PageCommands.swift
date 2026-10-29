@@ -117,3 +117,29 @@ struct SaveCommands: Commands {
         }
     }
 }
+
+/// Menu Insertion : ajouter un texte ou une image aux pages (D67). Hors du
+/// mode Édition, la fenêtre y passe d'abord ; chaque ajout s'annule par ⌘Z.
+struct InsertionCommands: Commands {
+    @FocusedValue(\.documentModel) private var model
+
+    var body: some Commands {
+        CommandMenu("Insertion") {
+            Button("Texte") { editing()?.startPlacingText() }
+                .keyboardShortcut("t", modifiers: [.command, .control])
+                .disabled(model?.canEdit != true)
+            Button("Image…") { editing()?.chooseImage() }
+                .keyboardShortcut("i", modifiers: [.command, .control])
+                .disabled(model?.canEdit != true)
+        }
+    }
+
+    /// Édition du document actif, passé en mode Édition au besoin.
+    private func editing() -> PageEditing? {
+        guard let model, model.canEdit else { return nil }
+        if model.workspace != .editing {
+            model.workspace = .editing
+        }
+        return model.editing
+    }
+}

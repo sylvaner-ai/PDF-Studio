@@ -94,6 +94,16 @@ jalon 2 sur 6 (redressement des pages, ⌘4) ; voir [docs/AMELIORATION.md](docs/
   retrouvées (avec leur ressemblance) et règle le corps, la graisse,
   l'interlettrage, le flou, le grain et la couleur. Une retouche n'est pas un
   caviardage : les pixels d'origine restent dans le fichier.
+- **Ajouter un texte** (bouton « Texte » en haut des pages, ou Insertion > Texte,
+  ⌃⌘T) : cliquer sur la page à l'endroit voulu, taper le texte (⇧Retour passe à
+  la ligne), Retour pour valider. Le panneau en haut à gauche règle la police
+  (Helvetica, Times, Courier ou une police du Mac), le gras, l'italique, le corps
+  et la couleur, du texte sélectionné comme des suivants.
+- **Ajouter une image** (bouton « Image », ou Insertion > Image…, ⌃⌘I) : elle se
+  pose au centre de la page lue ; une image déposée depuis le Finder se pose là
+  où elle est lâchée. Ses coins la redimensionnent (⇧ : sans garder les
+  proportions). Textes et images ajoutés se déplacent, se suppriment et
+  s'enregistrent dans le PDF comme le reste de la page.
 - **Au clavier :** Tab et ⇧Tab passent d'un objet à l'autre, dans l'ordre de
   lecture ; VoiceOver annonce chaque objet et le sélectionne par VO-Espace.
 - **Comparer avec l'original** (⌥⌘K, ou le bouton de la barre d'outils) montre

@@ -98,7 +98,8 @@ extension DocumentViewModel {
             sources: recovery.extraSources,
             session: session,
             sizes: sourceSizes,
-            cache: recovery.cache
+            cache: recovery.cache,
+            store: store
         )
         return RecoveryJob(path: path, removes: false) {
             if let record = snapshot.record() {
@@ -144,6 +145,7 @@ extension DocumentViewModel {
             store.removeRecord(for: path)
             store.removeCopy(base)
             sources.forEach(store.removeCopy)
+            store.removeUnusedImages()
         }
     }
 

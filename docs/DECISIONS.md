@@ -678,6 +678,9 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
 - **Révisé par D58 (23 octobre 2026) :** le bouton « Reconnaître le texte » est
   retiré, la reconnaissance se faisant à l'entrée en mode Édition ; la barre
   compte désormais cinq outils, toujours aux mêmes places.
+- **Révisé par D67 (29 octobre 2026) :** l'application crée désormais des
+  textes et des images ; leurs outils sont posés sur les pages en mode
+  Édition et dans le menu Insertion, la barre gardant ses six commandes.
 
 ## D45 — Animations : ressort de 0,22 s, fondu seul si les animations sont réduites (jalon 8)
 
@@ -1175,3 +1178,34 @@ Chaque note : option retenue, alternatives, raisons. Les décisions marquées
   existait déjà par fenêtre ; les onglets du système sont ceux d'Aperçu et du
   Finder, attendus sur macOS (§5).
 
+## D67 — Ajout de textes et d'images en mode Édition
+
+- **Retenu :** à la demande de Sylvain (29 octobre 2026), deux outils du mode
+  Édition, posés en haut des pages (« Texte », « Image ») et repris dans un menu
+  Insertion (⌃⌘T, ⌃⌘I, qui passent en Édition au besoin). L'outil Texte
+  commence un texte au point cliqué ; Retour le valide, ⇧Retour passe à la
+  ligne, Échap l'abandonne. Le panneau en haut à gauche règle la police (les
+  polices standard Helvetica, Times et Courier, puis celles du Mac), le gras,
+  l'italique, le corps et la couleur, pour le texte ajouté sélectionné et
+  pour les suivants (le dernier style est repris). Une image se choisit dans
+  un fichier (JPEG et PNG gardés tels quels, les autres formats et les photos
+  tournées réencodés droits) et se pose au centre de la page lue, ou là où
+  elle est déposée depuis le Finder, à sa taille naturelle dans la limite de
+  la moitié de la page ; ses coins la redimensionnent en gardant ses
+  proportions (⇧ : librement). Les objets ajoutés se sélectionnent devant le
+  reste de la page, se déplacent, se suppriment et s'annulent comme les
+  autres ; ils sont retenus par la récupération et écrits dans le PDF à
+  l'enregistrement.
+- **Dessin :** un objet ajouté est dessiné après tout le contenu de la page,
+  dans un flux de plus ; il se lit droit sur la page telle que l'organisation
+  la tournait quand il a été ajouté (les pages scannées redressées par un
+  quart de tour), et tourne ensuite avec elle. Le texte n'est pas renvoyé
+  automatiquement à la ligne : ses lignes sont celles saisies.
+- **Alternatives :** des boutons dans la barre d'outils (elle a atteint les six
+  commandes de D44) ; des zones de texte à largeur fixe avec renvoi à la ligne
+  (plus de réglages pour un usage d'annotation et de complément) ; des
+  annotations PDF (`FreeText`, `Stamp`), que certains lecteurs n'impriment pas
+  ou laissent modifier par d'autres, au lieu d'un contenu de page.
+- **Raisons :** un texte ou une image ajouté fait partie de la page, comme le
+  reste de son contenu, et se voit partout ; les polices standard évitent
+  d'intégrer une police pour quelques mots.

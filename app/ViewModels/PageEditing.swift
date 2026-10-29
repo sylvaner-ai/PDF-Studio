@@ -14,7 +14,8 @@ import Observation
 /// cellule courante, dont la ligne et la colonne peuvent être supprimées ou
 /// déplacées (menu Tableau). Sur une page scannée, les objets sont retrouvés
 /// dans l'image et leurs pixels retouchés ; le texte réécrit d'une ligne se
-/// règle dans le panneau de retouche.
+/// règle dans le panneau de retouche. Des textes et des images s'ajoutent
+/// aux pages (cf. `PageEditing+Adding.swift`).
 @MainActor
 @Observable
 final class PageEditing {
@@ -36,6 +37,13 @@ final class PageEditing {
     /// Cellule vide dont le texte est en cours de saisie (ouverte par
     /// `PageEditing+Tables.swift`).
     var cellTarget: CellTarget?
+    /// Outil « Texte » : le prochain clic sur une page y commence un texte
+    /// (modifié par `PageEditing+Adding.swift`, comme les deux suivants).
+    var isPlacingText = false
+    /// Texte en cours de saisie, pas encore ajouté à sa page.
+    var newText: NewText?
+    /// Style du prochain texte ajouté ; celui du dernier choisi.
+    var textStyle = PageEditing.defaultTextStyle
 
     struct TextTarget: Equatable {
         let page: UInt64
@@ -76,6 +84,9 @@ final class PageEditing {
         cell = nil
         cellTarget = nil
         notice = nil
+        isPlacingText = false
+        newText = nil
+        textStyle = Self.lastTextStyle
     }
 
     /// Fin du mode Édition : la sélection et la saisie en cours sont abandonnées.
@@ -87,6 +98,8 @@ final class PageEditing {
         cell = nil
         cellTarget = nil
         notice = nil
+        isPlacingText = false
+        newText = nil
         if let previous {
             onChange?(previous)
         }
@@ -104,6 +117,9 @@ final class PageEditing {
             textTarget = nil
             cell = nil
             cellTarget = nil
+        }
+        if let target = newText, !ids.contains(target.page) {
+            newText = nil
         }
     }
 
@@ -289,8 +305,14 @@ final class PageEditing {
         guard let target = textTarget else { return }
         textTarget = nil
         defer { onChange?(target.page) }
-        let original = objects[target.page]?.items.first { $0.id == target.object }?.text
-        guard let text, text != original, let model else { return }
+        let item = objects[target.page]?.items.first { $0.id == target.object }
+        guard let text, text != item?.text, let model else { return }
+        if item?.added == true, text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // Un texte ajouté que l'on vide disparaît.
+            select([target.object], on: target.page)
+            deleteSelection()
+            return
+        }
         var result: PageObjectItem?
         let done = model.perform { result = try $0.replaceText(page: target.page, object: target.object, text: text) }
         guard done, let result else { return }

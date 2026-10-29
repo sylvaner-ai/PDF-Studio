@@ -36,7 +36,10 @@ struct EditingBadge: View {
     }
 
     private var summary: String {
-        if editing.textTarget != nil || editing.cellTarget != nil {
+        if editing.isPlacingText {
+            return String(localized: "Cliquez sur la page à l'endroit où commencera le texte.")
+        }
+        if editing.textTarget != nil || editing.cellTarget != nil || editing.newText != nil {
             return String(localized: "Retour pour valider, ⇧Retour pour passer à la ligne, Échap pour annuler.")
         }
         let items = editing.selectedItems
@@ -51,7 +54,10 @@ struct EditingBadge: View {
     }
 
     private var detail: String? {
-        guard editing.textTarget == nil, editing.cellTarget == nil else { return nil }
+        if editing.isPlacingText {
+            return String(localized: "Police, corps et couleur se choisissent dans le panneau. Échap pour annuler.")
+        }
+        guard editing.textTarget == nil, editing.cellTarget == nil, editing.newText == nil else { return nil }
         let items = editing.selectedItems
         guard let item = items.first, items.count == 1 else {
             return items.isEmpty
@@ -63,6 +69,12 @@ struct EditingBadge: View {
         }
         if let grid = item.grid {
             return Self.tableDetail(grid, cell: editing.currentCell, scanned: item.scanned)
+        }
+        if item.added, item.kind == .image {
+            return String(localized: """
+                faites glisser un coin pour redimensionner (⇧ : sans garder les proportions) · \
+                flèches pour déplacer, ⌫ pour supprimer
+                """)
         }
         var parts: [String] = []
         if item.scanned {

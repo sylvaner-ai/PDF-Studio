@@ -156,6 +156,37 @@ extension DocumentViewModel {
         prepareEditing()
     }
 
+    /// Document d'une page vierge du format de la page vierge `page`, ajouté
+    /// aux sources une fois terminées les insertions demandées avant : les
+    /// objets ajoutés à la page s'y dessinent (cf. `PageEditing+Adding.swift`).
+    /// Renvoie son numéro de source, `nil` si une autre opération a commencé.
+    func blankPageSource(for page: UInt64) async -> UInt32? {
+        let previous = insertionTask
+        let task = Task { @MainActor [weak self] () -> UInt32? in
+            await previous?.value
+            return await self?.addBlankPageSource(for: page)
+        }
+        insertionTask = Task { _ = await task.value }
+        return await task.value
+    }
+
+    private func addBlankPageSource(for page: UInt64) async -> UInt32? {
+        guard canEdit, let session else { return nil }
+        let opened = await Task.detached(priority: .userInitiated) {
+            Result { try PdfDocument.fromData(data: session.blankPageDocument(page: page), password: nil) }
+        }.value
+        guard canEdit else { return nil }
+        switch opened {
+        case let .success(document):
+            guard let source = addSource(document) else { return nil }
+            await retainCopy(ofSource: source, protected: false)
+            return canEdit ? source : nil
+        case let .failure(error):
+            report(error)
+            return nil
+        }
+    }
+
     private func select(_ positions: [UInt32]) {
         selection = Set(positions.compactMap { pages[safe: Int($0)]?.id })
         if let first = positions.first {

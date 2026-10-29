@@ -250,7 +250,8 @@ struct ReaderView: View {
     }
 
     /// Pages du document, avec ce qui se pose dessus : bandeau du mode Édition ou
-    /// de la comparaison, panneau de retouche d'un scan, recherche.
+    /// de la comparaison, outils d'ajout et style du texte ajouté, panneau de
+    /// retouche d'un scan, recherche.
     private var canvas: some View {
         PageCanvas(renderer: renderer, controller: model.canvas)
             .accessibilityLabel(Text("Pages du document"))
@@ -266,15 +267,28 @@ struct ReaderView: View {
                 }
                 .interfaceAnimation(value: model.isComparing ? 2 : showsEditingBadge ? 1 : 0)
             }
+            .overlay(alignment: .top) {
+                ZStack {
+                    if model.isEditingCanvas {
+                        AddingPalette(editing: model.editing)
+                            .floatingTransition(from: .top)
+                    }
+                }
+                .interfaceAnimation(value: model.isEditingCanvas)
+            }
             .overlay(alignment: .topLeading) {
                 ZStack {
                     if model.isEditingCanvas, let line = model.editing.selectedScanLine, let scan = line.scan {
                         ScanRetouchPanel(editing: model.editing, scan: scan)
                             .id(line.id)
                             .floatingTransition(from: .top)
+                    } else if showsTextPanel {
+                        AddedTextPanel(editing: model.editing)
+                            .floatingTransition(from: .top)
                     }
                 }
                 .interfaceAnimation(value: scanPanelKey)
+                .interfaceAnimation(value: showsTextPanel)
             }
             .overlay(alignment: .topTrailing) {
                 ZStack {
@@ -291,6 +305,15 @@ struct ReaderView: View {
     /// reconnaissance du texte et à son bilan, au même endroit.
     private var showsEditingBadge: Bool {
         model.isEditingCanvas && model.recognition == nil && model.notice == nil
+    }
+
+    /// Panneau du style des textes ajoutés : pendant que l'outil « Texte »
+    /// attend un clic, pendant la saisie d'un texte à ajouter, ou quand un
+    /// texte ajouté est sélectionné.
+    private var showsTextPanel: Bool {
+        let editing = model.editing
+        return model.isEditingCanvas
+            && (editing.isPlacingText || editing.newText != nil || editing.selectedAddedText != nil)
     }
 
     /// Ligne scannée dont le panneau de retouche est ouvert.
