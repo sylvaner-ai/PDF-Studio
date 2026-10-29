@@ -136,10 +136,13 @@ final class ObjectEditingTests: XCTestCase {
         let shifted = try XCTUnwrap(try session.pageObjects(page: first.id).first { editing.selected.contains($0.id) })
         XCTAssertEqual(shifted.bounds.x, line.bounds.x - 1 + PageEditing.pasteOffset, accuracy: 0.6)
 
-        // Dupliquer, puis passer la copie sur l'autre page : une action chacun.
+        // Dupliquer, puis passer la copie sur l'autre page : une action chacun
+        // (la sélection se lit dans les objets rechargés de la page).
+        _ = try await objects(model, page: 0)
         editing.duplicateSelection()
         XCTAssertEqual(session.undoName(), "la duplication")
         let duplicate = try XCTUnwrap(editing.selected.first)
+        _ = try await objects(model, page: 0)
         editing.transferSelection(to: second.id, center: CGPoint(x: 200, y: 200), keep: false)
         XCTAssertEqual(session.undoName(), "le déplacement")
         XCTAssertEqual(editing.page, second.id)
