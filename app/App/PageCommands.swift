@@ -16,8 +16,9 @@ struct PageCommands: Commands {
                 .keyboardShortcut("r")
                 .disabled(!hasTargets)
             Divider()
+            // En mode Édition, ⌘D duplique les objets sélectionnés (cf. ObjectCommands).
             Button("Dupliquer") { edit { $0.duplicate($1) } }
-                .keyboardShortcut("d")
+                .keyboardShortcut(ObjectCommands.duplicatesObjects(model) ? nil : KeyboardShortcut("d"))
                 .disabled(!hasTargets)
             Button("Supprimer", action: deletePages)
                 .keyboardShortcut(.delete, modifiers: .command)
@@ -70,7 +71,8 @@ struct PageCommands: Commands {
 }
 
 /// Menu Tableau, en mode Édition : ligne et colonne de la cellule courante du
-/// tableau sélectionné, et le tableau entier. Chaque action s'annule par ⌘Z.
+/// tableau sélectionné (lignes et colonnes de la plage choisie par ⇧-clic),
+/// et le tableau entier. Chaque action s'annule par ⌘Z.
 struct TableCommands: Commands {
     @FocusedValue(\.documentModel) private var model
 
@@ -80,7 +82,7 @@ struct TableCommands: Commands {
                 if action == .moveRowUp || action == .moveColumnLeft {
                     Divider()
                 }
-                Button(action.title) { editing?.perform(action) }
+                Button(editing?.title(for: action) ?? action.title) { editing?.perform(action) }
                     .disabled(editing?.canPerform(action) != true)
             }
             Divider()
@@ -115,6 +117,33 @@ struct SaveCommands: Commands {
             Button("Exporter le texte…") { model?.exportText() }
                 .disabled(model?.canEdit != true)
         }
+    }
+}
+
+/// Menu Édition, en mode Édition : dupliquer les objets sélectionnés (⌘D,
+/// pris au menu Pages tant qu'il y a des objets sélectionnés) ; Couper,
+/// Copier, Coller et Supprimer passent par la vue des pages (D72).
+struct ObjectCommands: Commands {
+    @FocusedValue(\.documentModel) private var model
+
+    var body: some Commands {
+        CommandGroup(after: .pasteboard) {
+            Button("Dupliquer les objets") { editing?.duplicateSelection() }
+                .keyboardShortcut(Self.duplicatesObjects(model) ? KeyboardShortcut("d") : nil)
+                .disabled(editing?.canCopy != true)
+        }
+    }
+
+    /// Vrai si ⌘D duplique les objets sélectionnés plutôt que les pages.
+    @MainActor
+    static func duplicatesObjects(_ model: DocumentViewModel?) -> Bool {
+        guard let model, model.canEdit, model.workspace == .editing else { return false }
+        return model.editing.canCopy
+    }
+
+    private var editing: PageEditing? {
+        guard let model, model.canEdit, model.workspace == .editing else { return nil }
+        return model.editing
     }
 }
 

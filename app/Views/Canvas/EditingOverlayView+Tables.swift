@@ -19,6 +19,35 @@ extension EditingOverlayView {
         return PageEditing.CellTarget(page: page.id, table: table.id, row: cell.row, column: cell.column)
     }
 
+    /// Clic sur le tableau `table` : choisit sa cellule courante (double-clic :
+    /// la saisit), ou étend la plage de cellules par ⇧-clic dans le tableau
+    /// déjà sélectionné. Faux si le clic reste un clic de sélection d'objets.
+    func clickTable(_ table: PageObjectItem, at point: CGPoint, count: Int, extend: Bool) -> Bool {
+        guard let editing, let page, let cell = cell(at: point, in: table) else { return false }
+        if extend {
+            guard editing.page == page.id, editing.selectedTable?.id == table.id else { return false }
+            editing.extendCells(to: cell)
+            return true
+        }
+        let block = textBlock(at: point, in: cell, of: table)
+        if count == 2 {
+            editing.beginCellEditing(cell, block: block)
+            return true
+        }
+        editing.selectCell(cell, block: block)
+        drag = .move(start: point, offset: .zero, started: false)
+        return true
+    }
+
+    /// Bloc de texte d'une cellule de tableau sous le point (le plus petit) : il
+    /// se déplace seul, sans le tableau.
+    func cellBlock(at point: CGPoint) -> PageObjectItem? {
+        let tolerance = 2 * screenPoint
+        return items.filter { $0.table != nil && $0.kind == .text && $0.movable && !$0.scanned }
+            .filter { frame(of: $0).insetBy(dx: -tolerance, dy: -tolerance).contains(point) }
+            .min { area(frame(of: $0)) < area(frame(of: $1)) }
+    }
+
     /// Distance d'un point à un rectangle (0 s'il est dedans).
     private func distance(from point: CGPoint, to rect: CGRect) -> CGFloat {
         hypot(max(rect.minX - point.x, 0, point.x - rect.maxX), max(rect.minY - point.y, 0, point.y - rect.maxY))
@@ -35,11 +64,16 @@ extension EditingOverlayView {
         return blocks.min { distance(from: point, to: frame(of: $0)) < distance(from: point, to: frame(of: $1)) }?.id
     }
 
-    /// Cellules du tableau sélectionné, et sa cellule courante.
-    func drawGrid(_ grid: TableGridItem, current: TableCellItem?, unit: CGFloat) {
+    /// Cellules du tableau sélectionné, la plage choisie par ⇧-clic et sa
+    /// cellule courante.
+    func drawGrid(_ grid: TableGridItem, current: TableCellItem?, range: [TableCellItem], unit: CGFloat) {
         let accent = NSColor.controlAccentColor
         for cell in grid.cells {
             stroke(frame(of: cell), accent.withAlphaComponent(0.35), width: unit)
+        }
+        for cell in range {
+            accent.withAlphaComponent(0.12).setFill()
+            NSBezierPath(rect: frame(of: cell)).fill()
         }
         if let current {
             let box = frame(of: current)
@@ -66,14 +100,22 @@ extension EditingOverlayView {
         guard let hit = object(at: point), hit.kind == .table, let cell = cell(at: point, in: hit) else {
             return nil
         }
-        editing.selectCell(cell)
+        // Un clic droit dans la plage choisie la garde.
+        let inRange = editing.selectedTable?.id == hit.id && editing.selectedCells.contains {
+            $0.row == cell.row && $0.column == cell.column
+        }
+        if !inRange {
+            editing.selectCell(cell)
+        }
         let menu = NSMenu()
         menu.autoenablesItems = false
         for (index, action) in PageEditing.TableAction.allCases.enumerated() {
             if action == .moveRowUp || action == .moveColumnLeft {
                 menu.addItem(.separator())
             }
-            let item = NSMenuItem(title: action.title, action: #selector(tableAction(_:)), keyEquivalent: "")
+            let item = NSMenuItem(
+                title: editing.title(for: action), action: #selector(tableAction(_:)), keyEquivalent: ""
+            )
             item.target = self
             item.tag = index
             item.isEnabled = editing.canPerform(action)

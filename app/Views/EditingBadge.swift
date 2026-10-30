@@ -68,11 +68,14 @@ struct EditingBadge: View {
             return String(localized: "Cet objet ne peut pas être modifié.")
         }
         if let grid = item.grid {
-            return Self.tableDetail(grid, cell: editing.currentCell, scanned: item.scanned)
+            return Self.tableDetail(
+                grid, cell: editing.currentCell, range: editing.selectedCells.isEmpty ? nil : editing.selectedBands,
+                scanned: item.scanned
+            )
         }
         if item.added, item.kind == .image {
             return String(localized: """
-                faites glisser un coin pour redimensionner (⇧ : sans garder les proportions) · \
+                faites glisser une poignée pour redimensionner (⇧ : sans garder les proportions) · \
                 flèches pour déplacer, ⌫ pour supprimer
                 """)
         }
@@ -91,13 +94,27 @@ struct EditingBadge: View {
         } else {
             parts.append(String(localized: "Flèches pour déplacer (⇧ : 10 pt), ⌫ pour supprimer"))
         }
+        if item.table != nil {
+            parts.append(String(localized: "texte d'une cellule : il se déplace dans sa cellule"))
+        }
+        if item.resizable {
+            parts.append(String(localized: "une poignée pour redimensionner"))
+        }
         return parts.joined(separator: " · ")
     }
 
     /// Taille du tableau, cellule courante et marche à suivre.
-    private static func tableDetail(_ grid: TableGridItem, cell: TableCellItem?, scanned: Bool) -> String {
+    private static func tableDetail(
+        _ grid: TableGridItem, cell: TableCellItem?,
+        range: (rows: ClosedRange<UInt32>, columns: ClosedRange<UInt32>)?, scanned: Bool
+    ) -> String {
         var parts = [String(localized: "\(grid.rows) lignes × \(grid.columns) colonnes")]
-        if let cell {
+        if let range {
+            parts.append(String(localized: """
+                lignes \(range.rows.lowerBound + 1) à \(range.rows.upperBound + 1), \
+                colonnes \(range.columns.lowerBound + 1) à \(range.columns.upperBound + 1)
+                """))
+        } else if let cell {
             parts.append(String(localized: "cellule ligne \(cell.row + 1), colonne \(cell.column + 1)"))
             if cell.overflow {
                 parts.append(String(localized: "le texte saisi dépasse de la cellule"))
@@ -108,7 +125,11 @@ struct EditingBadge: View {
             parts.append(String(localized: "tableau scanné : double-clic pour modifier le texte d'une cellule"))
         } else {
             parts.append(
-                String(localized: "double-clic pour modifier une cellule, menu Tableau pour ses lignes et colonnes")
+                String(localized: """
+                    double-clic pour modifier une cellule, ⇧-clic pour choisir plusieurs cellules, \
+                    ⌥-clic sur un texte pour le déplacer dans sa cellule, \
+                    menu Tableau pour leurs lignes et colonnes
+                    """)
             )
         }
         return parts.joined(separator: " · ")

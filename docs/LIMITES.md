@@ -479,6 +479,47 @@ complété à chaque jalon.
   unique de toute la cellule. Entre deux blocs voisins de même style, la
   séparation suit D25 (écart de style, d'interligne ou d'alignement).
 - **Mots de style différent dans une même ligne :** un mot en gras au fil d'une
-  phrase reste dans son bloc, et la modification lui donne le style du début du
-  bloc (limite du jalon 4).
+  phrase (même corps) reste dans son bloc, et la modification lui donne le style
+  du début du bloc (limite du jalon 4). Un mot dont la police et le corps
+  diffèrent à la fois de ses voisins (« imh » en gras et plus gros, devant
+  « FACTURE V 102-26 »), séparé d'eux par au moins une espace, forme son
+  propre bloc (D74).
 
+
+## Objets redimensionnés, copiés, collés et déplacés (D71 à D73)
+
+- **Scans :** les objets d'une page scannée ne se redimensionnent ni ne se
+  copient (ils se déplacent et se suppriment sur leur page) ; un tableau
+  scanné ne supprime pas ses lignes ni ses colonnes.
+- **Tableaux :** un tableau se copie, se duplique et passe d'une page à
+  l'autre en entier, mais ne se redimensionne pas ; ses rangées se règlent par
+  le menu Tableau. Collé, il reste un tableau modifiable (D75).
+- **Texte copié :** un bloc de texte d'origine devient un texte ajouté
+  (modifiable) : il garde son texte, sa police (ou la plus proche), son corps et
+  sa couleur ; son alignement, son interlettrage, sa justification et un style
+  différent d'un mot à l'autre ne sont pas repris, et ses lignes sont espacées à
+  1,2 fois le corps. Sur une page tournée à l'écran, il passe en extrait PDF.
+- **Autres objets d'origine :** images, tracés et tableaux copiés deviennent un
+  extrait PDF posé comme un objet ajouté. L'extrait garde 1 pt de marge autour
+  des objets.
+- **Tableau collé (D75) :** il se montre par ses objets (cellules, texte, lignes
+  et colonnes) tant que la page n'est pas tournée par l'organisation ; sur une
+  page tournée, il reste une image. Un objet déplacé hors du cadre de l'extrait
+  est rogné par ce cadre. Ses objets ne se redimensionnent pas (comme ceux d'un
+  tableau d'origine), et une partie d'un tableau collé ne passe pas seule sur
+  une autre page (la copier suffit). Au-delà de 4 096 images ajoutées sur une même
+  page, des tableaux collés peuvent se confondre. Copier à la
+  fois une partie d'un tableau collé et d'autres objets est refusé.
+- **Seulement la sélection :** un fond, un filet ou un texte voisin qui
+  chevauche les objets sélectionnés sans en faire partie n'est pas copié ; il
+  faut le sélectionner aussi (⇧-clic ou rectangle).
+- **Glisser vers une autre page :** pendant le glisser, le contour pointillé
+  reste dans la page de départ ; la copie apparaît à son arrivée. La page
+  d'arrivée doit être affichée (en mode page par page, utiliser Couper et
+  Coller).
+- **Presse-papiers :** depuis une autre application, seule la première page
+  d'un PDF copié est collée ; un texte copié seul ne se colle pas en objet
+  (utiliser l'outil « Texte »). Vers une autre application, la copie est un PDF
+  et son texte (de haut en bas).
+- **Texte agrandi :** un texte d'origine redimensionné sans garder les
+  proportions (⇧) est étiré ; son corps affiché est celui de la hauteur.

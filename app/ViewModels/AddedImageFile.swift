@@ -18,8 +18,21 @@ struct AddedImageFile: Sendable {
     /// TIFF…), tournée par son orientation (photo) ou trop grande est
     /// réencodée droite, en JPEG si elle est opaque, sinon en PNG.
     static func load(_ url: URL) -> AddedImageFile? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return load(source) { try? Data(contentsOf: url) }
+    }
+
+    /// Image des octets `data` (copiée d'une autre application), lue comme
+    /// un fichier.
+    static func load(_ data: Data) -> AddedImageFile? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return load(source) { data }
+    }
+
+    /// Image de `source` ; `original` donne ses octets, gardés tels quels
+    /// quand ils conviennent au moteur.
+    private static func load(_ source: CGImageSource, original: () -> Data?) -> AddedImageFile? {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
               let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue,
               width > 0, height > 0
@@ -40,7 +53,7 @@ struct AddedImageFile: Sendable {
         let type = CGImageSourceGetType(source).map { $0 as String }
         let kept = [UTType.jpeg.identifier, UTType.png.identifier]
         if orientation == 1, let type, kept.contains(type), max(width, height) <= maxPixels,
-           let data = try? Data(contentsOf: url) {
+           let data = original() {
             return AddedImageFile(data: data, size: size)
         }
         return reencoded(source, longestSide: min(max(width, height), maxPixels)).map {

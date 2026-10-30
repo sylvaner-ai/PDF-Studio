@@ -161,3 +161,101 @@ final class CellBlocksEditingTests: XCTestCase {
         editing.endTextEditing(text: nil)
     }
 }
+
+/// Plage de cellules choisie par ⇧-clic (tests/fixtures/tableaux.pdf) : ses
+/// lignes ou ses colonnes se suppriment d'un coup, en une seule action.
+@MainActor
+final class CellRangeTests: XCTestCase {
+    private var directory: URL?
+
+    override func tearDown() {
+        if let directory {
+            try? FileManager.default.removeItem(at: directory)
+        }
+        super.tearDown()
+    }
+
+    /// Grille du tableau `table` une fois les objets de la page rechargés.
+    private func grid(_ model: DocumentViewModel, table: UInt32) async throws -> TableGridItem {
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline {
+            let page = try XCTUnwrap(model.pages.first)
+            let wanted = try model.session?.pageObjects(page: page.id).first { $0.id == table }?.grid
+            if let known = model.editing.objects(on: page)?.first(where: { $0.id == table })?.grid,
+               known.rows == wanted?.rows, known.columns == wanted?.columns, known.cells.count == wanted?.cells.count {
+                return known
+            }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        XCTFail("objets non rechargés")
+        throw CancellationError()
+    }
+
+    /// Copie du document de test, ouverte en mode Édition.
+    private func openEditing() async throws -> DocumentViewModel {
+        let source = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "tableaux", withExtension: "pdf"))
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("plage-\(UUID())")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        directory = folder
+        let url = folder.appendingPathComponent("tableaux.pdf")
+        try FileManager.default.copyItem(at: source, to: url)
+        let model = DocumentViewModel(reference: try DocumentReference(url: url, securityScoped: false))
+        await model.open()
+        model.workspace = .editing
+        return model
+    }
+
+    func testSupprimeLesLignesEtLesColonnesDUnePlage() async throws {
+        let model = try await openEditing()
+        defer {
+            model.discardChanges()
+            model.close()
+            RecoveryWriter.shared.flush()
+        }
+        let page = try XCTUnwrap(model.pages.first).id
+        let session = try XCTUnwrap(model.session)
+        let table = try XCTUnwrap(
+            try session.pageObjects(page: page).first { $0.kind == .table && ($0.grid?.columns ?? 0) >= 4 }
+        ).id
+        let initial = try await grid(model, table: table)
+        XCTAssertEqual(initial.rows, 6)
+        let editing = model.editing
+        let cell = { (row: UInt32, column: UInt32) in
+            PageEditing.CellTarget(page: page, table: table, row: row, column: column)
+        }
+
+        // T1 à T3 : trois lignes, une seule colonne.
+        editing.selectCell(cell(2, 1))
+        editing.extendCells(to: cell(4, 1))
+        XCTAssertEqual(editing.selectedBands?.rows, 2...4)
+        XCTAssertEqual(editing.selectedBands?.columns, 1...1)
+        XCTAssertEqual(editing.selectedCells.count, 3)
+        XCTAssertEqual(editing.title(for: .deleteRow), "Supprimer les 3 lignes")
+        XCTAssertEqual(editing.title(for: .deleteColumn), "Supprimer la colonne")
+        XCTAssertFalse(editing.canPerform(.moveRowUp))
+        editing.perform(.deleteRow)
+        XCTAssertEqual(session.undoName(), "la suppression des lignes")
+        XCTAssertNil(editing.cellExtent)
+        let fewerRows = try await grid(model, table: table)
+        XCTAssertEqual(fewerRows.rows, 3)
+
+        // Une cellule fusionnée à cheval agrandit la plage : « Ventes »
+        // couvre les colonnes 1 et 2.
+        editing.selectCell(cell(1, 2))
+        editing.extendCells(to: cell(1, 1))
+        XCTAssertEqual(editing.selectedBands?.columns, 1...2)
+        editing.selectCell(cell(1, 2))
+        editing.extendCells(to: cell(0, 1))
+        XCTAssertEqual(editing.selectedBands?.rows, 0...1)
+        XCTAssertEqual(editing.selectedBands?.columns, 1...2)
+        editing.perform(.deleteColumn)
+        XCTAssertEqual(session.undoName(), "la suppression des colonnes")
+        let fewerColumns = try await grid(model, table: table)
+        XCTAssertEqual(fewerColumns.columns, 3)
+
+        // Une seule action à annuler pour chaque suppression.
+        XCTAssertTrue(session.undo())
+        XCTAssertTrue(session.undo())
+        XCTAssertEqual(try session.pageObjects(page: page).first { $0.id == table }?.grid?.rows, 6)
+    }
+}

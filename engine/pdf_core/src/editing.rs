@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use edit::{FontChoice, PageEdits, ScanText, TableEdit, TextReplacement};
+use edit::{FontChoice, ObjectEdit, PageEdits, ScanText, TableEdit, TextReplacement};
 use layout::{Cell, Restructure};
 use mupdf::path::PathWalker;
 use mupdf::pdf::{PdfDocument, PdfObject};
@@ -61,6 +61,9 @@ pub struct ObjectInfo {
     pub bounds: PageRect,
     /// L'objet peut être déplacé et supprimé.
     pub movable: bool,
+    /// L'objet peut être redimensionné (ni tableau, ni cellule, ni objet
+    /// d'un scan).
+    pub resizable: bool,
     /// Le texte peut être remplacé.
     pub editable: bool,
     /// Fond de page : il n'est pas sélectionné par un clic.
@@ -91,6 +94,12 @@ pub struct ObjectInfo {
     pub scan: Option<ScanText>,
     /// Objet ajouté à la page (texte ou image), avec son style.
     pub added: Option<crate::added::AddedInfo>,
+    /// Couleur du texte d'origine (rouge, vert, bleu), quand l'opération qui
+    /// la fixe est un gris, un RVB ou un CMJN.
+    pub text_color: Option<[f32; 3]>,
+    /// Ordonnée, sur la page droite, de la ligne de base de la première ligne
+    /// d'un texte d'origine.
+    pub baseline: Option<f32>,
 }
 
 /// Grille d'un tableau, telle que l'affiche l'application.
@@ -194,10 +203,11 @@ impl TableState<'_> {
 
 /// Effet des modifications sur un objet : les siennes et celles de son
 /// tableau, ou des tableaux que ses tracés traversent.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 struct Effect<'a> {
     deleted: bool,
-    offset: (f64, f64),
+    /// Déplacement et agrandissement, dans l'espace de la page.
+    transform: Matrix,
     text: Option<&'a TextReplacement>,
     reshape: Option<Reshape>,
 }
@@ -541,7 +551,7 @@ impl PageModel {
             let edit = edit_of(object.id);
             let mut effect = Effect {
                 deleted: edit.is_some_and(|edit| edit.deleted),
-                offset: edit.map_or((0.0, 0.0), |edit| (f64::from(edit.dx), f64::from(edit.dy))),
+                transform: edit.map_or(Matrix::IDENTITY, |edit| object_transform(object, edit)),
                 text: edit
                     .and_then(|edit| edit.text.as_ref())
                     .filter(|_| object.editable),
@@ -565,7 +575,7 @@ impl PageModel {
                         .unwrap_or(object.bbox);
                     match state.follow(anchor) {
                         Some((dx, dy)) => {
-                            effect.offset = (effect.offset.0 + dx, effect.offset.1 + dy);
+                            effect.transform = effect.transform.then(&Matrix::translate(dx, dy));
                         }
                         None => effect.deleted = true,
                     }
@@ -586,7 +596,7 @@ impl PageModel {
                 }
             }
             let unchanged = !effect.deleted
-                && effect.offset == (0.0, 0.0)
+                && effect.transform == Matrix::IDENTITY
                 && effect.text.is_none()
                 && effect.reshape.is_none();
             if !unchanged {
@@ -745,7 +755,10 @@ impl PageModel {
             let mut font_name = state
                 .and_then(|state| state.font.as_ref())
                 .map(|font| font.base_name.clone());
-            let font_size = object.text.as_ref().map_or(0.0, |block| block.size as f32);
+            // Un texte agrandi s'affiche (et se saisit) dans un corps agrandi.
+            let font_size = object.text.as_ref().map_or(0.0, |block| {
+                (block.size * effect.map_or(1.0, |effect| effect.transform.vertical_scale())) as f32
+            });
             let (mut bbox, mut substituted, mut overflow, mut missing) =
                 (object.bbox, false, false, String::new());
             if let Some(replacement) = effect.and_then(|effect| effect.text) {
@@ -776,14 +789,24 @@ impl PageModel {
                     continue;
                 }
             }
-            if let Some((dx, dy)) = effect.map(|effect| effect.offset) {
-                bbox = bbox.offset(dx, dy);
+            if let Some(effect) = effect {
+                bbox = effect.transform.apply_rect(bbox);
             }
             infos.push(ObjectInfo {
                 id: object.id,
                 kind: object.kind,
                 bounds: self.display_rect(bbox),
                 movable: object.movable,
+                resizable: object.movable && object.table.is_none(),
+                text_color: state.and_then(fill_rgb),
+                baseline: object
+                    .text
+                    .as_ref()
+                    .and_then(|block| block.lines.first())
+                    .map(|line| {
+                        let point = self.to_display.apply(line.start);
+                        point.y as f32
+                    }),
                 editable: object.editable,
                 background: object.background,
                 text,
@@ -892,6 +915,9 @@ impl PageModel {
             kind: object.kind,
             bounds: self.display_rect(Rect::from(table.bbox()).offset(dx, dy)),
             movable: object.movable,
+            resizable: false,
+            text_color: None,
+            baseline: None,
             editable: false,
             background: false,
             text: None,
@@ -917,6 +943,33 @@ impl PageModel {
             width: rect.width() as f32,
             height: rect.height() as f32,
         }
+    }
+}
+
+/// Déplacement et agrandissement d'un objet par sa modification `edit`,
+/// dans l'espace de la page : agrandi autour du coin inférieur gauche de son
+/// emprise d'origine, puis déplacé.
+fn object_transform(object: &PageObject, edit: &ObjectEdit) -> Matrix {
+    let shift = Matrix::translate(f64::from(edit.dx), f64::from(edit.dy));
+    match edit
+        .scale
+        .filter(|_| edit.is_resized() && object.structure.is_none())
+    {
+        Some([sx, sy]) => {
+            let (x, y) = (object.bbox.x0, object.bbox.y0);
+            Matrix::translate(-x, -y)
+                .then(&Matrix::new(
+                    f64::from(sx),
+                    0.0,
+                    0.0,
+                    f64::from(sy),
+                    0.0,
+                    0.0,
+                ))
+                .then(&Matrix::translate(x, y))
+                .then(&shift)
+        }
+        None => shift,
     }
 }
 
@@ -1489,7 +1542,7 @@ pub(crate) fn edit_page(
         };
         let mut change = Change {
             deleted: effect.deleted,
-            offset: effect.offset,
+            transform: effect.transform,
             text: None,
             reshape: effect.reshape.clone(),
         };
@@ -1641,6 +1694,25 @@ pub(crate) fn add_font(
             Ok(doc.add_object(&dict)?)
         }
         _ => Ok(doc.add_font(font)?),
+    }
+}
+
+/// Couleur de remplissage de l'état `state`, si elle se lit dans une
+/// opération `g`, `rg` ou `k`.
+fn fill_rgb(state: &GraphicsState) -> Option<[f32; 3]> {
+    let operation = String::from_utf8_lossy(state.fill.color.as_deref()?).into_owned();
+    let mut words: Vec<&str> = operation.split_whitespace().collect();
+    let name = words.pop()?;
+    let numbers: Vec<f32> = words.iter().filter_map(|word| word.parse().ok()).collect();
+    let unit = |value: f32| value.clamp(0.0, 1.0);
+    match (name, numbers.as_slice()) {
+        ("g", [gray]) | ("sc" | "scn", [gray]) => Some([unit(*gray); 3]),
+        ("rg" | "sc" | "scn", [r, g, b]) => Some([unit(*r), unit(*g), unit(*b)]),
+        ("k" | "sc" | "scn", [c, m, y, k]) => {
+            let key = 1.0 - unit(*k);
+            Some([c, m, y].map(|ink| (1.0 - unit(*ink)) * key))
+        }
+        _ => None,
     }
 }
 

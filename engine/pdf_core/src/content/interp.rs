@@ -893,7 +893,15 @@ pub(crate) mod tests {
     }
 
     impl Resources for TestResources {
-        fn font(&mut self, _name: &[u8]) -> Option<Arc<FontMetrics>> {
+        fn font(&mut self, name: &[u8]) -> Option<Arc<FontMetrics>> {
+            // « F2 » est une autre police, de mêmes chasses.
+            if name == b"F2" {
+                let widths = (32..127).map(|code| (code, 500.0)).collect();
+                let unicode = (32..127u32)
+                    .map(|code| (code, char::from_u32(code).unwrap().to_string()))
+                    .collect();
+                return Some(Arc::new(FontMetrics::simple("Test-Bold", widths, unicode)));
+            }
             Some(Arc::clone(&self.font))
         }
         fn xobject(&mut self, name: &[u8]) -> XObject {

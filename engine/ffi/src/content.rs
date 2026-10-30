@@ -88,6 +88,17 @@ pub struct PageObjectItem {
     /// Style d'un texte ajouté.
     #[uniffi(default = None)]
     pub added_text: Option<AddedTextStyle>,
+    /// L'objet se redimensionne par ses coins (ni tableau, ni objet d'un
+    /// scan).
+    #[uniffi(default = false)]
+    pub resizable: bool,
+    /// Couleur du texte d'origine (rouge, vert, bleu), vide si inconnue.
+    #[uniffi(default = [])]
+    pub text_color: Vec<f32>,
+    /// Ordonnée de la ligne de base de la première ligne d'un texte d'origine,
+    /// sur la page droite.
+    #[uniffi(default = None)]
+    pub baseline: Option<f32>,
 }
 
 /// Réglages du rendu d'un texte dans un scan (longueurs en points).
@@ -282,6 +293,12 @@ impl From<ObjectInfo> for PageObjectItem {
             scan: info.scan.as_ref().map(ScanTextItem::from),
             added: info.added.is_some(),
             added_text: added_text_style(&info.added),
+            resizable: info.resizable,
+            text_color: info
+                .text_color
+                .map(|color| color.to_vec())
+                .unwrap_or_default(),
+            baseline: info.baseline,
         }
     }
 }
@@ -351,6 +368,13 @@ pub struct ObjectEditItem {
     /// et les autres champs sont sans objet.
     #[uniffi(default = None)]
     pub added: Option<AddedObjectItem>,
+    /// Agrandissement horizontal (1 : taille d'origine), autour du coin
+    /// inférieur gauche de l'emprise d'origine, avant le déplacement.
+    #[uniffi(default = 1.0)]
+    pub scale_x: f32,
+    /// Agrandissement vertical.
+    #[uniffi(default = 1.0)]
+    pub scale_y: f32,
 }
 
 /// Modifications d'un tableau, telles que les conserve la récupération.
@@ -431,6 +455,8 @@ impl ObjectEditItem {
             table: edit.table.as_ref().map(TableEditItem::from),
             scan: edit.scan.as_ref().map(ScanText::to_record),
             added: None,
+            scale_x: edit.scale.map_or(1.0, |scale| scale[0]),
+            scale_y: edit.scale.map_or(1.0, |scale| scale[1]),
         }
     }
 
@@ -447,14 +473,20 @@ impl ObjectEditItem {
             table: None,
             scan: None,
             added: Some(AddedObjectItem::from(added)),
+            scale_x: 1.0,
+            scale_y: 1.0,
         }
     }
 
     pub(crate) fn edit(&self) -> ObjectEdit {
+        let valid = |scale: f32| scale.is_finite() && scale > 0.0;
+        let scale = [self.scale_x, self.scale_y];
         ObjectEdit {
             deleted: self.deleted,
             dx: self.dx,
             dy: self.dy,
+            scale: (scale.into_iter().all(valid) && scale != [1.0, 1.0])
+                .then(|| scale.map(|s| s.clamp(0.01, 100.0))),
             text: self.text.as_ref().map(|text| TextReplacement {
                 text: text.clone(),
                 font: self

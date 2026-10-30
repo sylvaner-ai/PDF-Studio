@@ -11,8 +11,10 @@ import AppKit
 /// désigne aussi sa cellule courante, un double-clic ouvre la saisie de la
 /// cellule, un clic droit le menu de ses lignes et colonnes. Les mots
 /// reconnus douteux d'une page scannée sont surlignés en orange. L'outil
-/// « Texte » commence un texte au clic ; une image ajoutée se redimensionne
-/// par ses coins (cf. `EditingOverlayView+Adding.swift`).
+/// « Texte » commence un texte au clic ; un objet se redimensionne par ses
+/// coins (cf. `EditingOverlayView+Adding.swift`). La sélection glissée sur
+/// une autre page y passe, ⌥ en fait une copie ; le clic droit ouvre le
+/// menu des objets (cf. `EditingOverlayView+Objects.swift`).
 @MainActor
 final class EditingOverlayView: NSView {
     weak var editing: PageEditing?
@@ -27,8 +29,11 @@ final class EditingOverlayView: NSView {
     var editorCell: PageEditing.CellTarget?
     /// Texte à ajouter dont la saisie est ouverte.
     var editorNewText: PageEditing.NewText?
-    /// Vrai si le pointeur montre l'outil « Texte » ou un coin d'image.
+    /// Vrai si le pointeur montre l'outil « Texte » ou un coin d'objet.
     var showsToolCursor = false
+    /// Point du dernier clic droit, sur la page droite : « Coller » y pose
+    /// la copie (cf. `EditingOverlayView+Objects.swift`).
+    var menuPoint: CGPoint?
     /// Éléments d'accessibilité des objets, gardés d'une lecture à l'autre
     /// (cf. `EditingOverlayView+Accessibility.swift`).
     var accessibilityObjects: [UInt32: PageObjectElement] = [:]
@@ -39,7 +44,7 @@ final class EditingOverlayView: NSView {
         case move(start: CGPoint, offset: CGVector, started: Bool)
         /// Rectangle de sélection ; `base` : sélection à compléter (⇧).
         case marquee(start: CGPoint, current: CGPoint, base: Set<UInt32>)
-        /// Redimensionnement d'une image ajoutée par son coin `corner`, de
+        /// Redimensionnement d'un objet par son coin `corner`, de
         /// son cadre `frame` au cadre `current` (dans la vue).
         case resize(object: UInt32, corner: Corner, frame: CGRect, current: CGRect)
     }
@@ -116,8 +121,16 @@ final class EditingOverlayView: NSView {
         // Valide aussi un texte en cours de saisie.
         focusPages()
         let point = convert(event.locationInWindow, from: nil)
-        guard let editing, let page, !beginAdding(at: point) else { return }
+        guard let editing, let page else { return }
+        editing.clickedPage = page.id
+        guard !beginAdding(at: point) else { return }
         let extend = event.modifierFlags.contains(.shift)
+        // ⌥-clic sur le texte d'une cellule : ce bloc seul, déplaçable dans sa cellule.
+        if event.modifierFlags.contains(.option), !extend, let block = cellBlock(at: point) {
+            editing.select([block.id], on: page.id)
+            drag = .move(start: point, offset: .zero, started: false)
+            return
+        }
         guard let hit = object(at: point) else {
             let base = extend && editing.page == page.id ? editing.selected : []
             if !extend {
@@ -130,14 +143,7 @@ final class EditingOverlayView: NSView {
             editing.beginTextEditing(page: page.id, object: hit.id)
             return
         }
-        if hit.kind == .table, !extend, let cell = cell(at: point, in: hit) {
-            let block = textBlock(at: point, in: cell, of: hit)
-            if event.clickCount == 2 {
-                editing.beginCellEditing(cell, block: block)
-                return
-            }
-            editing.selectCell(cell, block: block)
-            drag = .move(start: point, offset: .zero, started: false)
+        if hit.kind == .table, clickTable(hit, at: point, count: event.clickCount, extend: extend) {
             return
         }
         let isSelected = editing.page == page.id && editing.selected.contains(hit.id)
@@ -161,7 +167,9 @@ final class EditingOverlayView: NSView {
         case let .marquee(start, _, base):
             drag = .marquee(start: start, current: point, base: base)
         case let .resize(object, corner, frame, _):
-            let current = resized(frame, corner: corner, to: point, free: event.modifierFlags.contains(.shift))
+            // Un texte ajouté change de corps : il garde ses proportions.
+            let free = event.modifierFlags.contains(.shift) && items.first { $0.id == object }?.addedText == nil
+            let current = resized(frame, corner: corner, to: point, free: free)
             drag = .resize(object: object, corner: corner, frame: frame, current: current)
         case nil:
             return
@@ -178,7 +186,7 @@ final class EditingOverlayView: NSView {
         guard let editing, let page else { return }
         switch drag {
         case let .move(_, offset, true):
-            editing.moveSelection(by: rotation.unapply(to: offset))
+            finishMove(by: offset, at: location(of: event), copy: event.modifierFlags.contains(.option))
         case let .marquee(start, current, base):
             let area = CGRect(
                 x: min(start.x, current.x), y: min(start.y, current.y),
@@ -188,7 +196,7 @@ final class EditingOverlayView: NSView {
             let touched = hittableItems.filter { frame(of: $0).intersects(area) }.map(\.id)
             editing.select(base.union(touched), on: page.id)
         case let .resize(object, _, frame, current) where current != frame:
-            editing.resizeImage(object, on: page.id, to: pageFrame(of: current))
+            editing.resizeObject(object, on: page.id, to: pageFrame(of: current))
         default:
             break
         }
@@ -254,10 +262,10 @@ final class EditingOverlayView: NSView {
         }
 
         if offset == .zero, selected.count == 1, let table = selected.first, let grid = table.grid {
-            drawGrid(grid, current: editing.currentCell, unit: unit)
+            drawGrid(grid, current: editing.currentCell, range: editing.selectedCells, unit: unit)
         }
         if offset == .zero {
-            drawImageHandles(selected, unit: unit)
+            drawResizeHandles(selected, unit: unit)
         }
 
         if case let .marquee(start, current, _) = drag {
@@ -276,6 +284,7 @@ final class EditingOverlayView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        tableMenu(at: convert(event.locationInWindow, from: nil))
+        let point = location(of: event)
+        return tableMenu(at: point) ?? objectMenu(at: point)
     }
 }

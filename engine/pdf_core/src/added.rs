@@ -2,6 +2,12 @@
 //! mise en page du texte et dessin par-dessus le contenu de la page, pour
 //! l'aperçu comme pour l'enregistrement.
 //!
+//! Une image ajoutée est un fichier JPEG ou PNG, ou un PDF d'une page : des
+//! objets copiés d'une page (cf. [`crate::clip`]) ou collés depuis une autre
+//! application. La page de ce PDF est recopiée dans le document en
+//! formulaire (`/Form`), dessiné droit dans le cadre de l'image comme elle
+//! se montrait.
+//!
 //! Un objet ajouté est placé dans l'espace de la page PDF et dessiné droit
 //! à l'écran : sa matrice compense la rotation propre de la page
 //! (`/Rotate`) et les quarts de tour que lui donnait l'organisation quand il
@@ -26,8 +32,8 @@ use crate::content::geometry::{Matrix, Point, Rect};
 use crate::content::objects::ObjectKind;
 use crate::content::writer::{write_hex, write_name, write_op};
 use crate::editing::{
-    add_font, glyph_advance, page_box, win_ansi_code, with_page_content, FontProvider, ObjectInfo,
-    Scratch,
+    add_font, glyph_advance, page_box, page_contents, win_ansi_code, with_page_content,
+    FontProvider, ObjectInfo, Scratch,
 };
 use crate::error::{PdfError, Result};
 use crate::text::PageRect;
@@ -55,19 +61,50 @@ pub enum AddedInfo {
     Image,
 }
 
-/// Polices et images déjà ajoutées à un document pour les objets ajoutés.
+/// Polices, images et formulaires déjà ajoutés à un document pour les
+/// objets ajoutés.
 #[derive(Default)]
 pub(crate) struct AddedResources {
     fonts: HashMap<String, PdfObject>,
     images: HashMap<u64, PdfObject>,
+    forms: HashMap<u64, PdfForm>,
 }
 
-/// Dimensions en pixels d'une image ajoutée ; erreur si MuPDF ne sait pas
-/// la lire.
+/// Page d'un PDF ajouté comme image, recopiée en formulaire dans un
+/// document.
+struct PdfForm {
+    form: PdfObject,
+    /// Cadre de la page, dans son espace.
+    media: Rect,
+    /// Rotation de la page, en degrés (multiple de 90).
+    rotation: i32,
+}
+
+/// Vrai si `data` est un PDF (objets copiés) plutôt qu'une image.
+pub fn is_pdf(data: &[u8]) -> bool {
+    data.windows(5).take(1024).any(|w| w == b"%PDF-")
+}
+
+/// Dimensions d'une image ajoutée : en pixels pour une image, en points
+/// (page tournée comme elle se montre) pour un PDF ; erreur si MuPDF ne sait
+/// pas la lire.
 pub fn image_size(data: &[u8]) -> Result<(u32, u32)> {
     let unreadable = |detail: String| PdfError::WriteFailed {
         detail: format!("image illisible : {detail}"),
     };
+    if is_pdf(data) {
+        let doc = mupdf::Document::from_bytes(data, "application/pdf")
+            .map_err(|err| unreadable(err.to_string()))?;
+        if doc.page_count()? < 1 {
+            return Err(unreadable("PDF sans page".to_owned()));
+        }
+        let bounds = doc.load_page(0)?.bounds()?;
+        let (width, height) = (bounds.x1 - bounds.x0, bounds.y1 - bounds.y0);
+        if !(width >= 0.5 && height >= 0.5 && width.is_finite() && height.is_finite()) {
+            return Err(unreadable("page vide".to_owned()));
+        }
+        return Ok((width.ceil() as u32, height.ceil() as u32));
+    }
     let image = mupdf::Image::from_bytes(data).map_err(|err| unreadable(err.to_string()))?;
     let (width, height) = (image.width(), image.height());
     if width == 0 || height == 0 {
@@ -319,6 +356,21 @@ fn plan_text(text: &AddedText, fonts: &mut FontProvider) -> Option<TextPlan> {
     })
 }
 
+/// Distance du haut d'un texte ajouté à sa première ligne de base, dans la
+/// police `font` au corps `size`.
+pub(crate) fn ascent(font: &FontChoice, size: f32, fonts: &mut FontProvider) -> Option<f64> {
+    let probe = AddedText {
+        text: "x".to_owned(),
+        font: font.clone(),
+        size,
+        color: [0.0; 3],
+        x: 0.0,
+        y: 0.0,
+        turns: 0,
+    };
+    plan_text(&probe, fonts).map(|plan| plan.ascent)
+}
+
 // MARK: - Orientation
 
 /// Repère d'un objet ajouté, droit à l'écran (origine en haut à gauche, axe
@@ -399,6 +451,9 @@ pub(crate) fn infos(
             kind: ObjectKind::Image,
             bounds: PageRect::default(),
             movable: true,
+            resizable: true,
+            text_color: None,
+            baseline: None,
             editable: false,
             background: false,
             text: None,
@@ -575,6 +630,49 @@ fn draw(
                 write_op(out, &[], "ET");
                 write_op(out, &[], "Q");
             }
+            AddedObject::Image(image) if is_pdf(&image.data) => {
+                let frame = image_frame(image, to_display);
+                if frame.width() <= 0.0 || frame.height() <= 0.0 {
+                    continue;
+                }
+                let form = match cache.forms.entry(image.key) {
+                    std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(pdf_form(doc, &image.data)?)
+                    }
+                };
+                let form = &*form;
+                let name = match used_images.get(&image.key) {
+                    Some(name) => name.clone(),
+                    None => {
+                        let name = free_name(&mut image_names, "PSAI");
+                        drawing.images.push((name.clone(), form.form.try_clone()?));
+                        used_images.insert(image.key, name.clone());
+                        name
+                    }
+                };
+                // Espace de la page copiée → la page telle qu'elle se
+                // montrait (origine en haut à gauche) → cadre droit à
+                // l'écran → affichage → page.
+                let shown = display_matrix(form.media, form.rotation);
+                let size = shown.apply_rect(form.media);
+                let (axes, width, height) = upright_frame(image.turns, frame);
+                let fit = Matrix::new(
+                    width / size.width().max(1e-6),
+                    0.0,
+                    0.0,
+                    height / size.height().max(1e-6),
+                    0.0,
+                    0.0,
+                );
+                let m = shown.then(&fit).then(&axes).then(&from_display);
+                let out = &mut drawing.content;
+                write_op(out, &[], "q");
+                write_op(out, &[m.a, m.b, m.c, m.d, m.e, m.f], "cm");
+                write_name(out, &name);
+                out.extend_from_slice(b" Do\n");
+                write_op(out, &[], "Q");
+            }
             AddedObject::Image(image) => {
                 let frame = image_frame(image, to_display);
                 if frame.width() <= 0.0 || frame.height() <= 0.0 {
@@ -614,6 +712,45 @@ fn draw(
         }
     }
     Ok(drawing)
+}
+
+/// Recopie dans `doc`, en formulaire, la première page du PDF `data`.
+fn pdf_form(doc: &mut PdfDocument, data: &[u8]) -> Result<PdfForm> {
+    let clip = PdfDocument::from_bytes(data)?;
+    if clip.page_count()? < 1 {
+        return Err(PdfError::WriteFailed {
+            detail: "PDF copié sans page".to_owned(),
+        });
+    }
+    let page = clip.find_page(0)?;
+    let media = page_box(&page)?;
+    let rotation = match page.get_dict_inheritable("Rotate")? {
+        Some(value) if value.is_number()? => value.as_int()?,
+        _ => 0,
+    };
+    // Comme MuPDF, une rotation qui n'est pas un multiple de 90° est arrondie.
+    let rotation = (rotation.rem_euclid(360) + 45) / 90 * 90 % 360;
+    let content = page_contents(&page)?;
+    let mut map = doc.new_graft_map()?;
+    let mut dict = doc.new_dict()?;
+    dict.dict_put("Type", PdfObject::new_name("XObject")?)?;
+    dict.dict_put("Subtype", PdfObject::new_name("Form")?)?;
+    let mut bbox = doc.new_array()?;
+    for value in [media.x0, media.y0, media.x1, media.y1] {
+        bbox.array_push(PdfObject::new_real(value as f32)?)?;
+    }
+    dict.dict_put("BBox", bbox)?;
+    let resources = match page.get_dict_inheritable("Resources")? {
+        Some(resources) => map.graft_object(&resources)?,
+        None => doc.new_dict()?,
+    };
+    dict.dict_put("Resources", resources)?;
+    let form = doc.add_stream(&Buffer::from_bytes(&content)?, Some(&dict), false)?;
+    Ok(PdfForm {
+        form,
+        media,
+        rotation,
+    })
 }
 
 /// Ressources de la page augmentées de celles du dessin.

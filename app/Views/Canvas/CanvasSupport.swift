@@ -26,15 +26,47 @@ final class PagesDocumentView: NSView {
         super.mouseDown(with: event)
     }
 
-    /// Édition > Copier : le texte sélectionné.
+    /// Objets des pages, en mode Édition.
+    private var editing: PageEditing? { canvas?.editing }
+
+    /// Édition > Copier : le texte sélectionné, ou en mode Édition les objets
+    /// sélectionnés.
     @objc func copy(_ sender: Any?) {
-        text.copySelection()
+        if let editing {
+            editing.copySelection()
+        } else {
+            text.copySelection()
+        }
+    }
+
+    /// Édition > Couper, Coller et Supprimer : les objets, en mode Édition.
+    @objc func cut(_ sender: Any?) {
+        editing?.cutSelection()
+    }
+
+    @objc func paste(_ sender: Any?) {
+        editing?.paste()
+    }
+
+    @objc func delete(_ sender: Any?) {
+        editing?.deleteSelection()
     }
 }
 
 extension PagesDocumentView: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        item.action != #selector(copy(_:)) || text.hasSelection
+        switch item.action {
+        case #selector(copy(_:)):
+            return editing.map { $0.canCopy } ?? text.hasSelection
+        case #selector(cut(_:)):
+            return editing?.canCopy == true
+        case #selector(paste(_:)):
+            return editing?.canPaste == true
+        case #selector(delete(_:)):
+            return editing?.selectedItems.contains(where: \.movable) == true
+        default:
+            return true
+        }
     }
 }
 

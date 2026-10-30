@@ -438,7 +438,10 @@ fn lines_with(run: &Interpretation, cells: &GlyphCells) -> Vec<TextLine> {
             let shift = (line.across(glyph.baseline) - line.across(previous.baseline)).abs();
             // Un changement de style après un écart plus large qu'une espace
             // (une étiquette suivie de sa valeur) commence une autre ligne ;
-            // un mot en gras dans une phrase reste dans sa ligne.
+            // un mot en gras dans une phrase reste dans sa ligne. Un
+            // changement de police et de corps à la fois, séparé au moins par
+            // une espace (« imh » en gras, gros, puis « FACTURE V 102-26 »),
+            // commence aussi une autre ligne.
             let restyled = is_ink(glyph)
                 && line
                     .glyphs
@@ -446,9 +449,11 @@ fn lines_with(run: &Interpretation, cells: &GlyphCells) -> Vec<TextLine> {
                     .rev()
                     .find(|&&g| is_ink(&run.glyphs[g]))
                     .is_some_and(|&ink| {
+                        let distance = line.along(glyph.origin) - line.along(run.glyphs[ink].end);
                         !same_style(run, ink, index)
-                            && line.along(glyph.origin) - line.along(run.glyphs[ink].end)
-                                > reference
+                            && (distance > reference
+                                || (distance > 0.15 * reference
+                                    && font_and_size_differ(run, ink, index)))
                     });
             // Le texte d'une autre cellule commence une autre ligne.
             let crosses = is_ink(glyph)
@@ -540,6 +545,19 @@ fn same_style(run: &Interpretation, a: usize, b: usize) -> bool {
     };
     let (za, zb) = (ga.trm.vertical_scale(), gb.trm.vertical_scale());
     font && (za - zb).abs() <= 0.05 * za.max(zb) && sa.fill == sb.fill
+}
+
+/// Vrai si deux glyphes n'ont ni la même police ni le même corps.
+fn font_and_size_differ(run: &Interpretation, a: usize, b: usize) -> bool {
+    let (ga, gb) = (&run.glyphs[a], &run.glyphs[b]);
+    let (sa, sb) = (&run.states[ga.state], &run.states[gb.state]);
+    let font = match (&sa.font, &sb.font) {
+        (Some(x), Some(y)) => x.base_name != y.base_name,
+        (None, None) => sa.font_name != sb.font_name,
+        _ => true,
+    };
+    let (za, zb) = (ga.trm.vertical_scale(), gb.trm.vertical_scale());
+    font && (za - zb).abs() > 0.05 * za.max(zb)
 }
 
 /// Nombre de blocs récents auxquels une ligne peut encore se joindre (texte
@@ -1112,6 +1130,24 @@ mod tests {
         // couleurs différentes ne se joignent pas ; une ligne d'espaces ne
         // forme pas de bloc.
         assert_eq!(texts, ["Nom", "Dupont", "un mot rouge ici", "aaa", "bbb"]);
+    }
+
+    #[test]
+    fn mot_de_police_et_de_corps_differents_en_tete_de_ligne() {
+        // « imh » en gras et plus gros, puis le titre : deux blocs. Un mot en
+        // gras du même corps dans une phrase reste dans son bloc.
+        let (_, objects) = objects(
+            b"BT /F1 13 Tf 50 700 Td (imh) Tj /F2 12 Tf ( FACTURE V 102-26) Tj ET \
+              BT /F1 12 Tf 50 600 Td (une phrase avec ) Tj /F2 12 Tf (un mot) Tj /F1 12 Tf ( en gras) Tj ET",
+        );
+        let texts: Vec<&str> = objects
+            .iter()
+            .map(|o| o.text.as_ref().unwrap().text.as_str())
+            .collect();
+        assert_eq!(
+            texts,
+            ["imh", "FACTURE V 102-26", "une phrase avec un mot en gras"]
+        );
     }
 
     #[test]

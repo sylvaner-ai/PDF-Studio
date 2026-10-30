@@ -9,7 +9,8 @@ import UniformTypeIdentifiers
 /// lue, une image déposée là où elle est lâchée, à sa taille naturelle dans
 /// la limite de la moitié de la page. L'objet ajouté est ensuite sélectionné :
 /// il se déplace et se supprime comme les autres, un texte se réécrit et
-/// change de style, une image se redimensionne par ses coins. Chaque ajout
+/// change de style, il se redimensionne par ses coins (cf.
+/// `PageEditing+Objects.swift`). Chaque ajout
 /// s'annule par ⌘Z.
 ///
 /// Un objet ajouté se lit droit sur la page telle qu'elle est tournée par
@@ -75,13 +76,6 @@ extension PageEditing {
     var selectedAddedText: PageObjectItem? {
         let items = selectedItems
         guard items.count == 1, let item = items.first, item.addedText != nil else { return nil }
-        return item
-    }
-
-    /// Image ajoutée sélectionnée, seule.
-    var selectedAddedImage: PageObjectItem? {
-        let items = selectedItems
-        guard items.count == 1, let item = items.first, item.added, item.kind == .image else { return nil }
         return item
     }
 
@@ -151,11 +145,7 @@ extension PageEditing {
     /// l'organisation, ses côtés sont échangés : elle se montre droite.
     static func imageBounds(_ size: CGSize, on page: DisplayPage, center: CGPoint?) -> PageRect {
         let turned = page.quarterTurns % 2 != 0
-        let shown = turned ? CGSize(width: page.baseSize.height, height: page.baseSize.width) : page.baseSize
-        let scale = min(
-            1, shown.width * imageShare / max(size.width, 1), shown.height * imageShare / max(size.height, 1)
-        )
-        let fitted = CGSize(width: max(size.width * scale, 1), height: max(size.height * scale, 1))
+        let fitted = fittedSize(size, on: page)
         let frame = turned ? CGSize(width: fitted.height, height: fitted.width) : fitted
         let middle = center ?? CGPoint(x: page.baseSize.width / 2, y: page.baseSize.height / 2)
         let x = min(max(middle.x - frame.width / 2, 0), max(page.baseSize.width - frame.width, 0))
@@ -163,13 +153,15 @@ extension PageEditing {
         return PageRect(x: Float(x), y: Float(y), width: Float(frame.width), height: Float(frame.height))
     }
 
-    /// Place l'image ajoutée `object` dans le cadre `frame` de la page droite.
-    func resizeImage(_ object: UInt32, on page: UInt64, to frame: CGRect) {
-        guard let model, frame.width >= 1, frame.height >= 1 else { return }
-        let bounds = PageRect(
-            x: Float(frame.minX), y: Float(frame.minY), width: Float(frame.width), height: Float(frame.height)
+    /// Taille à l'écran d'une image de taille naturelle `size` posée sur la
+    /// page : réduite à la moitié de la page telle qu'elle se montre, au plus.
+    static func fittedSize(_ size: CGSize, on page: DisplayPage) -> CGSize {
+        let turned = page.quarterTurns % 2 != 0
+        let shown = turned ? CGSize(width: page.baseSize.height, height: page.baseSize.width) : page.baseSize
+        let scale = min(
+            1, shown.width * imageShare / max(size.width, 1), shown.height * imageShare / max(size.height, 1)
         )
-        model.perform { _ = try $0.setObjectBounds(page: page, object: object, bounds: bounds) }
+        return CGSize(width: max(size.width * scale, 1), height: max(size.height * scale, 1))
     }
 
     // MARK: Ajout
